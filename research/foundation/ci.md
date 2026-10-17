@@ -55,9 +55,9 @@ jobs:
 
 Concurrent stale runs may be cancelled; this is not acceptance evidence for the cancelled revision. Require a completed passing run of the final revision. PR checks use the default merge ref to exercise integration. A successful workflow is not itself branch protection; no protection/account configuration is changed implicitly.
 
-## Unresolved account facts and activation gate
+## Pre-activation account facts and gate (historical; resolved above)
 
-**Unresolved:** current owner plan, actual remaining included minutes, existing other-repository consumption, valid payment-method status, applicable Actions product/SKU/repository budget settings, and whether a zero-dollar hard stop is already effective. Public documentation establishes none of these for KAIYI7. No authenticated billing endpoint/settings view was available to this bounded investigation; no claim of available quota or a safe default is justified.
+**Unresolved at initial investigation:** current owner plan, actual remaining included minutes, existing other-repository consumption, valid payment-method status, applicable Actions product/SKU/repository budget settings, and whether a zero-dollar hard stop was already effective. Public documentation establishes none of these for KAIYI7. The owner's later confirmation resolves the selected no-payment-method activation route; other account details remain unmeasured. No authenticated billing endpoint/settings view was available, so no API-measured quota or inferred safe default is claimed.
 
 **Gate: CONDITIONAL PASS for the workflow design; activation blocked pending account evidence.** Before adding a runnable workflow to a pushed branch/PR, establish either (a) no valid payment method, so documented quota blocking applies; or (b) an effective applicable zero-extra-spend hard stop and enough included usage for the run. A small timeout and shared concurrency reduce consumption but do not enforce a billing ceiling. Do not presume a new zero-dollar budget is supported or already applied merely because the generic budget documentation describes hard stops. Do not change budgets, add payment methods, register a self-hosted runner or authorize excess charges to resolve this gate.
 

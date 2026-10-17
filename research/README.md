@@ -6,6 +6,8 @@ Publication preparation2026-10-17: see [safe checkpoint and reproducibility note
 
 **Current work:** [Phase 3](phase-3/README.md): calculator and [bounded local authority](phase-3/authority-acceptance.md) accepted; [PR #1](https://github.com/KAIYI7/settle-table/pull/1) merged with verified annotated `authority-v1-accepted` checkpoint. Repository foundation precedes transport/identity/invitation planning; [status](../PROJECT_STATUS.md) owns current gates. The [initial checkpoint](publishing/checkpoint.json) remains fixed. See [revised Phase 2](phase-2/README.md) and [transition decisions](../docs/agents/phase-transitions.md). Phase 1 results remain at [its index](phase-1/README.md) and [recommendation](phase-1/phase-1-recommendation.md). Live multi-diner editing, private internet invitations, organizer financial controls and device/self-hosted-only OCR remain confirmed; the whole application is unfinished. Earlier phase-approval wording is historical, subordinate to current governance.
 
+**Foundation complete; next planning:** [separate CI and namespace evidence](foundation/README.md), [independent identity/security challenge](phase-3/transport-identity-challenge.md) and [orchestrator next-slice plan](phase-3/next-slice-plan.md). Exact lifecycle contracts/limits need specification and challenge before implementation. No HTTP/OCR/Notion/UI capability was added by foundation work.
+
 ## Evidence conventions
 
 - **Verified / Fact:** inspected source at an exact revision or current primary documentation.

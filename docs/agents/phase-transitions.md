@@ -95,3 +95,18 @@ The user reports completed independent external review without a merge blocker a
 | Remote checkpoint | PASS — remote main verified at merge; annotated `authority-v1-accepted` object `389eb52462cfe0a17a4456504a41214956ae15bc` peels to the merge. |
 | CI activation cost | PENDING account evidence — establish minimal full-suite CI only within included usage and verified zero paid-overage exposure; do not alter billing/payment settings. |
 | Foundation and next-slice scope | PASS to research/review separate CI and package refactor changes, preserving all deterministic and persisted domains; then plan transport/identity/invitations. No new product feature begins in this foundation step. |
+
+## 2026-10-17 — Foundation accepted; invitation/transport planning
+
+**Orchestrator decision: PASS for repository foundation; proceed to bounded lifecycle specification/planning.** [Foundation index/evidence](../../research/foundation/README.md), [next plan](../../research/phase-3/next-slice-plan.md), [independent architecture/security challenge](../../research/phase-3/transport-identity-challenge.md).
+
+| Gate | Decision and evidence |
+|---|---|
+| Included-only hosted usage | PASS on explicit owner account confirmation: included minutes remain, no valid payment method. Official quota blocking rule verified; no payment/budget settings changed. Workflow timeout/concurrency are not falsely treated as a billing cap. |
+| Minimal full-suite CI | PASS — independently reviewed candidate, exact official SHA pins independently read; PR #2 hosted run completed60 tests in28.299s, then merged at `a4dd5302f93b41bbf72cbf29ecd596bc7bb7c1aa`; main push run also passed. No security/authority tests filtered or weakened. |
+| Dedicated package refactor | PASS — PR #3 at `a50fa4585e91b8b8eadcf51177f545366b90f7d0`, merged as `91b824f395d062a994056e905f475fe83f52b3a8`; three production files byte-identical, seven callers have exact namespace-only deltas. Current imports `settletable`; all five versioned domains preserved. |
+| Cross-version data and execution | PASS — old-tag→new-package10 exact replays/3 equal snapshots, schema/history/verifiers unchanged, revoked/expired/conflicting replay denied and fresh draft command accepted. Main local60 tests73.078s; hosted rename PR60 tests30.151s. An interrupted subagent session is not counted; the orchestrator reran and reviewed actual evidence. |
+| Next slice readiness | PASS to plan/specify; CONDITIONAL for implementation — close one-time-grant acknowledgment/status behavior, bounded rotation/security reserve and additive old-DB compatibility in a reviewed concrete spec. Reject separate-store invitation wrappers. |
+| Full browser/public service readiness | FAIL / outside current scope — real origin/CSRF/cookie/Host, identity recovery, abuse/backup/TLS and deployment evidence remain later gates. No public service, new framework or product feature added. |
+
+The next local scope targets invitations and sessions for already declared diner identities within the authority transaction. Follow with a separately tested same-origin transport. Preserve current financial replay contracts and no raw-bearer persistence; do not activate recovery/handover/member restoration policy by inference. No routine phase confirmation is needed; genuine spend/exposure/account/product-policy escalation remains effective.
