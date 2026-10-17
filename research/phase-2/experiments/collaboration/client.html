@@ -1,0 +1,51 @@
+<!doctype html><meta charset="utf-8"><title>Disposable two-diner transport probe</title>
+<style>body{font:16px system-ui;max-width:900px;margin:2rem auto}button{margin:.5rem;padding:.6rem}pre{white-space:pre-wrap}</style>
+<h1>Disposable two-diner transport probe</h1>
+<p>Question: can two independent browser clients preserve quantities, explicit conflicts and organizer-only finalization over real localhost HTTP? This is a fixture, not a product UI or secure invitation system. All people and money are synthetic.</p>
+<h2 id="who"></h2><p>Open A and B tabs. Click “Race and replay” in both; then A’s organizer checks; then B’s reconnect; then A’s revoke; then B’s revoked replay.</p>
+<button id="race">Race and replay</button><button id="organizer">Organizer checks (A)</button><button id="reconnect">Reconnect and snapshot (B)</button><button id="revoke">Revoke B (A)</button><button id="revoked">Revoked replay (B)</button>
+<pre id="log">Ready.</pre><h2>Latest authoritative state</h2><pre id="state"></pre>
+<script>
+const actor=new URLSearchParams(location.search).get('actor')||'A';
+const token='fixture-'+actor, checks=[];let original, accepted, baseline;
+document.querySelector('#who').textContent='Browser diner '+actor;
+const log=document.querySelector('#log'), state=document.querySelector('#state');
+function check(name,ok,detail){checks.push({name,pass:!!ok,detail});log.textContent=JSON.stringify(checks,null,2);if(!ok)throw Error(name);}
+async function request(path,body,auth=token){let r=await fetch(path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+auth,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()};}
+async function snap(){let r=await request('/snapshot');state.textContent=JSON.stringify(r.body,null,2);return r.body;}
+async function op(id,kind,expected,payload,auth=token,race=false){return request('/op',{id,kind,expected,payload,race},auth);}
+async function report(stage){await request('/report',{actor,stage,user_agent:navigator.userAgent,checks:[...checks],at_utc:new Date().toISOString()});}
+async function guarded(stage,fn){try{await fn();await report(stage);}catch(e){log.textContent+='\nFAILED: '+e.message;await report(stage+'-failed');}}
+document.querySelector('#race').onclick=()=>guarded('race',async()=>{
+ original={id:'race-'+actor,kind:'claim',expected:{item_revision:0,financial_revision:0},payload:{item:'dish',person:actor,quantity:2},race:true};
+ let r=await request('/op',original);check('simultaneous_same_revision_commit_or_conflict',[200,409].includes(r.status),r);
+ baseline=await snap();check('race_conserves_capacity',Object.values(baseline.items.dish.claims).reduce((a,b)=>a+b,0)<=3,baseline.items.dish);
+ if(r.status===200){accepted=r.body;let replay=await request('/op',{...original,race:false});check('exact_replay_same_event',JSON.stringify(replay.body)===JSON.stringify(accepted),replay);let changed=await request('/op',{...original,race:false,payload:{...original.payload,quantity:1}});check('changed_id_body_rejected',changed.status===409&&changed.body.error==='operation_id_reused_with_different_content',changed);}
+ else{let over=await op('over-'+actor,'claim',{item_revision:baseline.items.dish.revision,financial_revision:0},original.payload);check('fresh_overclaim_rejected',over.status===409&&over.body.error==='quantity_capacity_exceeded',over);let one=await op('one-'+actor,'claim',{item_revision:baseline.items.dish.revision,financial_revision:0},{...original.payload,quantity:1});check('remaining_quantity_claim_accepted',one.status===200,one);}
+ // A distinct item keeps its own revision although dish changed.
+ if(actor==='B'){let tea=await op('tea-B','claim',{item_revision:0,financial_revision:0},{item:'tea',person:'B',quantity:1});check('distinct_item_revision_accepted',tea.status===200,tea);}
+ await snap();
+});
+document.querySelector('#organizer').onclick=()=>guarded('organizer',async()=>{
+ if(actor!=='A')throw Error('Use A tab');let s=await snap();
+ check('dish_fully_claimed',Object.values(s.items.dish.claims).reduce((a,b)=>a+b,0)===3,s.items.dish);
+ let bad=await op('forged-person','claim',{item_revision:s.items.dish.revision,financial_revision:0},{item:'dish',person:'B',quantity:1});check('another_diner_edit_rejected',bad.body.error==='cannot_edit_another_diner_claim',bad);
+ let amount=await op('diner-amount','amount',s.revision,{item:'dish',line_sen:1001});check('diner_amount_rejected',amount.body.error==='organizer_only_financial_edit',amount);
+ let final=await op('diner-final','finalize',s.revision,{});check('diner_finalization_rejected',final.body.error==='organizer_only_transition',final);
+ let stale=await op('stale-final','finalize',0,{},'fixture-organizer');check('stale_organizer_finalization_rejected',stale.body.error==='stale_meal_revision',stale);
+ let edit=await op('edit-money','amount',s.revision,{item:'dish',line_sen:1001},'fixture-organizer');check('organizer_integer_sen_edit_accepted',edit.status===200,edit);
+ s=await snap();let old=await op('stale-financial','claim',{item_revision:s.items.dish.revision,financial_revision:0},{item:'dish',person:'A',quantity:s.items.dish.claims.A});check('stale_financial_basis_rejected',old.body.error==='stale_item_or_financial_revision',old);
+ let unreviewed=await op('unreviewed-final','finalize',s.revision,{},'fixture-organizer');check('edited_money_requires_review',unreviewed.body.error==='review_or_assignment_incomplete',unreviewed);
+ let review=await op('review-money','review',s.revision,{},'fixture-organizer');check('organizer_review_accepted',review.status===200,review);s=await snap();
+ let mismatch=await op('mismatched-final','finalize',s.revision,{},'fixture-organizer');check('receipt_total_mismatch_rejected',mismatch.status===409&&mismatch.body.error==='receipt_total_mismatch',mismatch);
+ let correction=await op('correct-money','amount',s.revision,{item:'dish',line_sen:1000},'fixture-organizer');check('receipt_total_correction_accepted',correction.status===200,correction);s=await snap();await op('review-correction','review',s.revision,{},'fixture-organizer');s=await snap();
+ let done=await op('final-current','finalize',s.revision,{},'fixture-organizer');check('current_reviewed_finalization_accepted',done.status===200&&done.body.snapshot.finalized,done);
+ let mutation=await op('post-final','claim',{}, {item:'dish',person:'A',quantity:0});check('finalized_claim_mutation_rejected',mutation.body.error==='finalized_requires_explicit_amendment',mutation);await snap();
+});
+document.querySelector('#reconnect').onclick=()=>guarded('reconnect',async()=>{
+ if(actor!=='B')throw Error('Use B tab');let s=await snap(), events=await request('/events?after='+baseline.revision);check('missed_revisions_recovered',events.body.length>0&&JSON.stringify(events.body.at(-1).snapshot)===JSON.stringify(s),{from:baseline.revision,to:s.revision,count:events.body.length});let applied={revision:0};for(const e of [...events.body].reverse()){if(e.sequence>applied.revision)applied=e.snapshot;}check('out_of_order_snapshot_guard',JSON.stringify(applied)===JSON.stringify(s),applied);check('finalized_visible_after_reconnect',s.finalized===true,s);
+});
+document.querySelector('#revoke').onclick=()=>guarded('revoke',async()=>{if(actor!=='A')throw Error('Use A tab');let r=await request('/fixture-revoke',{person:'B'},'fixture-organizer');check('organizer_revokes_B',r.status===200,r);});
+document.querySelector('#revoked').onclick=()=>guarded('revoked',async()=>{if(actor!=='B')throw Error('Use B tab');let snapshot=await request('/snapshot');check('revoked_snapshot_denied',snapshot.status===403,snapshot);let replay=await request('/op',{...original,race:false});check('revoked_duplicate_replay_denied',replay.status===403,replay);let events=await request('/events?after=0');check('revoked_event_read_denied',events.status===403,events);});
+snap();
+</script>

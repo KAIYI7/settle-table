@@ -1,0 +1,1494 @@
+{
+  "accessDate": "2026-10-16",
+  "root": {
+    "id": "synthetic-notion-id-013",
+    "url": "https://example.invalid/notion/synthetic-notion-id-013",
+    "title": "TabWise Phase 1 DISPOSABLE validation",
+    "privacyEvidence": "Connector server-enforced creation_mode=draft; ACL not independently exposed."
+  },
+  "dataSources": {
+    "people": {
+      "databaseId": "synthetic-notion-id-024",
+      "dataSourceId": "synthetic-notion-id-003"
+    },
+    "meals": {
+      "databaseId": "synthetic-notion-id-020",
+      "dataSourceId": "synthetic-notion-id-016"
+    },
+    "items": {
+      "databaseId": "synthetic-notion-id-019",
+      "dataSourceId": "synthetic-notion-id-017"
+    },
+    "allocations": {
+      "databaseId": "synthetic-notion-id-022",
+      "dataSourceId": "synthetic-notion-id-021"
+    },
+    "payers": {
+      "databaseId": "synthetic-notion-id-015",
+      "dataSourceId": "synthetic-notion-id-002"
+    },
+    "settlements": {
+      "databaseId": "synthetic-notion-id-023",
+      "dataSourceId": "synthetic-notion-id-001"
+    }
+  },
+  "syntheticPages": {
+    "personA": "synthetic-notion-id-006",
+    "personB": "synthetic-notion-id-009",
+    "meal": "synthetic-notion-id-008",
+    "item": "synthetic-notion-id-012",
+    "allocations": [
+      "synthetic-notion-id-011",
+      "synthetic-notion-id-014"
+    ],
+    "payers": [
+      "synthetic-notion-id-007",
+      "synthetic-notion-id-005"
+    ],
+    "settlement": "synthetic-notion-id-010"
+  },
+  "redactions": "Account identity, email, workspace ID, request IDs, internal file references and URL queries removed. Synthetic page/data-source/upload IDs retained for reproducibility.",
+  "events": [
+    {
+      "tool": "create_database",
+      "request": {
+        "parent": {
+          "page_id": "synthetic-notion-id-013"
+        },
+        "title": "DISPOSABLE People",
+        "description": "Synthetic fictional diners only; Phase 1 experiment.",
+        "schema": "CREATE TABLE (\"Name\" TITLE, \"App ID\" RICH_TEXT, \"Revision\" NUMBER)"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "result": "Created database: <database url=\"{{https://example.invalid/notion/synthetic-notion-id-024\" inline=\"false\">\nThe title of this Database is: DISPOSABLE People\n<ancestor-path>\n<parent-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\nHere are the Database's Data Sources:\nYou can use the \"fetch\" tool on the URL of any Data Source to see its full schema configuration.\n<data-sources>\n<data-source url=\"{{collection://synthetic-notion-id-003}}\">\nThe title of this Data Source is: DISPOSABLE People\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE People\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Revision\":{\"description\":\"\",\"name\":\"Revision\",\"type\":\"number\"}},\"url\":\"collection://synthetic-notion-id-003\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-003\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Revision\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>\n</data-sources>\n</database>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_database",
+      "request": {
+        "parent": {
+          "page_id": "synthetic-notion-id-013"
+        },
+        "title": "DISPOSABLE Meals",
+        "schema": "CREATE TABLE (\"Name\" TITLE, \"App ID\" RICH_TEXT, \"Revision\" NUMBER, \"Currency\" SELECT('MYR':green), \"Participants\" RELATION('synthetic-notion-id-003'), \"Subtotal Sen\" NUMBER, \"SST Sen\" NUMBER, \"Service Sen\" NUMBER, \"Discount Sen\" NUMBER, \"Rounding Sen\" NUMBER, \"Final Sen\" NUMBER, \"Receipt\" FILES, \"Review\" SELECT('Draft':gray, 'Approved':green), \"Settlement\" SELECT('Open':orange, 'Settled':green))"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "result": "Created database: <database url=\"{{https://example.invalid/notion/synthetic-notion-id-020\" inline=\"false\">\nThe title of this Database is: DISPOSABLE Meals\n<ancestor-path>\n<parent-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\nHere are the Database's Data Sources:\nYou can use the \"fetch\" tool on the URL of any Data Source to see its full schema configuration.\n<data-sources>\n<data-source url=\"{{collection://synthetic-notion-id-016}}\">\nThe title of this Data Source is: DISPOSABLE Meals\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Meals\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Currency\":{\"description\":\"\",\"name\":\"Currency\",\"options\":[{\"color\":\"green\",\"description\":\"\",\"name\":\"MYR\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/clZLZw/NDk2OTI4YjMtYzNiYS00MzZjLThlNDUtMjdhNmM1N2UxMGU3\"}],\"type\":\"select\"},\"Discount Sen\":{\"description\":\"\",\"name\":\"Discount Sen\",\"type\":\"number\"},\"Final Sen\":{\"description\":\"\",\"name\":\"Final Sen\",\"type\":\"number\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Participants\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Participants\",\"type\":\"relation\"},\"Receipt\":{\"description\":\"\",\"name\":\"Receipt\",\"type\":\"file\"},\"Review\":{\"description\":\"\",\"name\":\"Review\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Draft\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/MGYyNDgxMGYtZDdkMS00YTc5LWIyNmMtYjIzMDIxYjhhNTk1\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Approved\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/OGExYzY3Y2ItYjU1ZS00NmY4LThmNWItZDI2OThmMDFiZjhl\"}],\"type\":\"select\"},\"Revision\":{\"description\":\"\",\"name\":\"Revision\",\"type\":\"number\"},\"Rounding Sen\":{\"description\":\"\",\"name\":\"Rounding Sen\",\"type\":\"number\"},\"SST Sen\":{\"description\":\"\",\"name\":\"SST Sen\",\"type\":\"number\"},\"Service Sen\":{\"description\":\"\",\"name\":\"Service Sen\",\"type\":\"number\"},\"Settlement\":{\"description\":\"\",\"name\":\"Settlement\",\"options\":[{\"color\":\"orange\",\"description\":\"\",\"name\":\"Open\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NzBiODVlMGItNzI5ZC00YzE5LWFkOTMtOWU0NjRjY2JiYTQ4\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Settled\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NGFkOGRhNjAtZGVmZS00NjY4LWJkOTYtOTdiMDY2MzRmMWEz\"}],\"type\":\"select\"},\"Subtotal Sen\":{\"description\":\"\",\"name\":\"Subtotal Sen\",\"type\":\"number\"}},\"url\":\"collection://synthetic-notion-id-016\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-016\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Subtotal Sen\" FLOAT,\n\t\"Revision\" FLOAT,\n\t\"Final Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Review\" TEXT, -- one of [\"Draft\", \"Approved\"]\n\t\"Service Sen\" FLOAT,\n\t\"Receipt\" TEXT, -- JSON array of zero or more file IDs, Notion Folder URLs, or <folder> tags copied from fetch output. Folders are stored as native Folder references.\n\t\"Participants\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"SST Sen\" FLOAT,\n\t\"Settlement\" TEXT, -- one of [\"Open\", \"Settled\"]\n\t\"Discount Sen\" FLOAT,\n\t\"Currency\" TEXT, -- one of [\"MYR\"]\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>\n</data-sources>\n</database>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_database",
+      "request": {
+        "parent": {
+          "page_id": "synthetic-notion-id-013"
+        },
+        "title": "DISPOSABLE Receipt Items",
+        "schema": "CREATE TABLE (\"Name\" TITLE, \"App ID\" RICH_TEXT, \"Meal\" RELATION('synthetic-notion-id-016'), \"Quantity\" NUMBER, \"Line Sen\" NUMBER, \"Source\" RICH_TEXT)"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "result": "Created database: <database url=\"{{https://example.invalid/notion/synthetic-notion-id-019\" inline=\"false\">\nThe title of this Database is: DISPOSABLE Receipt Items\n<ancestor-path>\n<parent-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\nHere are the Database's Data Sources:\nYou can use the \"fetch\" tool on the URL of any Data Source to see its full schema configuration.\n<data-sources>\n<data-source url=\"{{collection://synthetic-notion-id-017}}\">\nThe title of this Data Source is: DISPOSABLE Receipt Items\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Receipt Items\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Line Sen\":{\"description\":\"\",\"name\":\"Line Sen\",\"type\":\"number\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Quantity\":{\"description\":\"\",\"name\":\"Quantity\",\"type\":\"number\"},\"Source\":{\"description\":\"\",\"name\":\"Source\",\"type\":\"text\"}},\"url\":\"collection://synthetic-notion-id-017\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-017\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Quantity\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"App ID\" TEXT,\n\t\"Line Sen\" FLOAT,\n\t\"Source\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>\n</data-sources>\n</database>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_database",
+      "request": {
+        "parent": {
+          "page_id": "synthetic-notion-id-013"
+        },
+        "title": "DISPOSABLE Payers",
+        "schema": "CREATE TABLE (\"Name\" TITLE, \"App ID\" RICH_TEXT, \"Meal\" RELATION('synthetic-notion-id-016'), \"Person\" RELATION('synthetic-notion-id-003'), \"Paid Sen\" NUMBER)"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "result": "Created database: <database url=\"{{https://example.invalid/notion/synthetic-notion-id-015\" inline=\"false\">\nThe title of this Database is: DISPOSABLE Payers\n<ancestor-path>\n<parent-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\nHere are the Database's Data Sources:\nYou can use the \"fetch\" tool on the URL of any Data Source to see its full schema configuration.\n<data-sources>\n<data-source url=\"{{collection://synthetic-notion-id-002}}\">\nThe title of this Data Source is: DISPOSABLE Payers\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Payers\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Paid Sen\":{\"description\":\"\",\"name\":\"Paid Sen\",\"type\":\"number\"},\"Person\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Person\",\"type\":\"relation\"}},\"url\":\"collection://synthetic-notion-id-002\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-002\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Person\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Paid Sen\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>\n</data-sources>\n</database>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_database",
+      "request": {
+        "parent": {
+          "page_id": "synthetic-notion-id-013"
+        },
+        "title": "DISPOSABLE Settlements",
+        "schema": "CREATE TABLE (\"Name\" TITLE, \"App ID\" RICH_TEXT, \"Meal\" RELATION('synthetic-notion-id-016'), \"From\" RELATION('synthetic-notion-id-003'), \"To\" RELATION('synthetic-notion-id-003'), \"Amount Sen\" NUMBER, \"Status\" SELECT('Proposed':gray, 'Confirmed':green))"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "result": "Created database: <database url=\"{{https://example.invalid/notion/synthetic-notion-id-023\" inline=\"false\">\nThe title of this Database is: DISPOSABLE Settlements\n<ancestor-path>\n<parent-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\nHere are the Database's Data Sources:\nYou can use the \"fetch\" tool on the URL of any Data Source to see its full schema configuration.\n<data-sources>\n<data-source url=\"{{collection://synthetic-notion-id-001}}\">\nThe title of this Data Source is: DISPOSABLE Settlements\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Settlements\",\"schema\":{\"Amount Sen\":{\"description\":\"\",\"name\":\"Amount Sen\",\"type\":\"number\"},\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"From\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"From\",\"type\":\"relation\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Status\":{\"description\":\"\",\"name\":\"Status\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Proposed\",\"url\":\"collectionPropertyOption://synthetic-notion-id-001/WURCTw/N2ZlMTg0NzktMmNhNS00OWIwLTk5ZWQtNjNjYTFmZmZhMGNj\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Confirmed\",\"url\":\"collectionPropertyOption://synthetic-notion-id-001/WURCTw/ODEzMzdiOWItYjI3Zi00YzUzLWI5MzEtOWZjMzdiZTlkOGZh\"}],\"type\":\"select\"},\"To\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"To\",\"type\":\"relation\"}},\"url\":\"collection://synthetic-notion-id-001\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-001\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"To\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Status\" TEXT, -- one of [\"Proposed\", \"Confirmed\"]\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"Amount Sen\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"From\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>\n</data-sources>\n</database>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_database",
+      "request": {
+        "parent": {
+          "page_id": "synthetic-notion-id-013"
+        },
+        "title": "DISPOSABLE Item Allocations",
+        "schema": "CREATE TABLE (\"Name\" TITLE, \"App ID\" RICH_TEXT, \"Item\" RELATION('synthetic-notion-id-017'), \"Meal\" RELATION('synthetic-notion-id-016'), \"Person\" RELATION('synthetic-notion-id-003'), \"Weight\" NUMBER, \"Base Sen\" NUMBER, \"Discount Sen\" NUMBER, \"SST Sen\" NUMBER, \"Service Sen\" NUMBER, \"Rounding Sen\" NUMBER, \"Owed Sen\" NUMBER)"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "result": "Created database: <database url=\"{{https://example.invalid/notion/synthetic-notion-id-022\" inline=\"false\">\nThe title of this Database is: DISPOSABLE Item Allocations\n<ancestor-path>\n<parent-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\nHere are the Database's Data Sources:\nYou can use the \"fetch\" tool on the URL of any Data Source to see its full schema configuration.\n<data-sources>\n<data-source url=\"{{collection://synthetic-notion-id-021}}\">\nThe title of this Data Source is: DISPOSABLE Item Allocations\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Item Allocations\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Base Sen\":{\"description\":\"\",\"name\":\"Base Sen\",\"type\":\"number\"},\"Discount Sen\":{\"description\":\"\",\"name\":\"Discount Sen\",\"type\":\"number\"},\"Item\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-017\",\"description\":\"\",\"name\":\"Item\",\"type\":\"relation\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Owed Sen\":{\"description\":\"\",\"name\":\"Owed Sen\",\"type\":\"number\"},\"Person\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Person\",\"type\":\"relation\"},\"Rounding Sen\":{\"description\":\"\",\"name\":\"Rounding Sen\",\"type\":\"number\"},\"SST Sen\":{\"description\":\"\",\"name\":\"SST Sen\",\"type\":\"number\"},\"Service Sen\":{\"description\":\"\",\"name\":\"Service Sen\",\"type\":\"number\"},\"Weight\":{\"description\":\"\",\"name\":\"Weight\",\"type\":\"number\"}},\"url\":\"collection://synthetic-notion-id-021\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-021\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"SST Sen\" FLOAT,\n\t\"Service Sen\" FLOAT,\n\t\"Owed Sen\" FLOAT,\n\t\"Base Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"Weight\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"Item\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-017}} data source, you must \"view\" {{collection://synthetic-notion-id-017}} to query this column\n\t\"Discount Sen\" FLOAT,\n\t\"Person\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>\n</data-sources>\n</database>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_schema",
+      "entity": "people",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "collection://synthetic-notion-id-003",
+            "title": "DISPOSABLE People",
+            "text": "<data-source url=\"{{collection://synthetic-notion-id-003}}\">\nThe title of this Data Source is: DISPOSABLE People\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE People\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Revision\":{\"description\":\"\",\"name\":\"Revision\",\"type\":\"number\"}},\"url\":\"collection://synthetic-notion-id-003\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-003\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Revision\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-024]",
+            "metadata": {
+              "type": "data_source"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_schema",
+      "entity": "meals",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "collection://synthetic-notion-id-016",
+            "title": "DISPOSABLE Meals",
+            "text": "<data-source url=\"{{collection://synthetic-notion-id-016}}\">\nThe title of this Data Source is: DISPOSABLE Meals\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Meals\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Currency\":{\"description\":\"\",\"name\":\"Currency\",\"options\":[{\"color\":\"green\",\"description\":\"\",\"name\":\"MYR\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/clZLZw/NDk2OTI4YjMtYzNiYS00MzZjLThlNDUtMjdhNmM1N2UxMGU3\"}],\"type\":\"select\"},\"Discount Sen\":{\"description\":\"\",\"name\":\"Discount Sen\",\"type\":\"number\"},\"Final Sen\":{\"description\":\"\",\"name\":\"Final Sen\",\"type\":\"number\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Participants\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Participants\",\"type\":\"relation\"},\"Receipt\":{\"description\":\"\",\"name\":\"Receipt\",\"type\":\"file\"},\"Review\":{\"description\":\"\",\"name\":\"Review\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Draft\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/MGYyNDgxMGYtZDdkMS00YTc5LWIyNmMtYjIzMDIxYjhhNTk1\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Approved\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/OGExYzY3Y2ItYjU1ZS00NmY4LThmNWItZDI2OThmMDFiZjhl\"}],\"type\":\"select\"},\"Revision\":{\"description\":\"\",\"name\":\"Revision\",\"type\":\"number\"},\"Rounding Sen\":{\"description\":\"\",\"name\":\"Rounding Sen\",\"type\":\"number\"},\"SST Sen\":{\"description\":\"\",\"name\":\"SST Sen\",\"type\":\"number\"},\"Service Sen\":{\"description\":\"\",\"name\":\"Service Sen\",\"type\":\"number\"},\"Settlement\":{\"description\":\"\",\"name\":\"Settlement\",\"options\":[{\"color\":\"orange\",\"description\":\"\",\"name\":\"Open\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NzBiODVlMGItNzI5ZC00YzE5LWFkOTMtOWU0NjRjY2JiYTQ4\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Settled\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NGFkOGRhNjAtZGVmZS00NjY4LWJkOTYtOTdiMDY2MzRmMWEz\"}],\"type\":\"select\"},\"Subtotal Sen\":{\"description\":\"\",\"name\":\"Subtotal Sen\",\"type\":\"number\"}},\"url\":\"collection://synthetic-notion-id-016\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-016\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Subtotal Sen\" FLOAT,\n\t\"Revision\" FLOAT,\n\t\"Final Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Review\" TEXT, -- one of [\"Draft\", \"Approved\"]\n\t\"Service Sen\" FLOAT,\n\t\"Receipt\" TEXT, -- JSON array of zero or more file IDs, Notion Folder URLs, or <folder> tags copied from fetch output. Folders are stored as native Folder references.\n\t\"Participants\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"SST Sen\" FLOAT,\n\t\"Settlement\" TEXT, -- one of [\"Open\", \"Settled\"]\n\t\"Discount Sen\" FLOAT,\n\t\"Currency\" TEXT, -- one of [\"MYR\"]\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-020]",
+            "metadata": {
+              "type": "data_source"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_schema",
+      "entity": "items",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "collection://synthetic-notion-id-017",
+            "title": "DISPOSABLE Receipt Items",
+            "text": "<data-source url=\"{{collection://synthetic-notion-id-017}}\">\nThe title of this Data Source is: DISPOSABLE Receipt Items\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Receipt Items\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Line Sen\":{\"description\":\"\",\"name\":\"Line Sen\",\"type\":\"number\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Quantity\":{\"description\":\"\",\"name\":\"Quantity\",\"type\":\"number\"},\"Source\":{\"description\":\"\",\"name\":\"Source\",\"type\":\"text\"}},\"url\":\"collection://synthetic-notion-id-017\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-017\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Quantity\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"App ID\" TEXT,\n\t\"Line Sen\" FLOAT,\n\t\"Source\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-019]",
+            "metadata": {
+              "type": "data_source"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_schema",
+      "entity": "allocations",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "collection://synthetic-notion-id-021",
+            "title": "DISPOSABLE Item Allocations",
+            "text": "<data-source url=\"{{collection://synthetic-notion-id-021}}\">\nThe title of this Data Source is: DISPOSABLE Item Allocations\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Item Allocations\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Base Sen\":{\"description\":\"\",\"name\":\"Base Sen\",\"type\":\"number\"},\"Discount Sen\":{\"description\":\"\",\"name\":\"Discount Sen\",\"type\":\"number\"},\"Item\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-017\",\"description\":\"\",\"name\":\"Item\",\"type\":\"relation\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Owed Sen\":{\"description\":\"\",\"name\":\"Owed Sen\",\"type\":\"number\"},\"Person\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Person\",\"type\":\"relation\"},\"Rounding Sen\":{\"description\":\"\",\"name\":\"Rounding Sen\",\"type\":\"number\"},\"SST Sen\":{\"description\":\"\",\"name\":\"SST Sen\",\"type\":\"number\"},\"Service Sen\":{\"description\":\"\",\"name\":\"Service Sen\",\"type\":\"number\"},\"Weight\":{\"description\":\"\",\"name\":\"Weight\",\"type\":\"number\"}},\"url\":\"collection://synthetic-notion-id-021\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-021\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"SST Sen\" FLOAT,\n\t\"Service Sen\" FLOAT,\n\t\"Owed Sen\" FLOAT,\n\t\"Base Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"Weight\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"Item\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-017}} data source, you must \"view\" {{collection://synthetic-notion-id-017}} to query this column\n\t\"Discount Sen\" FLOAT,\n\t\"Person\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-022]",
+            "metadata": {
+              "type": "data_source"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_schema",
+      "entity": "payers",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "collection://synthetic-notion-id-002",
+            "title": "DISPOSABLE Payers",
+            "text": "<data-source url=\"{{collection://synthetic-notion-id-002}}\">\nThe title of this Data Source is: DISPOSABLE Payers\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Payers\",\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Paid Sen\":{\"description\":\"\",\"name\":\"Paid Sen\",\"type\":\"number\"},\"Person\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Person\",\"type\":\"relation\"}},\"url\":\"collection://synthetic-notion-id-002\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-002\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Person\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Paid Sen\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-015]",
+            "metadata": {
+              "type": "data_source"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_schema",
+      "entity": "settlements",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "collection://synthetic-notion-id-001",
+            "title": "DISPOSABLE Settlements",
+            "text": "<data-source url=\"{{collection://synthetic-notion-id-001}}\">\nThe title of this Data Source is: DISPOSABLE Settlements\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Settlements\",\"schema\":{\"Amount Sen\":{\"description\":\"\",\"name\":\"Amount Sen\",\"type\":\"number\"},\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"From\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"From\",\"type\":\"relation\"},\"Meal\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-016\",\"description\":\"\",\"name\":\"Meal\",\"type\":\"relation\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Status\":{\"description\":\"\",\"name\":\"Status\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Proposed\",\"url\":\"collectionPropertyOption://synthetic-notion-id-001/WURCTw/N2ZlMTg0NzktMmNhNS00OWIwLTk5ZWQtNjNjYTFmZmZhMGNj\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Confirmed\",\"url\":\"collectionPropertyOption://synthetic-notion-id-001/WURCTw/ODEzMzdiOWItYjI3Zi00YzUzLWI5MzEtOWZjMzdiZTlkOGZh\"}],\"type\":\"select\"},\"To\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"To\",\"type\":\"relation\"}},\"url\":\"collection://synthetic-notion-id-001\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-001\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"To\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Status\" TEXT, -- one of [\"Proposed\", \"Confirmed\"]\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"Amount Sen\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"From\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</data-source>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-023]",
+            "metadata": {
+              "type": "data_source"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_pages",
+      "entity": "people",
+      "request": {
+        "parent": {
+          "data_source_id": "synthetic-notion-id-003"
+        },
+        "allow_async": false,
+        "pages": [
+          {
+            "properties": {
+              "Name": "Synthetic Diner A",
+              "App ID": "phase1-person-a",
+              "Revision": 1
+            }
+          },
+          {
+            "properties": {
+              "Name": "Synthetic Diner B",
+              "App ID": "phase1-person-b",
+              "Revision": 1
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "pages": [
+              {
+                "id": "synthetic-notion-id-006",
+                "url": "https://example.invalid/notion/synthetic-notion-id-006]",
+                "properties": {
+                  "Name": "Synthetic Diner A",
+                  "App ID": "phase1-person-a",
+                  "Revision": 1
+                }
+              },
+              {
+                "id": "synthetic-notion-id-009",
+                "url": "https://example.invalid/notion/synthetic-notion-id-009]",
+                "properties": {
+                  "Name": "Synthetic Diner B",
+                  "App ID": "phase1-person-b",
+                  "Revision": 1
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_pages",
+      "entity": "meal",
+      "request": {
+        "parent": {
+          "data_source_id": "synthetic-notion-id-016"
+        },
+        "allow_async": false,
+        "pages": [
+          {
+            "properties": {
+              "Name": "SYNTHETIC Meal 001",
+              "App ID": "phase1-meal-001",
+              "Revision": 1,
+              "Currency": "MYR",
+              "Participants": [
+                "synthetic-notion-id-006",
+                "synthetic-notion-id-009"
+              ],
+              "Subtotal Sen": 3001,
+              "SST Sen": 174,
+              "Service Sen": 290,
+              "Discount Sen": 101,
+              "Rounding Sen": 1,
+              "Final Sen": 3365,
+              "Review": "Approved",
+              "Settlement": "Open"
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "pages": [
+              {
+                "id": "synthetic-notion-id-008",
+                "url": "https://example.invalid/notion/synthetic-notion-id-008]",
+                "properties": {
+                  "Name": "SYNTHETIC Meal 001",
+                  "App ID": "phase1-meal-001",
+                  "Revision": 1,
+                  "Currency": "MYR",
+                  "Participants": [
+                    "synthetic-notion-id-006",
+                    "synthetic-notion-id-009"
+                  ],
+                  "Subtotal Sen": 3001,
+                  "SST Sen": 174,
+                  "Service Sen": 290,
+                  "Discount Sen": 101,
+                  "Rounding Sen": 1,
+                  "Final Sen": 3365,
+                  "Review": "Approved",
+                  "Settlement": "Open"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_pages",
+      "entity": "item",
+      "request": {
+        "parent": {
+          "data_source_id": "synthetic-notion-id-017"
+        },
+        "allow_async": false,
+        "pages": [
+          {
+            "properties": {
+              "Name": "SYNTHETIC Shared Dish 合成菜",
+              "App ID": "phase1-item-001",
+              "Meal": [
+                "synthetic-notion-id-008"
+              ],
+              "Quantity": 2,
+              "Line Sen": 3001,
+              "Source": "Synthetic fixture; printed amounts invented for exact-cent validation."
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "pages": [
+              {
+                "id": "synthetic-notion-id-012",
+                "url": "https://example.invalid/notion/synthetic-notion-id-012]",
+                "properties": {
+                  "Name": "SYNTHETIC Shared Dish 合成菜",
+                  "App ID": "phase1-item-001",
+                  "Meal": [
+                    "synthetic-notion-id-008"
+                  ],
+                  "Quantity": 2,
+                  "Line Sen": 3001,
+                  "Source": "Synthetic fixture; printed amounts invented for exact-cent validation."
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_pages",
+      "entity": "allocations",
+      "request": {
+        "parent": {
+          "data_source_id": "synthetic-notion-id-021"
+        },
+        "allow_async": false,
+        "pages": [
+          {
+            "properties": {
+              "Name": "Synthetic A share",
+              "App ID": "phase1-allocation-a",
+              "Meal": [
+                "synthetic-notion-id-008"
+              ],
+              "Item": [
+                "synthetic-notion-id-012"
+              ],
+              "Person": [
+                "synthetic-notion-id-006"
+              ],
+              "Weight": 1,
+              "Base Sen": 1501,
+              "Discount Sen": 51,
+              "SST Sen": 87,
+              "Service Sen": 145,
+              "Rounding Sen": 1,
+              "Owed Sen": 1683
+            }
+          },
+          {
+            "properties": {
+              "Name": "Synthetic B share",
+              "App ID": "phase1-allocation-b",
+              "Meal": [
+                "synthetic-notion-id-008"
+              ],
+              "Item": [
+                "synthetic-notion-id-012"
+              ],
+              "Person": [
+                "synthetic-notion-id-009"
+              ],
+              "Weight": 1,
+              "Base Sen": 1500,
+              "Discount Sen": 50,
+              "SST Sen": 87,
+              "Service Sen": 145,
+              "Rounding Sen": 0,
+              "Owed Sen": 1682
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "pages": [
+              {
+                "id": "synthetic-notion-id-011",
+                "url": "https://example.invalid/notion/synthetic-notion-id-011]",
+                "properties": {
+                  "Name": "Synthetic A share",
+                  "App ID": "phase1-allocation-a",
+                  "Meal": [
+                    "synthetic-notion-id-008"
+                  ],
+                  "Item": [
+                    "synthetic-notion-id-012"
+                  ],
+                  "Person": [
+                    "synthetic-notion-id-006"
+                  ],
+                  "Weight": 1,
+                  "Base Sen": 1501,
+                  "Discount Sen": 51,
+                  "SST Sen": 87,
+                  "Service Sen": 145,
+                  "Rounding Sen": 1,
+                  "Owed Sen": 1683
+                }
+              },
+              {
+                "id": "synthetic-notion-id-014",
+                "url": "https://example.invalid/notion/synthetic-notion-id-014]",
+                "properties": {
+                  "Name": "Synthetic B share",
+                  "App ID": "phase1-allocation-b",
+                  "Meal": [
+                    "synthetic-notion-id-008"
+                  ],
+                  "Item": [
+                    "synthetic-notion-id-012"
+                  ],
+                  "Person": [
+                    "synthetic-notion-id-009"
+                  ],
+                  "Weight": 1,
+                  "Base Sen": 1500,
+                  "Discount Sen": 50,
+                  "SST Sen": 87,
+                  "Service Sen": 145,
+                  "Rounding Sen": 0,
+                  "Owed Sen": 1682
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_pages",
+      "entity": "payers",
+      "request": {
+        "parent": {
+          "data_source_id": "synthetic-notion-id-002"
+        },
+        "allow_async": false,
+        "pages": [
+          {
+            "properties": {
+              "Name": "Synthetic A payment",
+              "App ID": "phase1-payer-a",
+              "Meal": [
+                "synthetic-notion-id-008"
+              ],
+              "Person": [
+                "synthetic-notion-id-006"
+              ],
+              "Paid Sen": 2000
+            }
+          },
+          {
+            "properties": {
+              "Name": "Synthetic B payment",
+              "App ID": "phase1-payer-b",
+              "Meal": [
+                "synthetic-notion-id-008"
+              ],
+              "Person": [
+                "synthetic-notion-id-009"
+              ],
+              "Paid Sen": 1365
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "pages": [
+              {
+                "id": "synthetic-notion-id-007",
+                "url": "https://example.invalid/notion/synthetic-notion-id-007]",
+                "properties": {
+                  "Name": "Synthetic A payment",
+                  "App ID": "phase1-payer-a",
+                  "Meal": [
+                    "synthetic-notion-id-008"
+                  ],
+                  "Person": [
+                    "synthetic-notion-id-006"
+                  ],
+                  "Paid Sen": 2000
+                }
+              },
+              {
+                "id": "synthetic-notion-id-005",
+                "url": "https://example.invalid/notion/synthetic-notion-id-005]",
+                "properties": {
+                  "Name": "Synthetic B payment",
+                  "App ID": "phase1-payer-b",
+                  "Meal": [
+                    "synthetic-notion-id-008"
+                  ],
+                  "Person": [
+                    "synthetic-notion-id-009"
+                  ],
+                  "Paid Sen": 1365
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_pages",
+      "entity": "settlement",
+      "request": {
+        "parent": {
+          "data_source_id": "synthetic-notion-id-001"
+        },
+        "allow_async": false,
+        "pages": [
+          {
+            "properties": {
+              "Name": "Synthetic B to A settlement",
+              "App ID": "phase1-settlement-001",
+              "Meal": [
+                "synthetic-notion-id-008"
+              ],
+              "From": [
+                "synthetic-notion-id-009"
+              ],
+              "To": [
+                "synthetic-notion-id-006"
+              ],
+              "Amount Sen": 317,
+              "Status": "Proposed"
+            }
+          }
+        ]
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "pages": [
+              {
+                "id": "synthetic-notion-id-010",
+                "url": "https://example.invalid/notion/synthetic-notion-id-010]",
+                "properties": {
+                  "Name": "Synthetic B to A settlement",
+                  "App ID": "phase1-settlement-001",
+                  "Meal": [
+                    "synthetic-notion-id-008"
+                  ],
+                  "From": [
+                    "synthetic-notion-id-009"
+                  ],
+                  "To": [
+                    "synthetic-notion-id-006"
+                  ],
+                  "Amount Sen": 317,
+                  "Status": "Proposed"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_page",
+      "id": "synthetic-notion-id-008",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "synthetic-notion-id-008",
+            "title": "SYNTHETIC Meal 001",
+            "text": "Here is the result of \"fetch\" for the Page with URL https://example.invalid/notion/synthetic-notion-id-008 as of 2026-10-16T04:14:25.811Z:\n<page url=\"https://example.invalid/notion/synthetic-notion-id-008\">\n<ancestor-path>\n<parent-data-source url=\"collection://synthetic-notion-id-016\" name=\"DISPOSABLE Meals\"/>\n<ancestor-2-database url=\"https://example.invalid/notion/synthetic-notion-id-020\" title=\"DISPOSABLE Meals\"/>\n<ancestor-3-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\n<properties>\n{\"App ID\":\"phase1-meal-001\",\"Currency\":\"MYR\",\"Discount Sen\":101,\"Final Sen\":3365,\"Name\":\"SYNTHETIC Meal 001\",\"Participants\":[\"https://example.invalid/notion/synthetic-notion-id-006\",\"https://example.invalid/notion/synthetic-notion-id-009\"],\"Review\":\"Approved\",\"Revision\":1,\"Rounding Sen\":1,\"SST Sen\":174,\"Service Sen\":290,\"Settlement\":\"Open\",\"Subtotal Sen\":3001,\"url\":\"https://example.invalid/notion/synthetic-notion-id-008\"}\n</properties>\n<iconMetadata>null</iconMetadata>\n<blank-page>This page is blank and has no content.</blank-page>\n</page>\n\n<parent-data-source-schema url=\"collection://synthetic-notion-id-016\">\nThe SQLite table definition for this page's parent data source. Use these column names and option values to set this page's properties, create sibling pages, or query the data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-016\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Subtotal Sen\" FLOAT,\n\t\"Revision\" FLOAT,\n\t\"Final Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Review\" TEXT, -- one of [\"Draft\", \"Approved\"]\n\t\"Service Sen\" FLOAT,\n\t\"Receipt\" TEXT, -- JSON array of zero or more file IDs, Notion Folder URLs, or <folder> tags copied from fetch output. Folders are stored as native Folder references.\n\t\"Participants\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"SST Sen\" FLOAT,\n\t\"Settlement\" TEXT, -- one of [\"Open\", \"Settled\"]\n\t\"Discount Sen\" FLOAT,\n\t\"Currency\" TEXT, -- one of [\"MYR\"]\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</parent-data-source-schema>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-008]",
+            "metadata": {
+              "type": "page"
+            },
+            "cover": null,
+            "icon": null,
+            "path": "TabWise Phase 1 DISPOSABLE validation / DISPOSABLE Meals",
+            "verification": {
+              "state": "unverified"
+            },
+            "page_last_edited_at": "2026-10-16T04:14:25.811Z"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_page",
+      "id": "synthetic-notion-id-012",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "synthetic-notion-id-012",
+            "title": "SYNTHETIC Shared Dish 合成菜",
+            "text": "Here is the result of \"fetch\" for the Page with URL https://example.invalid/notion/synthetic-notion-id-012 as of 2026-10-16T04:14:26.816Z:\n<page url=\"https://example.invalid/notion/synthetic-notion-id-012\">\n<ancestor-path>\n<parent-data-source url=\"collection://synthetic-notion-id-017\" name=\"DISPOSABLE Receipt Items\"/>\n<ancestor-2-database url=\"https://example.invalid/notion/synthetic-notion-id-019\" title=\"DISPOSABLE Receipt Items\"/>\n<ancestor-3-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\n<properties>\n{\"App ID\":\"phase1-item-001\",\"Line Sen\":3001,\"Meal\":[\"https://example.invalid/notion/synthetic-notion-id-008\"],\"Name\":\"SYNTHETIC Shared Dish 合成菜\",\"Quantity\":2,\"Source\":\"Synthetic fixture; printed amounts invented for exact-cent validation.\",\"url\":\"https://example.invalid/notion/synthetic-notion-id-012\"}\n</properties>\n<iconMetadata>null</iconMetadata>\n<blank-page>This page is blank and has no content.</blank-page>\n</page>\n\n<parent-data-source-schema url=\"collection://synthetic-notion-id-017\">\nThe SQLite table definition for this page's parent data source. Use these column names and option values to set this page's properties, create sibling pages, or query the data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-017\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Quantity\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"App ID\" TEXT,\n\t\"Line Sen\" FLOAT,\n\t\"Source\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</parent-data-source-schema>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-012]",
+            "metadata": {
+              "type": "page"
+            },
+            "cover": null,
+            "icon": null,
+            "path": "TabWise Phase 1 DISPOSABLE validation / DISPOSABLE Receipt Items",
+            "verification": {
+              "state": "unverified"
+            },
+            "page_last_edited_at": "2026-10-16T04:14:26.816Z"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_page",
+      "id": "synthetic-notion-id-011",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "synthetic-notion-id-011",
+            "title": "Synthetic A share",
+            "text": "Here is the result of \"fetch\" for the Page with URL https://example.invalid/notion/synthetic-notion-id-011 as of 2026-10-16T04:14:28.027Z:\n<page url=\"https://example.invalid/notion/synthetic-notion-id-011\">\n<ancestor-path>\n<parent-data-source url=\"collection://synthetic-notion-id-021\" name=\"DISPOSABLE Item Allocations\"/>\n<ancestor-2-database url=\"https://example.invalid/notion/synthetic-notion-id-022\" title=\"DISPOSABLE Item Allocations\"/>\n<ancestor-3-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\n<properties>\n{\"App ID\":\"phase1-allocation-a\",\"Base Sen\":1501,\"Discount Sen\":51,\"Item\":[\"https://example.invalid/notion/synthetic-notion-id-012\"],\"Meal\":[\"https://example.invalid/notion/synthetic-notion-id-008\"],\"Name\":\"Synthetic A share\",\"Owed Sen\":1683,\"Person\":[\"https://example.invalid/notion/synthetic-notion-id-006\"],\"Rounding Sen\":1,\"SST Sen\":87,\"Service Sen\":145,\"Weight\":1,\"url\":\"https://example.invalid/notion/synthetic-notion-id-011\"}\n</properties>\n<iconMetadata>null</iconMetadata>\n<blank-page>This page is blank and has no content.</blank-page>\n</page>\n\n<parent-data-source-schema url=\"collection://synthetic-notion-id-021\">\nThe SQLite table definition for this page's parent data source. Use these column names and option values to set this page's properties, create sibling pages, or query the data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-021\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"SST Sen\" FLOAT,\n\t\"Service Sen\" FLOAT,\n\t\"Owed Sen\" FLOAT,\n\t\"Base Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"Weight\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"Item\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-017}} data source, you must \"view\" {{collection://synthetic-notion-id-017}} to query this column\n\t\"Discount Sen\" FLOAT,\n\t\"Person\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</parent-data-source-schema>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-011]",
+            "metadata": {
+              "type": "page"
+            },
+            "cover": null,
+            "icon": null,
+            "path": "TabWise Phase 1 DISPOSABLE validation / DISPOSABLE Item Allocations",
+            "verification": {
+              "state": "unverified"
+            },
+            "page_last_edited_at": "2026-10-16T04:14:28.027Z"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_page",
+      "id": "synthetic-notion-id-010",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "synthetic-notion-id-010",
+            "title": "Synthetic B to A settlement",
+            "text": "Here is the result of \"fetch\" for the Page with URL https://example.invalid/notion/synthetic-notion-id-010 as of 2026-10-16T04:14:29.732Z:\n<page url=\"https://example.invalid/notion/synthetic-notion-id-010\">\n<ancestor-path>\n<parent-data-source url=\"collection://synthetic-notion-id-001\" name=\"DISPOSABLE Settlements\"/>\n<ancestor-2-database url=\"https://example.invalid/notion/synthetic-notion-id-023\" title=\"DISPOSABLE Settlements\"/>\n<ancestor-3-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\n<properties>\n{\"Amount Sen\":317,\"App ID\":\"phase1-settlement-001\",\"From\":[\"https://example.invalid/notion/synthetic-notion-id-009\"],\"Meal\":[\"https://example.invalid/notion/synthetic-notion-id-008\"],\"Name\":\"Synthetic B to A settlement\",\"Status\":\"Proposed\",\"To\":[\"https://example.invalid/notion/synthetic-notion-id-006\"],\"url\":\"https://example.invalid/notion/synthetic-notion-id-010\"}\n</properties>\n<iconMetadata>null</iconMetadata>\n<blank-page>This page is blank and has no content.</blank-page>\n</page>\n\n<parent-data-source-schema url=\"collection://synthetic-notion-id-001\">\nThe SQLite table definition for this page's parent data source. Use these column names and option values to set this page's properties, create sibling pages, or query the data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-001\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"To\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Status\" TEXT, -- one of [\"Proposed\", \"Confirmed\"]\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"Amount Sen\" FLOAT,\n\t\"App ID\" TEXT,\n\t\"From\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</parent-data-source-schema>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-010]",
+            "metadata": {
+              "type": "page"
+            },
+            "cover": null,
+            "icon": null,
+            "path": "TabWise Phase 1 DISPOSABLE validation / DISPOSABLE Settlements",
+            "verification": {
+              "state": "unverified"
+            },
+            "page_last_edited_at": "2026-10-16T04:14:29.732Z"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "create_attachment",
+      "request": {
+        "filename": "tabwise-phase1-synthetic-receipt.svg",
+        "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"600\" height=\"450\"><rect width=\"600\" height=\"450\" fill=\"white\"/><g font-family=\"monospace\" font-size=\"22\" fill=\"black\"><text x=\"30\" y=\"40\">SYNTHETIC - NOT A REAL RECEIPT</text><text x=\"30\" y=\"90\">Shared dish     3001 sen</text><text x=\"30\" y=\"135\">Discount         101 sen</text><text x=\"30\" y=\"180\">SST              174 sen</text><text x=\"30\" y=\"225\">Service          290 sen</text><text x=\"30\" y=\"270\">Rounding           1 sen</text><text x=\"30\" y=\"330\">Total           3365 sen</text><text x=\"30\" y=\"395\">Phase 1 disposable fixture</text></g></svg>",
+        "content_type": "image/svg+xml"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "file_upload_id": "synthetic-notion-id-004",
+            "filename": "tabwise-phase1-synthetic-receipt.svg",
+            "content_type": "image/svg+xml",
+            "content_length": 597,
+            "status": "uploaded",
+            "markdown_source": "file-upload://synthetic-notion-id-004",
+            "suggested_markdown": "<image src=\"file-upload://synthetic-notion-id-004\"></image>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "entity": "meal-media",
+      "request": {
+        "page_id": "synthetic-notion-id-008",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Receipt": [
+            "synthetic-notion-id-004"
+          ],
+          "Revision": 2
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "name": "APIResponseError",
+            "code": "validation_error",
+            "status": 400,
+            "body": {
+              "object": "error",
+              "status": 400,
+              "code": "validation_error",
+              "message": "File synthetic-notion-id-004 not found.",
+              "additional_data": {
+                "tool_error_code": "invalid_input",
+                "tool_error_class": "validation",
+                "tool_error_retryable": false
+              }
+            },
+            "additional_data": {
+              "tool_error_code": "invalid_input",
+              "tool_error_class": "validation",
+              "tool_error_retryable": false
+            },
+            "message": "File synthetic-notion-id-004 not found."
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_data_source",
+      "request": {
+        "data_source_id": "synthetic-notion-id-016",
+        "statements": "ADD COLUMN \"Sync State\" SELECT('Pending':gray, 'Complete':green); ADD COLUMN \"Reconciles\" FORMULA('prop(\"Subtotal Sen\") - prop(\"Discount Sen\") + prop(\"SST Sen\") + prop(\"Service Sen\") + prop(\"Rounding Sen\") == prop(\"Final Sen\")')"
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "result": "Updated data source: <database url=\"{{https://example.invalid/notion/synthetic-notion-id-020\" inline=\"false\">\nThe title of this Database is: DISPOSABLE Meals\n<ancestor-path>\n<parent-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\nHere are the Database's Data Sources:\nYou can use the \"fetch\" tool on the URL of any Data Source to see its full schema configuration.\n<data-sources>\n<data-source url=\"{{collection://synthetic-notion-id-016}}\">\nThe title of this Data Source is: DISPOSABLE Meals\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Meals\",\"notAvailableInQuerySql\":[\"Reconciles\"],\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Currency\":{\"description\":\"\",\"name\":\"Currency\",\"options\":[{\"color\":\"green\",\"description\":\"\",\"name\":\"MYR\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/clZLZw/NDk2OTI4YjMtYzNiYS00MzZjLThlNDUtMjdhNmM1N2UxMGU3\"}],\"type\":\"select\"},\"Discount Sen\":{\"description\":\"\",\"name\":\"Discount Sen\",\"type\":\"number\"},\"Final Sen\":{\"description\":\"\",\"name\":\"Final Sen\",\"type\":\"number\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Participants\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Participants\",\"type\":\"relation\"},\"Receipt\":{\"description\":\"\",\"name\":\"Receipt\",\"type\":\"file\"},\"Reconciles\":{\"codeUrl\":\"formulaCode://synthetic-notion-id-016/bFY9YA\",\"description\":\"\",\"name\":\"Reconciles\",\"type\":\"formula\"},\"Review\":{\"description\":\"\",\"name\":\"Review\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Draft\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/MGYyNDgxMGYtZDdkMS00YTc5LWIyNmMtYjIzMDIxYjhhNTk1\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Approved\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/OGExYzY3Y2ItYjU1ZS00NmY4LThmNWItZDI2OThmMDFiZjhl\"}],\"type\":\"select\"},\"Revision\":{\"description\":\"\",\"name\":\"Revision\",\"type\":\"number\"},\"Rounding Sen\":{\"description\":\"\",\"name\":\"Rounding Sen\",\"type\":\"number\"},\"SST Sen\":{\"description\":\"\",\"name\":\"SST Sen\",\"type\":\"number\"},\"Service Sen\":{\"description\":\"\",\"name\":\"Service Sen\",\"type\":\"number\"},\"Settlement\":{\"description\":\"\",\"name\":\"Settlement\",\"options\":[{\"color\":\"orange\",\"description\":\"\",\"name\":\"Open\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NzBiODVlMGItNzI5ZC00YzE5LWFkOTMtOWU0NjRjY2JiYTQ4\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Settled\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NGFkOGRhNjAtZGVmZS00NjY4LWJkOTYtOTdiMDY2MzRmMWEz\"}],\"type\":\"select\"},\"Subtotal Sen\":{\"description\":\"\",\"name\":\"Subtotal Sen\",\"type\":\"number\"},\"Sync State\":{\"description\":\"\",\"name\":\"Sync State\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Pending\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/X0JrPQ/NjkwYjhmZDUtNTZhMy00YzNjLThjMzktOWZiN2YzY2JjZmE0\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Complete\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/X0JrPQ/YzEzMDM4MTQtNzcyOS00MzVlLTk5NTktNGM1NzU2NTQyMjAy\"}],\"type\":\"select\"}},\"url\":\"collection://synthetic-notion-id-016\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-016\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Subtotal Sen\" FLOAT,\n\t\"Revision\" FLOAT,\n\t\"Final Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Review\" TEXT, -- one of [\"Draft\", \"Approved\"]\n\t\"Service Sen\" FLOAT,\n\t\"Receipt\" TEXT, -- JSON array of zero or more file IDs, Notion Folder URLs, or <folder> tags copied from fetch output. Folders are stored as native Folder references.\n\t\"Participants\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"SST Sen\" FLOAT,\n\t\"Settlement\" TEXT, -- one of [\"Open\", \"Settled\"]\n\t\"Discount Sen\" FLOAT,\n\t\"Currency\" TEXT, -- one of [\"MYR\"]\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT,\n\t\"Sync State\" TEXT -- one of [\"Pending\", \"Complete\"]\n)\n</sqlite-table>\n</data-source>\n</data-sources>\n</database>"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_schema",
+      "entity": "meals-after-update",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "collection://synthetic-notion-id-016",
+            "title": "DISPOSABLE Meals",
+            "text": "<data-source url=\"{{collection://synthetic-notion-id-016}}\">\nThe title of this Data Source is: DISPOSABLE Meals\n\nHere is the database's configurable state:\nProperties with `readOnly: true` are synced or system-managed. Do not try to update their values with page update tools.\n<data-source-state>\n{\"name\":\"DISPOSABLE Meals\",\"notAvailableInQuerySql\":[\"Reconciles\"],\"schema\":{\"App ID\":{\"description\":\"\",\"name\":\"App ID\",\"type\":\"text\"},\"Currency\":{\"description\":\"\",\"name\":\"Currency\",\"options\":[{\"color\":\"green\",\"description\":\"\",\"name\":\"MYR\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/clZLZw/NDk2OTI4YjMtYzNiYS00MzZjLThlNDUtMjdhNmM1N2UxMGU3\"}],\"type\":\"select\"},\"Discount Sen\":{\"description\":\"\",\"name\":\"Discount Sen\",\"type\":\"number\"},\"Final Sen\":{\"description\":\"\",\"name\":\"Final Sen\",\"type\":\"number\"},\"Name\":{\"description\":\"\",\"name\":\"Name\",\"type\":\"title\"},\"Participants\":{\"dataSourceUrl\":\"collection://synthetic-notion-id-003\",\"description\":\"\",\"name\":\"Participants\",\"type\":\"relation\"},\"Receipt\":{\"description\":\"\",\"name\":\"Receipt\",\"type\":\"file\"},\"Reconciles\":{\"codeUrl\":\"formulaCode://synthetic-notion-id-016/bFY9YA\",\"description\":\"\",\"name\":\"Reconciles\",\"type\":\"formula\"},\"Review\":{\"description\":\"\",\"name\":\"Review\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Draft\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/MGYyNDgxMGYtZDdkMS00YTc5LWIyNmMtYjIzMDIxYjhhNTk1\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Approved\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/VEtCdA/OGExYzY3Y2ItYjU1ZS00NmY4LThmNWItZDI2OThmMDFiZjhl\"}],\"type\":\"select\"},\"Revision\":{\"description\":\"\",\"name\":\"Revision\",\"type\":\"number\"},\"Rounding Sen\":{\"description\":\"\",\"name\":\"Rounding Sen\",\"type\":\"number\"},\"SST Sen\":{\"description\":\"\",\"name\":\"SST Sen\",\"type\":\"number\"},\"Service Sen\":{\"description\":\"\",\"name\":\"Service Sen\",\"type\":\"number\"},\"Settlement\":{\"description\":\"\",\"name\":\"Settlement\",\"options\":[{\"color\":\"orange\",\"description\":\"\",\"name\":\"Open\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NzBiODVlMGItNzI5ZC00YzE5LWFkOTMtOWU0NjRjY2JiYTQ4\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Settled\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/akxYPw/NGFkOGRhNjAtZGVmZS00NjY4LWJkOTYtOTdiMDY2MzRmMWEz\"}],\"type\":\"select\"},\"Subtotal Sen\":{\"description\":\"\",\"name\":\"Subtotal Sen\",\"type\":\"number\"},\"Sync State\":{\"description\":\"\",\"name\":\"Sync State\",\"options\":[{\"color\":\"gray\",\"description\":\"\",\"name\":\"Pending\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/X0JrPQ/NjkwYjhmZDUtNTZhMy00YzNjLThjMzktOWZiN2YzY2JjZmE0\"},{\"color\":\"green\",\"description\":\"\",\"name\":\"Complete\",\"url\":\"collectionPropertyOption://synthetic-notion-id-016/X0JrPQ/YzEzMDM4MTQtNzcyOS00MzVlLTk5NTktNGM1NzU2NTQyMjAy\"}],\"type\":\"select\"}},\"url\":\"collection://synthetic-notion-id-016\"}\n</data-source-state>\n\nHere is the SQLite table definition for this data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-016\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Subtotal Sen\" FLOAT,\n\t\"Revision\" FLOAT,\n\t\"Final Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Review\" TEXT, -- one of [\"Draft\", \"Approved\"]\n\t\"Sync State\" TEXT, -- one of [\"Pending\", \"Complete\"]\n\t\"Service Sen\" FLOAT,\n\t\"Receipt\" TEXT, -- JSON array of zero or more file IDs, Notion Folder URLs, or <folder> tags copied from fetch output. Folders are stored as native Folder references.\n\t\"Participants\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"SST Sen\" FLOAT,\n\t\"Settlement\" TEXT, -- one of [\"Open\", \"Settled\"]\n\t\"Discount Sen\" FLOAT,\n\t\"Currency\" TEXT, -- one of [\"MYR\"]\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\nHere are 1 example pages from this data source (these are randomly selected, capped at 3, and MAY NOT be the only pages - use the \"query-data-sources\" tool to get more pages if your task requires it):\n<example-pages>\n<example-page has-content=\"false\">\n{\"App ID\":\"phase1-meal-001\",\"Currency\":\"MYR\",\"Discount Sen\":101,\"Final Sen\":3365,\"Name\":\"SYNTHETIC Meal 001\",\"Participants\":\"[\\\"https://example.invalid/notion/synthetic-notion-id-006\\\",\\\"https://example.invalid/notion/synthetic-notion-id-009\\\"]\",\"Reconciles\":\"formulaResult://synthetic-notion-id-016/synthetic-notion-id-008/bFY9YA\",\"Review\":\"Approved\",\"Revision\":1,\"Rounding Sen\":1,\"SST Sen\":174,\"Service Sen\":290,\"Settlement\":\"Open\",\"Subtotal Sen\":3001,\"url\":\"https://example.invalid/notion/synthetic-notion-id-008\"}\n</example-page>\n</example-pages>\n</data-source>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-020]",
+            "metadata": {
+              "type": "data_source"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "entity": "meal-media-corrected-shape",
+      "request": {
+        "page_id": "synthetic-notion-id-008",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Receipt": [
+            {
+              "type": "file_upload",
+              "file_upload": {
+                "id": "synthetic-notion-id-004"
+              }
+            }
+          ],
+          "Revision": 2,
+          "Sync State": "Complete"
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "page_id": "synthetic-notion-id-008"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "request": {
+        "page_id": "synthetic-notion-id-010",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Status": "Confirmed"
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "page_id": "synthetic-notion-id-010"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "request": {
+        "page_id": "synthetic-notion-id-008",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Settlement": "Settled",
+          "Revision": 3
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "page_id": "synthetic-notion-id-008"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_rows",
+      "entity": "meals",
+      "request": {
+        "data": {
+          "mode": "rows",
+          "data_source_url": "collection://synthetic-notion-id-016",
+          "limit": 10
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "Subtotal Sen": 3001,
+                "Revision": 3,
+                "Final Sen": 3365,
+                "Rounding Sen": 1,
+                "Review": "Approved",
+                "Sync State": "Complete",
+                "Service Sen": 290,
+                "Receipt": [
+                  "[REDACTED_INTERNAL_FILE_REFERENCE]"
+                ],
+                "Participants": [
+                  "https://example.invalid/notion/synthetic-notion-id-006",
+                  "https://example.invalid/notion/synthetic-notion-id-009"
+                ],
+                "SST Sen": 174,
+                "Settlement": "Settled",
+                "Discount Sen": 101,
+                "Reconciles": "formulaResult://synthetic-notion-id-016/synthetic-notion-id-008/bFY9YA",
+                "Currency": "MYR",
+                "App ID": "phase1-meal-001",
+                "Name": "SYNTHETIC Meal 001",
+                "url": "https://example.invalid/notion/synthetic-notion-id-008"
+              }
+            ],
+            "has_more": false
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_rows",
+      "entity": "allocations",
+      "request": {
+        "data": {
+          "mode": "rows",
+          "data_source_url": "collection://synthetic-notion-id-021",
+          "limit": 10
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "SST Sen": 87,
+                "Service Sen": 145,
+                "Owed Sen": 1683,
+                "Base Sen": 1501,
+                "Rounding Sen": 1,
+                "Meal": [
+                  "https://example.invalid/notion/synthetic-notion-id-008"
+                ],
+                "Weight": 1,
+                "App ID": "phase1-allocation-a",
+                "Item": [
+                  "https://example.invalid/notion/synthetic-notion-id-012"
+                ],
+                "Discount Sen": 51,
+                "Person": [
+                  "https://example.invalid/notion/synthetic-notion-id-006"
+                ],
+                "Name": "Synthetic A share",
+                "url": "https://example.invalid/notion/synthetic-notion-id-011"
+              },
+              {
+                "SST Sen": 87,
+                "Service Sen": 145,
+                "Owed Sen": 1682,
+                "Base Sen": 1500,
+                "Rounding Sen": 0,
+                "Meal": [
+                  "https://example.invalid/notion/synthetic-notion-id-008"
+                ],
+                "Weight": 1,
+                "App ID": "phase1-allocation-b",
+                "Item": [
+                  "https://example.invalid/notion/synthetic-notion-id-012"
+                ],
+                "Discount Sen": 50,
+                "Person": [
+                  "https://example.invalid/notion/synthetic-notion-id-009"
+                ],
+                "Name": "Synthetic B share",
+                "url": "https://example.invalid/notion/synthetic-notion-id-014"
+              }
+            ],
+            "has_more": false
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_rows",
+      "entity": "payers",
+      "request": {
+        "data": {
+          "mode": "rows",
+          "data_source_url": "collection://synthetic-notion-id-002",
+          "limit": 10
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "Person": [
+                  "https://example.invalid/notion/synthetic-notion-id-009"
+                ],
+                "Paid Sen": 1365,
+                "Meal": [
+                  "https://example.invalid/notion/synthetic-notion-id-008"
+                ],
+                "App ID": "phase1-payer-b",
+                "Name": "Synthetic B payment",
+                "url": "https://example.invalid/notion/synthetic-notion-id-005"
+              },
+              {
+                "Person": [
+                  "https://example.invalid/notion/synthetic-notion-id-006"
+                ],
+                "Paid Sen": 2000,
+                "Meal": [
+                  "https://example.invalid/notion/synthetic-notion-id-008"
+                ],
+                "App ID": "phase1-payer-a",
+                "Name": "Synthetic A payment",
+                "url": "https://example.invalid/notion/synthetic-notion-id-007"
+              }
+            ],
+            "has_more": false
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_rows",
+      "entity": "settlements",
+      "request": {
+        "data": {
+          "mode": "rows",
+          "data_source_url": "collection://synthetic-notion-id-001",
+          "limit": 10
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "To": [
+                  "https://example.invalid/notion/synthetic-notion-id-006"
+                ],
+                "Status": "Confirmed",
+                "Meal": [
+                  "https://example.invalid/notion/synthetic-notion-id-008"
+                ],
+                "Amount Sen": 317,
+                "App ID": "phase1-settlement-001",
+                "From": [
+                  "https://example.invalid/notion/synthetic-notion-id-009"
+                ],
+                "Name": "Synthetic B to A settlement",
+                "url": "https://example.invalid/notion/synthetic-notion-id-010"
+              }
+            ],
+            "has_more": false
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_sql",
+      "entity": "allocations",
+      "request": {
+        "data": {
+          "mode": "sql",
+          "data_source_urls": [
+            "collection://synthetic-notion-id-021"
+          ],
+          "query": "SELECT SUM(\"Base Sen\") AS base_sen, SUM(\"Discount Sen\") AS discount_sen, SUM(\"SST Sen\") AS sst_sen, SUM(\"Service Sen\") AS service_sen, SUM(\"Rounding Sen\") AS rounding_sen, SUM(\"Owed Sen\") AS owed_sen FROM \"collection://synthetic-notion-id-021\" WHERE \"App ID\" IN (?, ?)",
+          "params": [
+            "phase1-allocation-a",
+            "phase1-allocation-b"
+          ]
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "base_sen": 3001,
+                "discount_sen": 101,
+                "sst_sen": 174,
+                "service_sen": 290,
+                "rounding_sen": 1,
+                "owed_sen": 3365
+              }
+            ],
+            "has_more": false,
+            "data_source_ids": [
+              "synthetic-notion-id-021"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_sql",
+      "entity": "payers",
+      "request": {
+        "data": {
+          "mode": "sql",
+          "data_source_urls": [
+            "collection://synthetic-notion-id-002"
+          ],
+          "query": "SELECT SUM(\"Paid Sen\") AS paid_sen FROM \"collection://synthetic-notion-id-002\" WHERE \"App ID\" IN (?, ?)",
+          "params": [
+            "phase1-payer-a",
+            "phase1-payer-b"
+          ]
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "paid_sen": 3365
+              }
+            ],
+            "has_more": false,
+            "data_source_ids": [
+              "synthetic-notion-id-002"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_sql",
+      "entity": "meals",
+      "request": {
+        "data": {
+          "mode": "sql",
+          "data_source_urls": [
+            "collection://synthetic-notion-id-016"
+          ],
+          "query": "SELECT \"Final Sen\", \"Reconciles\", \"Settlement\", \"Sync State\" FROM \"collection://synthetic-notion-id-016\" WHERE \"App ID\" = ?",
+          "params": [
+            "phase1-meal-001"
+          ]
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "name": "APIResponseError",
+            "code": "validation_error",
+            "status": 400,
+            "body": {
+              "object": "error",
+              "status": 400,
+              "code": "validation_error",
+              "message": "Failed to execute query: The sqlite query could not be run because the query or request was invalid: no such column: \"Reconciles\" - should this be a string literal in single-quotes?. \"Reconciles\" is a formula property, which SQL cannot query. Columns of \"collection://synthetic-notion-id-016\": \"id\" metadata, \"url\" metadata, \"createdTime\" metadata, \"Subtotal Sen\" number, \"Revision\" number, \"Final Sen\" number, \"Rounding Sen\" number, \"Review\" select, \"Sync State\" select, \"Service Sen\" number, \"Receipt\" file, \"Participants\" relation, \"SST Sen\" number, \"Settlement\" select, \"Discount Sen\" number, \"Currency\" select, \"App ID\" text, \"Name\" title. Use the exact column names above; use single quotes for SQL string literals.",
+              "additional_data": {
+                "tool_error_code": "sql_invalid",
+                "tool_error_class": "validation",
+                "tool_error_retryable": false
+              }
+            },
+            "additional_data": {
+              "tool_error_code": "sql_invalid",
+              "tool_error_class": "validation",
+              "tool_error_retryable": false
+            },
+            "message": "Failed to execute query: The sqlite query could not be run because the query or request was invalid: no such column: \"Reconciles\" - should this be a string literal in single-quotes?. \"Reconciles\" is a formula property, which SQL cannot query. Columns of \"collection://synthetic-notion-id-016\": \"id\" metadata, \"url\" metadata, \"createdTime\" metadata, \"Subtotal Sen\" number, \"Revision\" number, \"Final Sen\" number, \"Rounding Sen\" number, \"Review\" select, \"Sync State\" select, \"Service Sen\" number, \"Receipt\" file, \"Participants\" relation, \"SST Sen\" number, \"Settlement\" select, \"Discount Sen\" number, \"Currency\" select, \"App ID\" text, \"Name\" title. Use the exact column names above; use single quotes for SQL string literals."
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_page",
+      "entity": "meal-final",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "synthetic-notion-id-008",
+            "title": "SYNTHETIC Meal 001",
+            "text": "Here is the result of \"fetch\" for the Page with URL https://example.invalid/notion/synthetic-notion-id-008 as of 2026-10-16T04:15:34.595Z:\n<page url=\"https://example.invalid/notion/synthetic-notion-id-008\">\n<ancestor-path>\n<parent-data-source url=\"collection://synthetic-notion-id-016\" name=\"DISPOSABLE Meals\"/>\n<ancestor-2-database url=\"https://example.invalid/notion/synthetic-notion-id-020\" title=\"DISPOSABLE Meals\"/>\n<ancestor-3-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\n<properties>\n{\"App ID\":\"phase1-meal-001\",\"Currency\":\"MYR\",\"Discount Sen\":101,\"Final Sen\":3365,\"Name\":\"SYNTHETIC Meal 001\",\"Participants\":[\"https://example.invalid/notion/synthetic-notion-id-006\",\"https://example.invalid/notion/synthetic-notion-id-009\"],\"Receipt\":[\"https://prod-files-secure.s3.us-west-2.amazonaws.com/[REDACTED_WORKSPACE_ID]/synthetic-notion-id-018/tabwise-phase1-synthetic-receipt.svg?[REDACTED_QUERY]\"],\"Reconciles\":\"formulaResult://synthetic-notion-id-016/synthetic-notion-id-008/bFY9YA\",\"Review\":\"Approved\",\"Revision\":3,\"Rounding Sen\":1,\"SST Sen\":174,\"Service Sen\":290,\"Settlement\":\"Settled\",\"Subtotal Sen\":3001,\"Sync State\":\"Complete\",\"url\":\"https://example.invalid/notion/synthetic-notion-id-008\"}\n</properties>\n<iconMetadata>null</iconMetadata>\n<blank-page>This page is blank and has no content.</blank-page>\n</page>\n\n<parent-data-source-schema url=\"collection://synthetic-notion-id-016\">\nThe SQLite table definition for this page's parent data source. Use these column names and option values to set this page's properties, create sibling pages, or query the data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-016\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Subtotal Sen\" FLOAT,\n\t\"Revision\" FLOAT,\n\t\"Final Sen\" FLOAT,\n\t\"Rounding Sen\" FLOAT,\n\t\"Review\" TEXT, -- one of [\"Draft\", \"Approved\"]\n\t\"Sync State\" TEXT, -- one of [\"Pending\", \"Complete\"]\n\t\"Service Sen\" FLOAT,\n\t\"Receipt\" TEXT, -- JSON array of zero or more file IDs, Notion Folder URLs, or <folder> tags copied from fetch output. Folders are stored as native Folder references.\n\t\"Participants\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"SST Sen\" FLOAT,\n\t\"Settlement\" TEXT, -- one of [\"Open\", \"Settled\"]\n\t\"Discount Sen\" FLOAT,\n\t\"Currency\" TEXT, -- one of [\"MYR\"]\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</parent-data-source-schema>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-008]",
+            "metadata": {
+              "type": "page"
+            },
+            "cover": null,
+            "icon": null,
+            "path": "TabWise Phase 1 DISPOSABLE validation / DISPOSABLE Meals",
+            "verification": {
+              "state": "unverified"
+            },
+            "page_last_edited_at": "2026-10-16T04:15:34.595Z"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_sql",
+      "entity": "meals-corrected-report",
+      "request": {
+        "data": {
+          "mode": "sql",
+          "data_source_urls": [
+            "collection://synthetic-notion-id-016"
+          ],
+          "query": "SELECT \"Final Sen\", \"Settlement\", \"Sync State\", \"Revision\", (\"Subtotal Sen\" - \"Discount Sen\" + \"SST Sen\" + \"Service Sen\" + \"Rounding Sen\") AS computed_final_sen FROM \"collection://synthetic-notion-id-016\" WHERE \"App ID\" = ?",
+          "params": [
+            "phase1-meal-001"
+          ]
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "Final Sen": 3365,
+                "Settlement": "Settled",
+                "Sync State": "Complete",
+                "Revision": 3,
+                "computed_final_sen": 3365
+              }
+            ],
+            "has_more": false,
+            "data_source_ids": [
+              "synthetic-notion-id-016"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "entity": "mark-probe-pending",
+      "request": {
+        "page_id": "synthetic-notion-id-008",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Sync State": "Pending"
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "page_id": "synthetic-notion-id-008"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "entity": "fraction-probe",
+      "request": {
+        "page_id": "synthetic-notion-id-007",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Paid Sen": 2000.5
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "page_id": "synthetic-notion-id-007"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "fetch_page",
+      "entity": "fraction-probe-readback",
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "id": "synthetic-notion-id-007",
+            "title": "Synthetic A payment",
+            "text": "Here is the result of \"fetch\" for the Page with URL https://example.invalid/notion/synthetic-notion-id-007 as of 2026-10-16T04:16:58.624Z:\n<page url=\"https://example.invalid/notion/synthetic-notion-id-007\">\n<ancestor-path>\n<parent-data-source url=\"collection://synthetic-notion-id-002\" name=\"DISPOSABLE Payers\"/>\n<ancestor-2-database url=\"https://example.invalid/notion/synthetic-notion-id-015\" title=\"DISPOSABLE Payers\"/>\n<ancestor-3-page url=\"https://example.invalid/notion/synthetic-notion-id-013\" title=\"TabWise Phase 1 DISPOSABLE validation\"/>\n</ancestor-path>\n<properties>\n{\"App ID\":\"phase1-payer-a\",\"Meal\":[\"https://example.invalid/notion/synthetic-notion-id-008\"],\"Name\":\"Synthetic A payment\",\"Paid Sen\":2000.5,\"Person\":[\"https://example.invalid/notion/synthetic-notion-id-006\"],\"url\":\"https://example.invalid/notion/synthetic-notion-id-007\"}\n</properties>\n<iconMetadata>null</iconMetadata>\n<blank-page>This page is blank and has no content.</blank-page>\n</page>\n\n<parent-data-source-schema url=\"collection://synthetic-notion-id-002\">\nThe SQLite table definition for this page's parent data source. Use these column names and option values to set this page's properties, create sibling pages, or query the data source.\n<sqlite-table>\nCREATE TABLE IF NOT EXISTS \"collection://synthetic-notion-id-002\" (\n\turl TEXT UNIQUE,\n\tcreatedTime TEXT, -- ISO-8601 datetime string, automatically set. This is the canonical time for when the page was created.\n\t\"Person\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-003}} data source, you must \"view\" {{collection://synthetic-notion-id-003}} to query this column\n\t\"Paid Sen\" FLOAT,\n\t\"Meal\" TEXT, -- JSON array of page URLs relating to {{collection://synthetic-notion-id-016}} data source, you must \"view\" {{collection://synthetic-notion-id-016}} to query this column\n\t\"App ID\" TEXT,\n\t\"Name\" TEXT\n)\n</sqlite-table>\n</parent-data-source-schema>",
+            "url": "https://example.invalid/notion/synthetic-notion-id-007]",
+            "metadata": {
+              "type": "page"
+            },
+            "cover": null,
+            "icon": null,
+            "path": "TabWise Phase 1 DISPOSABLE validation / DISPOSABLE Payers",
+            "verification": {
+              "state": "unverified"
+            },
+            "page_last_edited_at": "2026-10-16T04:16:58.624Z"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "entity": "restore-payer",
+      "request": {
+        "page_id": "synthetic-notion-id-007",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Paid Sen": 2000
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "page_id": "synthetic-notion-id-007"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "update_page",
+      "entity": "restore-complete",
+      "request": {
+        "page_id": "synthetic-notion-id-008",
+        "command": "update_properties",
+        "allow_async": false,
+        "properties": {
+          "Sync State": "Complete",
+          "Revision": 4
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "page_id": "synthetic-notion-id-008"
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_sql",
+      "entity": "payers-restored-final",
+      "request": {
+        "data": {
+          "mode": "sql",
+          "data_source_urls": [
+            "collection://synthetic-notion-id-002"
+          ],
+          "query": "SELECT SUM(\"Paid Sen\") AS restored_paid_sen FROM \"collection://synthetic-notion-id-002\" WHERE \"App ID\" IN (?, ?)",
+          "params": [
+            "phase1-payer-a",
+            "phase1-payer-b"
+          ]
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "restored_paid_sen": 3365
+              }
+            ],
+            "has_more": false,
+            "data_source_ids": [
+              "synthetic-notion-id-002"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "query_rows",
+      "entity": "meal-restored-final",
+      "request": {
+        "data": {
+          "mode": "rows",
+          "data_source_url": "collection://synthetic-notion-id-016",
+          "limit": 10
+        }
+      },
+      "result": [
+        {
+          "type": "text",
+          "text": {
+            "results": [
+              {
+                "Subtotal Sen": 3001,
+                "Revision": 4,
+                "Final Sen": 3365,
+                "Rounding Sen": 1,
+                "Review": "Approved",
+                "Sync State": "Complete",
+                "Service Sen": 290,
+                "Receipt": [
+                  "[REDACTED_INTERNAL_FILE_REFERENCE]"
+                ],
+                "Participants": [
+                  "https://example.invalid/notion/synthetic-notion-id-006",
+                  "https://example.invalid/notion/synthetic-notion-id-009"
+                ],
+                "SST Sen": 174,
+                "Settlement": "Settled",
+                "Discount Sen": 101,
+                "Reconciles": "formulaResult://synthetic-notion-id-016/synthetic-notion-id-008/bFY9YA",
+                "Currency": "MYR",
+                "App ID": "phase1-meal-001",
+                "Name": "SYNTHETIC Meal 001",
+                "url": "https://example.invalid/notion/synthetic-notion-id-008"
+              }
+            ],
+            "has_more": false
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,272 @@
+{
+  "scope": "independent disposable specification probes; no UI/auth/ledger claim",
+  "source_sha256": "4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a",
+  "cases": [
+    {
+      "case": "quantity_line_not_multiplied",
+      "status": "PASS"
+    },
+    {
+      "case": "weights_1001_literal",
+      "status": "PASS"
+    },
+    {
+      "case": "tiny_tie_literal",
+      "status": "PASS"
+    },
+    {
+      "case": "tiny_full_discount_rounded_base",
+      "status": "PASS"
+    },
+    {
+      "case": "zero_item_valid",
+      "status": "PASS"
+    },
+    {
+      "case": "zero_base_explicit_override",
+      "status": "PASS"
+    },
+    {
+      "case": "included_tax_no_addition",
+      "status": "PASS"
+    },
+    {
+      "case": "multi_component_literal_final",
+      "status": "PASS"
+    },
+    {
+      "case": "multi_component_literal_breakdown",
+      "status": "PASS"
+    },
+    {
+      "case": "registry_component_share_permutation",
+      "status": "PASS"
+    },
+    {
+      "case": "nonmonotonic_literal_25",
+      "status": "PASS"
+    },
+    {
+      "case": "nonmonotonic_literal_26",
+      "status": "PASS"
+    },
+    {
+      "case": "overlapping_discounts_negative_person",
+      "status": "PASS"
+    },
+    {
+      "case": "discount_exceeds_scope_with_other_item",
+      "status": "PASS"
+    },
+    {
+      "case": "zero_scope_despite_other_consumption",
+      "status": "PASS"
+    },
+    {
+      "case": "scope_and_explicit",
+      "status": "PASS"
+    },
+    {
+      "case": "empty_scope",
+      "status": "PASS"
+    },
+    {
+      "case": "foreign_scope",
+      "status": "PASS"
+    },
+    {
+      "case": "duplicate_scope",
+      "status": "PASS"
+    },
+    {
+      "case": "negative_tax",
+      "status": "PASS"
+    },
+    {
+      "case": "positive_discount",
+      "status": "PASS"
+    },
+    {
+      "case": "unknown_kind",
+      "status": "PASS"
+    },
+    {
+      "case": "item_component_id_collision",
+      "status": "PASS"
+    },
+    {
+      "case": "quantity_adjustment",
+      "status": "PASS"
+    },
+    {
+      "case": "foreign_person",
+      "status": "PASS"
+    },
+    {
+      "case": "duplicate_person",
+      "status": "PASS"
+    },
+    {
+      "case": "negative_weight",
+      "status": "PASS"
+    },
+    {
+      "case": "zero_weights",
+      "status": "PASS"
+    },
+    {
+      "case": "zero_quantity",
+      "status": "PASS"
+    },
+    {
+      "case": "quantity_overclaim",
+      "status": "PASS"
+    },
+    {
+      "case": "percent_incomplete",
+      "status": "PASS"
+    },
+    {
+      "case": "exact_one_sen_missing",
+      "status": "PASS"
+    },
+    {
+      "case": "fraction_denominator_limit",
+      "status": "PASS"
+    },
+    {
+      "case": "fraction_numerator_limit",
+      "status": "PASS"
+    },
+    {
+      "case": "one_sen_total_mismatch",
+      "status": "PASS"
+    },
+    {
+      "case": "canonical_subtotal_mismatch",
+      "status": "PASS"
+    },
+    {
+      "case": "participant_list_not_tuple",
+      "status": "PASS"
+    },
+    {
+      "case": "duplicate_registry",
+      "status": "PASS"
+    },
+    {
+      "case": "malformed_id",
+      "status": "PASS"
+    },
+    {
+      "case": "unicode_id",
+      "status": "PASS"
+    },
+    {
+      "case": "overlong_id",
+      "status": "PASS"
+    },
+    {
+      "case": "money_type_True",
+      "status": "PASS"
+    },
+    {
+      "case": "weight_type_True",
+      "status": "PASS"
+    },
+    {
+      "case": "money_type_1.0",
+      "status": "PASS"
+    },
+    {
+      "case": "weight_type_1.0",
+      "status": "PASS"
+    },
+    {
+      "case": "money_type_None",
+      "status": "PASS"
+    },
+    {
+      "case": "weight_type_None",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_12.30",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_12.3",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_0",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_00012.3",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'-1'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'+1'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'1,000'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'1e2'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_' 1'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'1 '",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'\uff11\uff12.\uff13\uff10'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'.5'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'1.'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'1.005'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'00000000000000000'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_'10000000.01'",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_True",
+      "status": "PASS"
+    },
+    {
+      "case": "money_text_reject_12.3",
+      "status": "PASS"
+    },
+    {
+      "case": "result_immutable",
+      "status": "PASS"
+    }
+  ],
+  "passed": 66,
+  "failed": 0
+}

@@ -1,0 +1,73 @@
+# Local-only audit backups, research assets and installed runtimes.
+.local/
+.cache/
+cache/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets and authentication material. Commit templates only after review.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+credentials*.json
+service-account*.json
+
+# Generated builds, temporary output, local databases and model weights.
+build/
+dist/
+.next/
+coverage/
+htmlcov/
+*.log
+*.tmp
+*.temp
+*.bak
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-*
+*.sqlite3-*
+*.db-*
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
+*.onnx
+*.pdparams
+*.pdiparams
+*.traineddata
+*.safetensors
+*.pt
+*.pth
+*.exe
+*.dll
+*.pyd
+*.zip
+*.tar.gz
+
+# Research images have qualified provenance and are not a fixture distribution.
+research/**/data/images/
+research/**/data/private/
+# Receipt-level text and local label generator share the unverified input rights.
+/research/phase-1/experiments/ocr/prepare.py
+/research/phase-1/experiments/ocr/data/corpus.json
+/research/phase-1/experiments/ocr/data/truth.json
+/research/phase-1/experiments/ocr/results/rapidocr.json
+/research/phase-1/experiments/ocr/results/paddleocr.json
+/research/phase-1/experiments/ocr/results/tesseract.json
+/research/phase-1/experiments/ocr/results/parsed.json
+
+# Preserve the installed copy locally; restore from the pinned official upstream.
+# Third-party engine/minified/font attribution is not cleared for redistribution.
+/.agents/skills/impeccable/

@@ -1,0 +1,546 @@
+{
+  "scope": "exploratory development corpus; no held-out accuracy estimate",
+  "parser_sha256": "096a3de2cf0aa21a0d72f709b56831403b1c00683603f45005b9f999e0b6665d",
+  "matching": "strict normalized text; fixed positional item alignment; no fuzzy or oracle field recovery",
+  "gate": "mean OCR score>=0.90, required header/item fields and exact candidate reconciliation; never skips human review",
+  "cloud": "excluded by user; local gate routes weak results to manual correction",
+  "engines": {
+    "rapidocr": {
+      "init_ms": 1187.4744999986433,
+      "groups": {
+        "real_historical_malaysian_dining": {
+          "images": 6,
+          "field_metrics": {
+            "merchant": {
+              "correct": 3,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "date": {
+              "correct": 5,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "time": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "subtotal_sen": {
+              "correct": 5,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "tax_sen": {
+              "correct": 6,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "service_sen": {
+              "correct": 3,
+              "labeled": 3,
+              "absent_correct": 3,
+              "absent_labeled": 3
+            },
+            "discount_sen": {
+              "correct": 0,
+              "labeled": 0,
+              "absent_correct": 6,
+              "absent_labeled": 6
+            },
+            "rounding_sen": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 2,
+              "absent_labeled": 2
+            },
+            "total_sen": {
+              "correct": 6,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "name": {
+              "correct": 13,
+              "labeled": 28,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "quantity": {
+              "correct": 15,
+              "labeled": 27,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "unit_price_sen": {
+              "correct": 13,
+              "labeled": 16,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "line_total_sen": {
+              "correct": 16,
+              "labeled": 28,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            }
+          },
+          "warm_median_ms": 2602.0570999990014,
+          "warm_max_ms": 4436.260599999514,
+          "gate_manual_count": 3,
+          "gate_unsafe_clean_candidates": 3
+        },
+        "synthetic_not_field_evidence": {
+          "images": 4,
+          "field_metrics": {
+            "merchant": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "date": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "time": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "subtotal_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "tax_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "service_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "discount_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "rounding_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "total_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "name": {
+              "correct": 0,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "quantity": {
+              "correct": 0,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "unit_price_sen": {
+              "correct": 7,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "line_total_sen": {
+              "correct": 7,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            }
+          },
+          "warm_median_ms": 1417.0708999990893,
+          "warm_max_ms": 1519.7142999968491,
+          "gate_manual_count": 2,
+          "gate_unsafe_clean_candidates": 2
+        }
+      }
+    },
+    "paddleocr": {
+      "init_ms": 3904.297500001121,
+      "groups": {
+        "real_historical_malaysian_dining": {
+          "images": 6,
+          "field_metrics": {
+            "merchant": {
+              "correct": 3,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "date": {
+              "correct": 5,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "time": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "subtotal_sen": {
+              "correct": 5,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "tax_sen": {
+              "correct": 6,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "service_sen": {
+              "correct": 3,
+              "labeled": 3,
+              "absent_correct": 3,
+              "absent_labeled": 3
+            },
+            "discount_sen": {
+              "correct": 0,
+              "labeled": 0,
+              "absent_correct": 6,
+              "absent_labeled": 6
+            },
+            "rounding_sen": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 2,
+              "absent_labeled": 2
+            },
+            "total_sen": {
+              "correct": 6,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "name": {
+              "correct": 4,
+              "labeled": 28,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "quantity": {
+              "correct": 12,
+              "labeled": 27,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "unit_price_sen": {
+              "correct": 12,
+              "labeled": 16,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "line_total_sen": {
+              "correct": 16,
+              "labeled": 28,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            }
+          },
+          "warm_median_ms": 14254.05944999875,
+          "warm_max_ms": 31541.47970000122,
+          "gate_manual_count": 3,
+          "gate_unsafe_clean_candidates": 3
+        },
+        "synthetic_not_field_evidence": {
+          "images": 4,
+          "field_metrics": {
+            "merchant": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "date": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "time": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "subtotal_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "tax_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "service_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "discount_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "rounding_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "total_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "name": {
+              "correct": 0,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "quantity": {
+              "correct": 0,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "unit_price_sen": {
+              "correct": 6,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "line_total_sen": {
+              "correct": 6,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            }
+          },
+          "warm_median_ms": 8354.245050000827,
+          "warm_max_ms": 8448.829900000419,
+          "gate_manual_count": 2,
+          "gate_unsafe_clean_candidates": 2
+        }
+      }
+    },
+    "tesseract": {
+      "init_ms": 273.4152,
+      "groups": {
+        "real_historical_malaysian_dining": {
+          "images": 6,
+          "field_metrics": {
+            "merchant": {
+              "correct": 1,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "date": {
+              "correct": 5,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "time": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "subtotal_sen": {
+              "correct": 3,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "tax_sen": {
+              "correct": 5,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "service_sen": {
+              "correct": 3,
+              "labeled": 3,
+              "absent_correct": 3,
+              "absent_labeled": 3
+            },
+            "discount_sen": {
+              "correct": 0,
+              "labeled": 0,
+              "absent_correct": 6,
+              "absent_labeled": 6
+            },
+            "rounding_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 2,
+              "absent_labeled": 2
+            },
+            "total_sen": {
+              "correct": 3,
+              "labeled": 6,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "name": {
+              "correct": 3,
+              "labeled": 28,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "quantity": {
+              "correct": 6,
+              "labeled": 27,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "unit_price_sen": {
+              "correct": 11,
+              "labeled": 16,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "line_total_sen": {
+              "correct": 13,
+              "labeled": 28,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            }
+          },
+          "warm_median_ms": 2389.7373499999976,
+          "warm_max_ms": 3706.1458999999995,
+          "gate_manual_count": 6,
+          "gate_unsafe_clean_candidates": 0
+        },
+        "synthetic_not_field_evidence": {
+          "images": 4,
+          "field_metrics": {
+            "merchant": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "date": {
+              "correct": 4,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "time": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "subtotal_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "tax_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "service_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "discount_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "rounding_sen": {
+              "correct": 2,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "total_sen": {
+              "correct": 3,
+              "labeled": 4,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "name": {
+              "correct": 1,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "quantity": {
+              "correct": 1,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "unit_price_sen": {
+              "correct": 6,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            },
+            "line_total_sen": {
+              "correct": 6,
+              "labeled": 8,
+              "absent_correct": 0,
+              "absent_labeled": 0
+            }
+          },
+          "warm_median_ms": 488.7922000000035,
+          "warm_max_ms": 561.2969999999987,
+          "gate_manual_count": 2,
+          "gate_unsafe_clean_candidates": 2
+        }
+      }
+    }
+  }
+}

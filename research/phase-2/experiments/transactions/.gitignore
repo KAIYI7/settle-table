@@ -1,0 +1,4 @@
+DISPOSABLE-transactions-*.sqlite
+DISPOSABLE-transactions-*.sqlite-wal
+DISPOSABLE-transactions-*.sqlite-shm
+__pycache__/

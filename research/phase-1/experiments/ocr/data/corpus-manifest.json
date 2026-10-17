@@ -1,0 +1,87 @@
+{
+  "publication_note": "Identity/hash metadata only. Images and receipt-level text withheld; original rights are not cleared. Original corpus.json remains local.",
+  "records": [
+    {
+      "id": "X51006334766",
+      "kind": "real_historical_malaysian_dining",
+      "image": "data/images/X51006334766.jpg",
+      "sha256": "71089eda2ceef7dddd4c378479077ddc16eefbe401ecb63cbad8720a72f9190c",
+      "dataset": "jsdnrs/ICDAR2019-SROIE",
+      "dataset_revision": "bffe40c26759f3376ec2b3ae9031dbba54cd587c",
+      "split": "test"
+    },
+    {
+      "id": "X51006401977",
+      "kind": "real_historical_malaysian_dining",
+      "image": "data/images/X51006401977.jpg",
+      "sha256": "99e72ee8dc51971c951ceb303898ba6dabb82fa591688685cd38b6ed4926a561",
+      "dataset": "jsdnrs/ICDAR2019-SROIE",
+      "dataset_revision": "bffe40c26759f3376ec2b3ae9031dbba54cd587c",
+      "split": "test"
+    },
+    {
+      "id": "X51006647984",
+      "kind": "real_historical_malaysian_dining",
+      "image": "data/images/X51006647984.jpg",
+      "sha256": "276b2b666da483ebd1ca8cbf819e25d939a63245db955380e24539216765bffb",
+      "dataset": "jsdnrs/ICDAR2019-SROIE",
+      "dataset_revision": "bffe40c26759f3376ec2b3ae9031dbba54cd587c",
+      "split": "test"
+    },
+    {
+      "id": "X51006828201",
+      "kind": "real_historical_malaysian_dining",
+      "image": "data/images/X51006828201.jpg",
+      "sha256": "c6f904410ba32f66bdb31058468588325720db865b7356c9924ad20634210559",
+      "dataset": "jsdnrs/ICDAR2019-SROIE",
+      "dataset_revision": "bffe40c26759f3376ec2b3ae9031dbba54cd587c",
+      "split": "test"
+    },
+    {
+      "id": "X51008030563",
+      "kind": "real_historical_malaysian_dining",
+      "image": "data/images/X51008030563.jpg",
+      "sha256": "4ebb8257cd1bc9dafb5b40d8c48e8318260ce08fa19cb68dbd86499182412e7c",
+      "dataset": "jsdnrs/ICDAR2019-SROIE",
+      "dataset_revision": "bffe40c26759f3376ec2b3ae9031dbba54cd587c",
+      "split": "test"
+    },
+    {
+      "id": "X51008042787",
+      "kind": "real_historical_malaysian_dining",
+      "image": "data/images/X51008042787.jpg",
+      "sha256": "3fb2a922dbe3d128030b5c1f280447f208b9972cb45acad9ebaedd0fab983482",
+      "dataset": "jsdnrs/ICDAR2019-SROIE",
+      "dataset_revision": "bffe40c26759f3376ec2b3ae9031dbba54cd587c",
+      "split": "test"
+    },
+    {
+      "id": "synthetic_clear",
+      "kind": "synthetic_not_field_evidence",
+      "image": "data/images/synthetic_clear.png",
+      "sha256": "c809af77310470e80bb3351552a8187f0f2669e5fc1be757b0d9eb384b349c8c",
+      "license": "Project-authored experimental fixture; Windows font rasterization, font not redistributed"
+    },
+    {
+      "id": "synthetic_faded",
+      "kind": "synthetic_not_field_evidence",
+      "image": "data/images/synthetic_faded.png",
+      "sha256": "24100088c2ba9de91ac39f360c8ba456e8d6a9a871b776bb59d20c419be7cc70",
+      "license": "Project-authored experimental fixture; Windows font rasterization, font not redistributed"
+    },
+    {
+      "id": "synthetic_tilt_shadow",
+      "kind": "synthetic_not_field_evidence",
+      "image": "data/images/synthetic_tilt_shadow.png",
+      "sha256": "b9ada6f1dad4ac653dba882ee64c2e526188132001b189a98a727fde5ed62867",
+      "license": "Project-authored experimental fixture; Windows font rasterization, font not redistributed"
+    },
+    {
+      "id": "synthetic_perspective",
+      "kind": "synthetic_not_field_evidence",
+      "image": "data/images/synthetic_perspective.png",
+      "sha256": "af168b215ed265e63eba9247538740f29c8efbbb609a2ca461d293a9854a4e2e",
+      "license": "Project-authored synthetic fixture; font not redistributed"
+    }
+  ]
+}

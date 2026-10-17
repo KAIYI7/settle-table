@@ -1,0 +1,53 @@
+{
+  "scope": "independent public API engineering probes, not production test mutation",
+  "passed": 11,
+  "failed": 0,
+  "checks": [
+    {
+      "case": "20_component_identity_variants_full_tiny_discount_never_creates_negative_sen",
+      "passed": true
+    },
+    {
+      "case": "signed_adjustment_exact_magnitude_symmetry",
+      "passed": true
+    },
+    {
+      "case": "100_participants_zero_rounded_bases_cannot_receive_residual_fee",
+      "passed": true
+    },
+    {
+      "case": "exact_documented_collection_maxima_are_supported",
+      "passed": true
+    },
+    {
+      "case": "documented_money_quantity_and_text_boundaries_are_exact",
+      "passed": true
+    },
+    {
+      "case": "rational_percentages_sum_exactly_without_float_rounding",
+      "passed": true
+    },
+    {
+      "case": "individually_valid_overlapping_discounts_reject_negative_final_consumption",
+      "passed": true
+    },
+    {
+      "case": "positive_charge_cannot_hide_explicit_discount_above_subtotal",
+      "passed": true
+    },
+    {
+      "case": "collection_subclasses_reject_before_custom_iteration",
+      "passed": true
+    },
+    {
+      "case": "malformed_ids_and_rational_types_bounds_reject_structurally",
+      "passed": true
+    },
+    {
+      "case": "accepted_nested_facts_results_are_frozen_and_mutable_shares_reject",
+      "passed": true
+    }
+  ],
+  "module_sha256": "4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a",
+  "tests_sha256": "70d6dab36179bc2672712b236eea54d0313c85a2fd5a54480e03aefdbefea80c"
+}

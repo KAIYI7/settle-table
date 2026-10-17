@@ -1,0 +1,191 @@
+[
+  {
+    "name": "ask-matt",
+    "path": "./skills/engineering/ask-matt",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "diagnosing-bugs",
+    "path": "./skills/engineering/diagnosing-bugs",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "grill-with-docs",
+    "path": "./skills/engineering/grill-with-docs",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "triage",
+    "path": "./skills/engineering/triage",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "improve-codebase-architecture",
+    "path": "./skills/engineering/improve-codebase-architecture",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "setup-matt-pocock-skills",
+    "path": "./skills/engineering/setup-matt-pocock-skills",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "tdd",
+    "path": "./skills/engineering/tdd",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "to-spec",
+    "path": "./skills/engineering/to-spec",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "to-tickets",
+    "path": "./skills/engineering/to-tickets",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "wayfinder",
+    "path": "./skills/engineering/wayfinder",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "implement",
+    "path": "./skills/engineering/implement",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "implement-spec",
+    "path": "./skills/engineering/implement-spec",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "prototype",
+    "path": "./skills/engineering/prototype",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "research",
+    "path": "./skills/engineering/research",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "domain-modeling",
+    "path": "./skills/engineering/domain-modeling",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "codebase-design",
+    "path": "./skills/engineering/codebase-design",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "code-review",
+    "path": "./skills/engineering/code-review",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "pr",
+    "path": "./skills/engineering/pr",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "retro",
+    "path": "./skills/engineering/retro",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "wizard",
+    "path": "./skills/engineering/wizard",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "grill-me",
+    "path": "./skills/productivity/grill-me",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "grilling",
+    "path": "./skills/productivity/grilling",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "handoff",
+    "path": "./skills/productivity/handoff",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "teach",
+    "path": "./skills/productivity/teach",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "to-questionnaire",
+    "path": "./skills/productivity/to-questionnaire",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "wait-what",
+    "path": "./skills/productivity/wait-what",
+    "explicitOnly": true,
+    "existingUser": true,
+    "sameAsUser": false
+  },
+  {
+    "name": "writing-for-agents",
+    "path": "./skills/productivity/writing-for-agents",
+    "explicitOnly": false,
+    "existingUser": true,
+    "sameAsUser": false
+  }
+]

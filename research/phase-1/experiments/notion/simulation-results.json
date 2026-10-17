@@ -1,0 +1,79 @@
+{
+  "scope": "FAKE REMOTE ONLY; no network/API calls",
+  "money": "integer sen",
+  "cases": [
+    {
+      "case": "invalid_minor_units_rejected",
+      "value": 2000.5,
+      "passed": true
+    },
+    {
+      "case": "invalid_minor_units_rejected",
+      "value": true,
+      "passed": true
+    },
+    {
+      "case": "invalid_minor_units_rejected",
+      "value": 9007199254740992,
+      "passed": true
+    },
+    {
+      "case": "429_retry_after",
+      "retry_at": 117,
+      "remote_rows": 1,
+      "passed": true
+    },
+    {
+      "case": "529_retry_after",
+      "retry_at": 117,
+      "remote_rows": 1,
+      "passed": true
+    },
+    {
+      "case": "commit_then_503_restart_reconcile",
+      "remote_rows": 1,
+      "passed": true
+    },
+    {
+      "case": "zero_match_uncertainty_stays_manual",
+      "remote_rows": 0,
+      "passed": true
+    },
+    {
+      "case": "multiple_matches_block_recreation",
+      "remote_rows": 2,
+      "passed": true
+    },
+    {
+      "case": "plan_error_not_retry_loop",
+      "passed": true
+    },
+    {
+      "case": "retry_budget_exhaustion_blocks",
+      "attempts": 4,
+      "passed": true
+    },
+    {
+      "case": "immutable_revision_rejects_mutation",
+      "passed": true
+    },
+    {
+      "case": "new_revision_complete_only_after_all_children",
+      "partial_states": [
+        "confirmed",
+        "confirmed",
+        "pending"
+      ],
+      "complete": true,
+      "passed": true
+    }
+  ],
+  "passed": 12,
+  "failed": 0,
+  "limitations": [
+    "No distributed worker locking",
+    "No real API retry, rate-limit or idempotency test",
+    "Fake reconciliation lookup is exact and immediate; real search can be stale",
+    "Complete marker is a projection convention, not a remote multi-page transaction"
+  ]
+}

@@ -1,0 +1,7 @@
+.venv/
+node_modules/
+cache/
+data/images/
+data/private/
+*.log
+__pycache__/

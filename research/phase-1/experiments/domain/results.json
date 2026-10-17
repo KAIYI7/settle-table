@@ -1,0 +1,1199 @@
+{
+  "access_date": "2026-10-16",
+  "concrete_case_count": 67,
+  "concrete_cases": [
+    {
+      "classification": "experiment",
+      "inputs": {
+        "decimal_strings": [
+          "12.50",
+          "0.01",
+          "-0.01",
+          "2"
+        ]
+      },
+      "name": "exact_decimal_to_sen",
+      "result": [
+        1250,
+        1,
+        -1,
+        200
+      ],
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "amount": "1.005"
+      },
+      "name": "fractional_sen_input",
+      "result": {
+        "reason": "ambiguous_money_string"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "amount": "1,234.56"
+      },
+      "name": "ambiguous_money_separator",
+      "result": {
+        "reason": "ambiguous_money_string"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "sen": 1000,
+        "weights": [
+          1,
+          1,
+          1
+        ]
+      },
+      "name": "equal_shared_dish",
+      "result": {
+        "A": 334,
+        "B": 333,
+        "C": 333
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "sen": 1000,
+        "weights": [
+          "1/2",
+          "1/3",
+          "1/6"
+        ]
+      },
+      "name": "custom_rational_weights",
+      "result": {
+        "A": 500,
+        "B": 333,
+        "C": 167
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "claims": [
+          "1",
+          "3/2"
+        ],
+        "quantity": "5/2",
+        "sen": 2500
+      },
+      "name": "fractional_quantity",
+      "result": {
+        "A": 1000,
+        "B": 1500
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "percent": [
+          "33.33",
+          "33.33",
+          "33.34"
+        ],
+        "sen": 10000
+      },
+      "name": "percent_exact_decimal",
+      "result": {
+        "A": 3333,
+        "B": 3333,
+        "C": 3334
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "claims": {
+          "A": 1,
+          "B": 999
+        },
+        "sen": 1000
+      },
+      "name": "exact_sen",
+      "result": {
+        "A": 1,
+        "B": 999
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "claims": [
+          333,
+          666
+        ],
+        "sen": 1000
+      },
+      "name": "exact_mismatch",
+      "result": {
+        "reason": "exact_sum_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "percent": [
+          "33.33",
+          "66.66"
+        ]
+      },
+      "name": "percent_mismatch",
+      "result": {
+        "reason": "percentage_must_total_100"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "claimed": 2,
+        "quantity": 3
+      },
+      "name": "quantity_unassigned",
+      "result": {
+        "reason": "quantity_sum_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "weight": -1
+      },
+      "name": "negative_weight",
+      "result": {
+        "reason": "negative_weight"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "money": "1/2 sen"
+      },
+      "name": "noninteger_money",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "participants": [
+          "A",
+          "A"
+        ]
+      },
+      "name": "duplicate_participant",
+      "result": {
+        "reason": "duplicate_person"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "base": 0,
+        "sen": 100
+      },
+      "name": "zero_base_nonzero_charge",
+      "result": {
+        "reason": "zero_eligible_base"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "base": 0,
+        "sen": 0
+      },
+      "name": "zero_base_zero_charge",
+      "result": {
+        "A": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "eligible": [
+          "foodA",
+          "foodB"
+        ],
+        "items": {
+          "drink": {
+            "C": 1000
+          },
+          "foodA": {
+            "A": 1000
+          },
+          "foodB": {
+            "B": 2000
+          }
+        },
+        "printed_sst_sen": 180
+      },
+      "name": "scoped_printed_sst",
+      "result": {
+        "A": 60,
+        "B": 120
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "eligible": [
+          "foodA",
+          "foodB"
+        ],
+        "items": {
+          "drink": {
+            "C": 1000
+          },
+          "foodA": {
+            "A": 1000
+          },
+          "foodB": {
+            "B": 2000
+          }
+        },
+        "printed_service_sen": 300
+      },
+      "name": "service_excludes_drink",
+      "result": {
+        "A": 100,
+        "B": 200
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "discount_sen": -500,
+        "eligible": [
+          "foodB"
+        ]
+      },
+      "name": "item_discount_follows_consumers",
+      "result": {
+        "B": -500
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "base_sen": 1000,
+        "discount_sen": -1001
+      },
+      "name": "voucher_exceeds_base",
+      "result": {
+        "reason": "discount_exceeds_eligible_base"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "base_sen": 1000,
+        "discount_sen": -1001,
+        "explicit_permit_credit": true
+      },
+      "name": "discount_credit_policy_alternative",
+      "result": {
+        "adjustment_sen": {
+          "A": -1001
+        },
+        "resulting_consumption_sen": {
+          "A": -1
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "eligible": [
+          "missing"
+        ]
+      },
+      "name": "invalid_eligibility",
+      "result": {
+        "reason": "unknown_scope_item"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "added_sst_sen": 0,
+        "included_sst_memo_sen": 60,
+        "item_total_sen": 1060,
+        "receipt_total_sen": 1060
+      },
+      "name": "included_sst_not_double_added",
+      "result": {
+        "A": 1060
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "added_sst_sen": 0,
+        "included_sst_memo_sen": 60,
+        "item_total_sen": 1060,
+        "receipt_total_sen": 1060
+      },
+      "name": "included_sst_double_count",
+      "result": {
+        "reason": "receipt_total_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_real_receipt_arithmetic",
+      "inputs": {
+        "date_printed": "02-04-2018",
+        "image_id": "X51008030563",
+        "image_sha256": "4ebb8257cd1bc9dafb5b40d8c48e8318260ce08fa19cb68dbd86499182412e7c",
+        "included_gst_sen": 34,
+        "milo": {
+          "line_sen": 560,
+          "quantity": "2",
+          "unit_sen": 280
+        },
+        "printed_total_excluding_gst_sen": 566,
+        "printed_total_inclusive_gst_sen": 600,
+        "receipt_total_sen": 600,
+        "takeaway": {
+          "line_sen": 40,
+          "quantity": "2",
+          "unit_sen": 20
+        }
+      },
+      "name": "real_2018_wan_sheng_inclusive_gst",
+      "result": {
+        "additional_tax_sen": 0,
+        "canonical_gross_item_subtotal_sen": 600,
+        "illustrative_equal_consumption_sen": {
+          "A": 300,
+          "B": 300
+        },
+        "not_a_current_sst_rate_claim": true,
+        "printed_net_subtotal_sen": 566
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "gross_item_sum_sen": 600,
+        "wrongly_used_printed_net_subtotal_sen": 566
+      },
+      "name": "real_receipt_wrong_subtotal_basis",
+      "result": {
+        "reason": "subtotal_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "line_totals_sen": [
+          560,
+          40
+        ],
+        "wrongly_multiplied_by_quantity": 2
+      },
+      "name": "real_receipt_quantity_double_count",
+      "result": {
+        "reason": "subtotal_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_comparison",
+      "inputs": {
+        "items": {
+          "food": {
+            "A": 2000,
+            "B": 3000,
+            "C": 5000
+          }
+        },
+        "voucher_sen": 1000
+      },
+      "name": "voucher_discount_vs_tender",
+      "result": {
+        "merchant_discount": {
+          "consumption_sen": {
+            "A": 1800,
+            "B": 2700,
+            "C": 4500
+          },
+          "receipt_total_sen": 9000
+        },
+        "prepaid_tender": {
+          "consumption_sen": {
+            "A": 2000,
+            "B": 3000,
+            "C": 5000
+          },
+          "net_sen": {
+            "A": -1000,
+            "B": 6000,
+            "C": -5000
+          },
+          "payments_sen": {
+            "A_voucher_owner": 1000,
+            "B_cash": 9000
+          },
+          "receipt_total_sen": 10000
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_comparison",
+      "inputs": {
+        "base_sen": 3000,
+        "discount_sen": -600,
+        "illustrative_rate": "1/10",
+        "printed_service_sen": 300
+      },
+      "name": "fixed_charge_vs_rate_order",
+      "result": {
+        "difference_sen": 60,
+        "printed_fixed_service_allocation": {
+          "A": 100,
+          "B": 200
+        },
+        "rate_after_discount_sen": 240,
+        "rate_before_discount_sen": 300
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_comparison",
+      "inputs": {
+        "A_discount_sen": -500,
+        "fixed_service_sen": 300,
+        "food_sen": {
+          "A": 1000,
+          "B": 2000
+        }
+      },
+      "name": "targeted_discount_changes_charge_base",
+      "result": {
+        "after_discount_base": {
+          "A": 60,
+          "B": 240
+        },
+        "before_discount_base": {
+          "A": 100,
+          "B": 200
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "negative_sen": -2,
+        "positive_sen": 2
+      },
+      "name": "printed_rounding_signed_component",
+      "result": {
+        "negative": {
+          "A": -1,
+          "B": 0,
+          "C": -1
+        },
+        "positive": {
+          "A": 1,
+          "B": 0,
+          "C": 1
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "computed_sen": 1060,
+        "receipt_sen": 1061
+      },
+      "name": "receipt_mismatch_gate",
+      "result": {
+        "reason": "receipt_total_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "item_sum_sen": 1000,
+        "reviewed_canonical_item_subtotal_sen": 999
+      },
+      "name": "subtotal_mismatch_gate",
+      "result": {
+        "reason": "subtotal_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "assigned_sen": 600,
+        "receipt_total_sen": 1060,
+        "unassigned_sen": 400
+      },
+      "name": "draft_assigned_unassigned_discrepancy",
+      "result": {
+        "arithmetic_reconciled": false,
+        "assigned_sen": 600,
+        "diagnostic_discrepancy_sen": 60,
+        "receipt_total_sen": 1060,
+        "unassigned_sen": 400
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "assigned_sen": 1060,
+        "receipt_total_sen": 1060,
+        "unassigned_sen": 0
+      },
+      "name": "arithmetic_gate_requires_zero_unassigned_and_discrepancy",
+      "result": {
+        "arithmetic_reconciled": true,
+        "assigned_sen": 1060,
+        "diagnostic_discrepancy_sen": 0,
+        "receipt_total_sen": 1060,
+        "unassigned_sen": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "alternatives_line_sen": [
+          700,
+          1400
+        ],
+        "printed_price_sen": 700,
+        "quantity": "2"
+      },
+      "name": "unit_vs_line_ambiguity_gate",
+      "result": {
+        "reason": "review_incomplete"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "printed_line_sen": 1000,
+        "quantity": "3",
+        "unit_sen": 333
+      },
+      "name": "unit_rounding_not_forced",
+      "result": {
+        "allocation_sen": {
+          "A": 333,
+          "B": 334,
+          "C": 333
+        },
+        "canonical_reviewed_line_sen": 1000,
+        "unit_product_sen": 999
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "owed_sen": {
+          "A": 2120,
+          "B": 3180,
+          "C": 5300
+        },
+        "payments_sen": {
+          "A": 7000,
+          "B": 3600
+        }
+      },
+      "name": "multiple_payers",
+      "result": {
+        "A": 4880,
+        "B": 420,
+        "C": -5300
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "transfer": [
+          "t1",
+          "C",
+          "A",
+          2000,
+          "confirmed"
+        ]
+      },
+      "name": "partial_settlement",
+      "result": {
+        "A": 2880,
+        "B": 420,
+        "C": -3300
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "suggested": [
+          [
+            "suggestion-0",
+            "C",
+            "A",
+            2880,
+            "suggested"
+          ],
+          [
+            "suggestion-1",
+            "C",
+            "B",
+            420,
+            "suggested"
+          ]
+        ]
+      },
+      "name": "suggestions_have_no_confirmed_accounting_effect",
+      "result": {
+        "A": 2880,
+        "B": 420,
+        "C": -3300
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "transfers": [
+          [
+            "t1",
+            "C",
+            "A",
+            2000,
+            "confirmed"
+          ],
+          [
+            "suggestion-0",
+            "C",
+            "A",
+            2880,
+            "confirmed"
+          ],
+          [
+            "suggestion-1",
+            "C",
+            "B",
+            420,
+            "confirmed"
+          ]
+        ]
+      },
+      "name": "complete_settlement",
+      "result": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "transfers": [
+          [
+            "t1",
+            "C",
+            "A",
+            2000,
+            "confirmed"
+          ],
+          [
+            "t1",
+            "C",
+            "A",
+            2000,
+            "confirmed"
+          ]
+        ]
+      },
+      "name": "repeat_confirmation_idempotent",
+      "result": {
+        "A": 2880,
+        "B": 420,
+        "C": -3300
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "same_id_amounts_sen": [
+          2000,
+          2001
+        ]
+      },
+      "name": "conflicting_transfer_identity",
+      "result": {
+        "reason": "conflicting_transfer_id"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment",
+      "inputs": {
+        "amount_sen": 2000,
+        "state": "pending"
+      },
+      "name": "pending_transfer_no_accounting_effect",
+      "result": {
+        "A": 4880,
+        "B": 420,
+        "C": -5300
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "owed_sen": 10600,
+        "paid_sen": 7000
+      },
+      "name": "unfunded_meal",
+      "result": {
+        "reason": "funding_mismatch"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "noninteger_consumption"
+      },
+      "name": "noninteger_consumption",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "boolean_payment"
+      },
+      "name": "boolean_payment",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "boolean_item_review"
+      },
+      "name": "boolean_item_review",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "noninteger_adjustment_review"
+      },
+      "name": "noninteger_adjustment_review",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "noninteger_receipt_total"
+      },
+      "name": "noninteger_receipt_total",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "noninteger_scope_base"
+      },
+      "name": "noninteger_scope_base",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "boolean_suggestion_net"
+      },
+      "name": "boolean_suggestion_net",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "malformed_money": "noninteger_draft"
+      },
+      "name": "noninteger_draft",
+      "result": {
+        "reason": "money_must_be_integer_sen"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "payments_sen": {
+          "A": -1,
+          "B": 101
+        }
+      },
+      "name": "negative_restaurant_payment",
+      "result": {
+        "reason": "negative_amount_requires_explicit_mode"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "payer": "X"
+      },
+      "name": "unknown_restaurant_payer",
+      "result": {
+        "reason": "unknown_payer"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "person": ""
+      },
+      "name": "invalid_participant_identity",
+      "result": {
+        "reason": "invalid_participant_id"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "consumption_sen": {
+          "A": -100,
+          "B": 0
+        },
+        "refund_mode": true,
+        "restaurant_refund_sen": {
+          "B": -100
+        }
+      },
+      "name": "explicit_refund_mode_arithmetic_only",
+      "result": {
+        "A": 100,
+        "B": -100
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "historical_transfers": [
+          [
+            "t1",
+            "C",
+            "A",
+            2000,
+            "confirmed"
+          ],
+          [
+            "suggestion-0",
+            "C",
+            "A",
+            2880,
+            "confirmed"
+          ],
+          [
+            "suggestion-1",
+            "C",
+            "B",
+            420,
+            "confirmed"
+          ]
+        ],
+        "old_owed_sen": {
+          "A": 2120,
+          "B": 3180,
+          "C": 5300
+        },
+        "revised_owed_sen": {
+          "A": 2220,
+          "B": 3080,
+          "C": 5300
+        }
+      },
+      "name": "correction_after_settled_preserves_transfers",
+      "result": {
+        "new_suggestions": [
+          [
+            "suggestion-0",
+            "A",
+            "B",
+            100,
+            "suggested"
+          ]
+        ],
+        "reopened_net_sen": {
+          "A": -100,
+          "B": 100,
+          "C": 0
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "compensating_transfer": [
+          "reverse-t1",
+          "A",
+          "C",
+          2000,
+          "confirmed"
+        ],
+        "original_transfer": [
+          "t1",
+          "C",
+          "A",
+          2000,
+          "confirmed"
+        ]
+      },
+      "name": "mistaken_transfer_reversed_without_deletion",
+      "result": {
+        "A": 2000,
+        "B": 0,
+        "C": -2000
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "B_to_A_sen": 101,
+        "owed_sen": {
+          "A": 0,
+          "B": 100
+        },
+        "payments_sen": {
+          "A": 100
+        }
+      },
+      "name": "overpayment_requires_reverse_debt_or_policy",
+      "result": {
+        "A": -1,
+        "B": 1
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "historical_claim_sen": 0,
+        "joining_person": "D"
+      },
+      "name": "join_does_not_reallocate_history",
+      "result": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "now_settled": true,
+        "owed_sen": 5300,
+        "person": "C"
+      },
+      "name": "leave_with_consumption",
+      "result": {
+        "reason": "retain_person_with_history"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "payment_sen": 100,
+        "person": "A"
+      },
+      "name": "leave_with_payment_only",
+      "result": {
+        "reason": "retain_person_with_history"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "history": [],
+        "person": "D"
+      },
+      "name": "unused_joiner_can_leave",
+      "result": {
+        "allowed": true
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_expected_rejection",
+      "inputs": {
+        "charge_sen": 100,
+        "remaining_base_sen": 0
+      },
+      "name": "fully_discounted_charge_requires_explicit_policy",
+      "result": {
+        "reason": "zero_eligible_base"
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_policy_variant",
+      "inputs": {
+        "charge_sen": 100,
+        "human_selected_weights": {
+          "A": 1,
+          "B": 1
+        }
+      },
+      "name": "explicit_equal_zero_base_override",
+      "result": {
+        "A": 50,
+        "B": 50
+      },
+      "status": "PASS"
+    },
+    {
+      "classification": "experiment_counterexample",
+      "inputs": {
+        "amounts_sen": [
+          25,
+          26
+        ],
+        "weights": {
+          "A": 1500,
+          "B": 1500,
+          "C": 900,
+          "D": 500,
+          "E": 500,
+          "F": 200
+        }
+      },
+      "name": "largest_remainder_nonmonotonic_counterexample",
+      "result": {
+        "25_sen": {
+          "A": 7,
+          "B": 7,
+          "C": 4,
+          "D": 3,
+          "E": 3,
+          "F": 1
+        },
+        "26_sen": {
+          "A": 8,
+          "B": 8,
+          "C": 5,
+          "D": 2,
+          "E": 2,
+          "F": 1
+        }
+      },
+      "status": "PASS"
+    }
+  ],
+  "format_version": 1,
+  "money_unit": "integer_MYR_sen",
+  "python_version": "3.14.6",
+  "randomized": {
+    "assertions": 33000,
+    "invariants": [
+      "amount_conserved",
+      "integer_nonnegative_shares",
+      "row_order_independent",
+      "signed_symmetry",
+      "quota_error_below_one_sen",
+      "zero_weights_get_zero",
+      "zero_sum_net",
+      "at_most_n_minus_one_greedy_transfers",
+      "complete_settlement",
+      "settlement_flow_matches_credit",
+      "suggestions_have_no_accounting_effect",
+      "multi_item_charge_conservation",
+      "scope_exclusions",
+      "receipt_reconciliation",
+      "fixed_component_order_independence",
+      "multi_component_funding_and_settlement"
+    ],
+    "max_amount_sen_decimal_string": "994376449198220795437085",
+    "multi_component_assertions": 21000,
+    "status": "PASS",
+    "trials": 3000
+  },
+  "scope": "disposable_domain_validation_not_production",
+  "script_sha256": "112d0c6f73906e49514df214bdf96c8dde34d478bea2e4b8fcd88f3937d814dc",
+  "seed": 20261016,
+  "status": "PASS",
+  "weights_and_quantities": "exact_rational"
+}

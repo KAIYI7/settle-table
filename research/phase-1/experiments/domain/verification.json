@@ -1,0 +1,13 @@
+{
+  "access_date": "2026-10-16",
+  "coordinator_reexecuted": true,
+  "python_version": "3.14.6",
+  "command": "python research/phase-1/experiments/domain/validate_domain.py --output research/phase-1/experiments/domain/results.json --seed 20261016 --trials 3000",
+  "script_sha256": "112d0c6f73906e49514df214bdf96c8dde34d478bea2e4b8fcd88f3937d814dc",
+  "results_sha256": "f49bc1022ce43dad0c77c2ada90ef02fda6e84f3bed79d0cd1b88f4cd5050c50",
+  "concrete_scenarios": 67,
+  "randomized_trials": 3000,
+  "randomized_assertion_groups": 54000,
+  "status": "PASS",
+  "scope": "disposable arithmetic experiment, no production code"
+}

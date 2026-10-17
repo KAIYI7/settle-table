@@ -1,0 +1,23 @@
+# Baseline prepublication acceptance
+
+2026-10-17, Asia/Kuala_Lumpur. **Orchestrator decision: PASS to create and push the user-requested SettleTable baseline.** This is repository establishment, not application deployment or acceptance of the next implementation slice. Remote verification remains a separate required step after pushing.
+
+## Material gates
+
+| Gate | Disposition and evidence |
+|---|---|
+| All Git path categories inventoried | PASS: complete staged/tracked/untracked/ignored path inventory retained under ignored `.local/prepublish/`; more than27,000 local files were enumerated. Ignored runtime/cache binaries were classified by path/size, not exhaustively content-read. Final staged counts/hashes are in [audit output](staged-audit.json). |
+| Complete proposed initial diff reviewed | PASS: [rights/source provenance](diff-review-rights.md), [privacy/Phase1 evidence](diff-review-privacy.md), [source/governance/later evidence](diff-review-source.md). Per-file indexed hashes cover the reviewed additions. Main reviewed the remaining third-party notice, final ignore/audit corrections and review/acceptance outputs. Generated JSON received full-byte parsing/pattern checks and targeted structural/evidence review; repeated cells are not claimed as independently hand-read tests. |
+| Secrets, private Notion references and auth material | PASS within heuristic/manual-review limits: no matching credential, private-key, signed-URL or machine absolute-path patterns in staged bytes; all24 known private Notion identities/48 spellings absent. Private originals/map are positively ignored and absent from index. Public fixture bearer strings are deliberately synthetic localhost-only test data, not live credentials. No credentials were put in the remote URL or Git history. |
+| Rights and binary/runtime exclusion | PASS: images/models/receipt text, environments/dependencies, databases/sidecars, logs/build/temp files and Impeccable payload remain local/ignored. Public corpus manifest retains identity/hash metadata only. Matt MIT grant/metadata retained; identified copied HumanLayer material now has its complete verified MIT attribution grant. [Notices](../../THIRD_PARTY_NOTICES.md). No project-wide license invented. |
+| Research fidelity and portable instructions | PASS: nine backed-up Phase1 JSON artifacts preserve773 typed numeric leaves;610 Notion string leaves preserve111 non-URL numeric tokens. Original historical hashes are explicitly distinguished from publication bytes. New corpus manifest preserves selected original metadata for10 records. Fresh-clone input limits and skill restore requirements are explicit. |
+| Accepted financial source and tests unchanged | PASS: staged calculator SHA256 `4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a`; tests `70d6dab36179bc2672712b236eea54d0313c85a2fd5a54480e03aefdbefea80c`. Main reran15 methods, zero failures/errors. No historical OCR/Notion workload was rerun or implied by sanitation. |
+| Git identity, branch and target | PASS: local `main`, supplied `https://github.com/KAIYI7/settle-table.git` origin; initial remote refs were empty. Repository-local GitHub no-reply identity avoids publishing the workstation's business email; global configuration/installations remain untouched. No force push/history replacement is planned. |
+
+## Resolved findings and remaining boundaries
+
+The initial private Notion destinations, incomplete ignore coverage, workstation-specific commands, ambiguous raw-fixture availability and missing HumanLayer copyright/grant were resolved before commit. Initial findings remain in their reports with the stronger source evidence and resolution; they were not silently discarded.
+
+Limits remain: secret detection is heuristic, original OCR input rights are not cleared, excluded raw evidence cannot be recomputed from a clone alone, Impeccable bundle redistribution is deferred, and no project-wide open-source license was selected. These are documented distribution/reproduction boundaries rather than claims of clearance. Calculator acceptance does not establish live authorization, OCR quality, Notion delivery or public-release readiness.
+
+Next: create `chore: establish SettleTable project baseline`, push `main`, create/push annotated `phase2-accepted` at that commit, then compare actual remote branch/tag/peeled-target SHAs. Only after successful verification record the baseline SHA in project status and resume ordinary next-objective work. The status record necessarily follows the baseline commit; the checkpoint tag must continue to identify the original baseline rather than be moved to a later documentation commit.

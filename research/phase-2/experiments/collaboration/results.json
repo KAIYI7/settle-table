@@ -1,0 +1,1962 @@
+{
+  "scope": "DISPOSABLE real localhost HTTP and two browser-tab clients; NOT production authentication or Internet validation",
+  "access_date": "2026-10-16T08:00:56.625005+00:00",
+  "reports": [
+    {
+      "actor": "A",
+      "stage": "race",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "checks": [
+        {
+          "name": "simultaneous_same_revision_commit_or_conflict",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 1,
+              "actor": "A",
+              "op_id": "race-A",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 1,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 1,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "race_conserves_capacity",
+          "pass": true,
+          "detail": {
+            "revision": 1,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2
+            }
+          }
+        },
+        {
+          "name": "exact_replay_same_event",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 1,
+              "actor": "A",
+              "op_id": "race-A",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 1,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 1,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "changed_id_body_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "operation_id_reused_with_different_content"
+            }
+          }
+        }
+      ],
+      "at_utc": "2026-10-16T08:00:56.341Z"
+    },
+    {
+      "actor": "B",
+      "stage": "race",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "checks": [
+        {
+          "name": "simultaneous_same_revision_commit_or_conflict",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "stale_item_or_financial_revision"
+            }
+          }
+        },
+        {
+          "name": "race_conserves_capacity",
+          "pass": true,
+          "detail": {
+            "revision": 1,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2
+            }
+          }
+        },
+        {
+          "name": "fresh_overclaim_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "quantity_capacity_exceeded"
+            }
+          }
+        },
+        {
+          "name": "remaining_quantity_claim_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 2,
+              "actor": "B",
+              "op_id": "one-B",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 2,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 2,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "distinct_item_revision_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 3,
+              "actor": "B",
+              "op_id": "tea-B",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 3,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 2,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "at_utc": "2026-10-16T08:00:56.341Z"
+    },
+    {
+      "actor": "A",
+      "stage": "organizer",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "checks": [
+        {
+          "name": "simultaneous_same_revision_commit_or_conflict",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 1,
+              "actor": "A",
+              "op_id": "race-A",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 1,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 1,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "race_conserves_capacity",
+          "pass": true,
+          "detail": {
+            "revision": 1,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2
+            }
+          }
+        },
+        {
+          "name": "exact_replay_same_event",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 1,
+              "actor": "A",
+              "op_id": "race-A",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 1,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 1,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "changed_id_body_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "operation_id_reused_with_different_content"
+            }
+          }
+        },
+        {
+          "name": "dish_fully_claimed",
+          "pass": true,
+          "detail": {
+            "revision": 2,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2,
+              "B": 1
+            }
+          }
+        },
+        {
+          "name": "another_diner_edit_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "cannot_edit_another_diner_claim"
+            }
+          }
+        },
+        {
+          "name": "diner_amount_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "organizer_only_financial_edit"
+            }
+          }
+        },
+        {
+          "name": "diner_finalization_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "organizer_only_transition"
+            }
+          }
+        },
+        {
+          "name": "stale_organizer_finalization_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "stale_meal_revision"
+            }
+          }
+        },
+        {
+          "name": "organizer_integer_sen_edit_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 4,
+              "actor": "organizer",
+              "op_id": "edit-money",
+              "kind": "amount",
+              "snapshot": {
+                "revision": 4,
+                "financial_revision": 1,
+                "reviewed": false,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 3,
+                    "quantity": 3,
+                    "line_sen": 1001,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "stale_financial_basis_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "stale_item_or_financial_revision"
+            }
+          }
+        },
+        {
+          "name": "edited_money_requires_review",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "review_or_assignment_incomplete"
+            }
+          }
+        },
+        {
+          "name": "organizer_review_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 5,
+              "actor": "organizer",
+              "op_id": "review-money",
+              "kind": "review",
+              "snapshot": {
+                "revision": 5,
+                "financial_revision": 1,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 3,
+                    "quantity": 3,
+                    "line_sen": 1001,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "receipt_total_mismatch_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "receipt_total_mismatch"
+            }
+          }
+        },
+        {
+          "name": "receipt_total_correction_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 6,
+              "actor": "organizer",
+              "op_id": "correct-money",
+              "kind": "amount",
+              "snapshot": {
+                "revision": 6,
+                "financial_revision": 2,
+                "reviewed": false,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 4,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "current_reviewed_finalization_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 8,
+              "actor": "organizer",
+              "op_id": "final-current",
+              "kind": "finalize",
+              "snapshot": {
+                "revision": 8,
+                "financial_revision": 2,
+                "reviewed": true,
+                "finalized": true,
+                "items": {
+                  "dish": {
+                    "revision": 4,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "finalized_claim_mutation_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "finalized_requires_explicit_amendment"
+            }
+          }
+        }
+      ],
+      "at_utc": "2026-10-16T08:00:56.463Z"
+    },
+    {
+      "actor": "B",
+      "stage": "reconnect",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "checks": [
+        {
+          "name": "simultaneous_same_revision_commit_or_conflict",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "stale_item_or_financial_revision"
+            }
+          }
+        },
+        {
+          "name": "race_conserves_capacity",
+          "pass": true,
+          "detail": {
+            "revision": 1,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2
+            }
+          }
+        },
+        {
+          "name": "fresh_overclaim_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "quantity_capacity_exceeded"
+            }
+          }
+        },
+        {
+          "name": "remaining_quantity_claim_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 2,
+              "actor": "B",
+              "op_id": "one-B",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 2,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 2,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "distinct_item_revision_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 3,
+              "actor": "B",
+              "op_id": "tea-B",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 3,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 2,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "missed_revisions_recovered",
+          "pass": true,
+          "detail": {
+            "from": 1,
+            "to": 8,
+            "count": 7
+          }
+        },
+        {
+          "name": "out_of_order_snapshot_guard",
+          "pass": true,
+          "detail": {
+            "revision": 8,
+            "financial_revision": 2,
+            "reviewed": true,
+            "finalized": true,
+            "items": {
+              "dish": {
+                "revision": 4,
+                "quantity": 3,
+                "line_sen": 1000,
+                "claims": {
+                  "A": 2,
+                  "B": 1
+                }
+              },
+              "tea": {
+                "revision": 1,
+                "quantity": 1,
+                "line_sen": 300,
+                "claims": {
+                  "B": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "finalized_visible_after_reconnect",
+          "pass": true,
+          "detail": {
+            "revision": 8,
+            "financial_revision": 2,
+            "reviewed": true,
+            "finalized": true,
+            "items": {
+              "dish": {
+                "revision": 4,
+                "quantity": 3,
+                "line_sen": 1000,
+                "claims": {
+                  "A": 2,
+                  "B": 1
+                }
+              },
+              "tea": {
+                "revision": 1,
+                "quantity": 1,
+                "line_sen": 300,
+                "claims": {
+                  "B": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "at_utc": "2026-10-16T08:00:56.510Z"
+    },
+    {
+      "actor": "A",
+      "stage": "revoke",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "checks": [
+        {
+          "name": "simultaneous_same_revision_commit_or_conflict",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 1,
+              "actor": "A",
+              "op_id": "race-A",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 1,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 1,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "race_conserves_capacity",
+          "pass": true,
+          "detail": {
+            "revision": 1,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2
+            }
+          }
+        },
+        {
+          "name": "exact_replay_same_event",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 1,
+              "actor": "A",
+              "op_id": "race-A",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 1,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 1,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "changed_id_body_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "operation_id_reused_with_different_content"
+            }
+          }
+        },
+        {
+          "name": "dish_fully_claimed",
+          "pass": true,
+          "detail": {
+            "revision": 2,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2,
+              "B": 1
+            }
+          }
+        },
+        {
+          "name": "another_diner_edit_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "cannot_edit_another_diner_claim"
+            }
+          }
+        },
+        {
+          "name": "diner_amount_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "organizer_only_financial_edit"
+            }
+          }
+        },
+        {
+          "name": "diner_finalization_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "organizer_only_transition"
+            }
+          }
+        },
+        {
+          "name": "stale_organizer_finalization_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "stale_meal_revision"
+            }
+          }
+        },
+        {
+          "name": "organizer_integer_sen_edit_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 4,
+              "actor": "organizer",
+              "op_id": "edit-money",
+              "kind": "amount",
+              "snapshot": {
+                "revision": 4,
+                "financial_revision": 1,
+                "reviewed": false,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 3,
+                    "quantity": 3,
+                    "line_sen": 1001,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "stale_financial_basis_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "stale_item_or_financial_revision"
+            }
+          }
+        },
+        {
+          "name": "edited_money_requires_review",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "review_or_assignment_incomplete"
+            }
+          }
+        },
+        {
+          "name": "organizer_review_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 5,
+              "actor": "organizer",
+              "op_id": "review-money",
+              "kind": "review",
+              "snapshot": {
+                "revision": 5,
+                "financial_revision": 1,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 3,
+                    "quantity": 3,
+                    "line_sen": 1001,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "receipt_total_mismatch_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "receipt_total_mismatch"
+            }
+          }
+        },
+        {
+          "name": "receipt_total_correction_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 6,
+              "actor": "organizer",
+              "op_id": "correct-money",
+              "kind": "amount",
+              "snapshot": {
+                "revision": 6,
+                "financial_revision": 2,
+                "reviewed": false,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 4,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "current_reviewed_finalization_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 8,
+              "actor": "organizer",
+              "op_id": "final-current",
+              "kind": "finalize",
+              "snapshot": {
+                "revision": 8,
+                "financial_revision": 2,
+                "reviewed": true,
+                "finalized": true,
+                "items": {
+                  "dish": {
+                    "revision": 4,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "finalized_claim_mutation_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "finalized_requires_explicit_amendment"
+            }
+          }
+        },
+        {
+          "name": "organizer_revokes_B",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "revoked": "B"
+            }
+          }
+        }
+      ],
+      "at_utc": "2026-10-16T08:00:56.557Z"
+    },
+    {
+      "actor": "B",
+      "stage": "revoked",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "checks": [
+        {
+          "name": "simultaneous_same_revision_commit_or_conflict",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "stale_item_or_financial_revision"
+            }
+          }
+        },
+        {
+          "name": "race_conserves_capacity",
+          "pass": true,
+          "detail": {
+            "revision": 1,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2
+            }
+          }
+        },
+        {
+          "name": "fresh_overclaim_rejected",
+          "pass": true,
+          "detail": {
+            "status": 409,
+            "body": {
+              "error": "quantity_capacity_exceeded"
+            }
+          }
+        },
+        {
+          "name": "remaining_quantity_claim_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 2,
+              "actor": "B",
+              "op_id": "one-B",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 2,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 2,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 0,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "distinct_item_revision_accepted",
+          "pass": true,
+          "detail": {
+            "status": 200,
+            "body": {
+              "sequence": 3,
+              "actor": "B",
+              "op_id": "tea-B",
+              "kind": "claim",
+              "snapshot": {
+                "revision": 3,
+                "financial_revision": 0,
+                "reviewed": true,
+                "finalized": false,
+                "items": {
+                  "dish": {
+                    "revision": 2,
+                    "quantity": 3,
+                    "line_sen": 1000,
+                    "claims": {
+                      "A": 2,
+                      "B": 1
+                    }
+                  },
+                  "tea": {
+                    "revision": 1,
+                    "quantity": 1,
+                    "line_sen": 300,
+                    "claims": {
+                      "B": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "missed_revisions_recovered",
+          "pass": true,
+          "detail": {
+            "from": 1,
+            "to": 8,
+            "count": 7
+          }
+        },
+        {
+          "name": "out_of_order_snapshot_guard",
+          "pass": true,
+          "detail": {
+            "revision": 8,
+            "financial_revision": 2,
+            "reviewed": true,
+            "finalized": true,
+            "items": {
+              "dish": {
+                "revision": 4,
+                "quantity": 3,
+                "line_sen": 1000,
+                "claims": {
+                  "A": 2,
+                  "B": 1
+                }
+              },
+              "tea": {
+                "revision": 1,
+                "quantity": 1,
+                "line_sen": 300,
+                "claims": {
+                  "B": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "finalized_visible_after_reconnect",
+          "pass": true,
+          "detail": {
+            "revision": 8,
+            "financial_revision": 2,
+            "reviewed": true,
+            "finalized": true,
+            "items": {
+              "dish": {
+                "revision": 4,
+                "quantity": 3,
+                "line_sen": 1000,
+                "claims": {
+                  "A": 2,
+                  "B": 1
+                }
+              },
+              "tea": {
+                "revision": 1,
+                "quantity": 1,
+                "line_sen": 300,
+                "claims": {
+                  "B": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "revoked_snapshot_denied",
+          "pass": true,
+          "detail": {
+            "status": 403,
+            "body": {
+              "error": "membership_revoked_or_unknown"
+            }
+          }
+        },
+        {
+          "name": "revoked_duplicate_replay_denied",
+          "pass": true,
+          "detail": {
+            "status": 403,
+            "body": {
+              "error": "membership_revoked_or_unknown"
+            }
+          }
+        },
+        {
+          "name": "revoked_event_read_denied",
+          "pass": true,
+          "detail": {
+            "status": 403,
+            "body": {
+              "error": "membership_revoked_or_unknown"
+            }
+          }
+        }
+      ],
+      "at_utc": "2026-10-16T08:00:56.613Z"
+    }
+  ],
+  "race_request_arrivals": [
+    {
+      "actor": "B",
+      "received_utc": "2026-10-16T08:00:56.314357+00:00"
+    },
+    {
+      "actor": "A",
+      "received_utc": "2026-10-16T08:00:56.314842+00:00"
+    }
+  ],
+  "final_snapshot": {
+    "revision": 8,
+    "financial_revision": 2,
+    "reviewed": true,
+    "finalized": true,
+    "items": {
+      "dish": {
+        "revision": 4,
+        "quantity": 3,
+        "line_sen": 1000,
+        "claims": {
+          "A": 2,
+          "B": 1
+        }
+      },
+      "tea": {
+        "revision": 1,
+        "quantity": 1,
+        "line_sen": 300,
+        "claims": {
+          "B": 1
+        }
+      }
+    }
+  },
+  "money": "integer sen",
+  "receipt_total_sen": 1300,
+  "source_sha256": {
+    "server.py": "11c392c1c282dab900dc797ac6aa679db6ac58ec531f960851790db85f932376",
+    "client.html": "27f9ab956951e4325b8516876709a9c8ffd0f4af62f9e259dbfce810ceeda638",
+    "run-browser.cjs": "e860fe245980a0f32a6afcd04b5cdd883583724499a280b81edffef54ab6c83c",
+    "simulate.py": "4d4b5fd07bf23c34fa6f370b32742f723e2d86497fc8746968958782e548644d"
+  },
+  "limitations": [
+    "Two tabs, not different physical devices or browser engines",
+    "HTTP polling/snapshot only; no SSE/WebSocket or Internet faults",
+    "In-memory lock, no database transaction or restart durability",
+    "Public synthetic fixture tokens and fixture revocation endpoint; never production auth",
+    "Browser A deliberately holds synthetic organizer token for organizer scenarios",
+    "No receipt images, external service, private data or paid calls"
+  ],
+  "automation": {
+    "browser": "151.0.7922.34",
+    "playwright": "1.62.1",
+    "independent_contexts": 2,
+    "elapsed_ms": 420,
+    "page_errors": [],
+    "passed": 30,
+    "failed": 0,
+    "checks": [
+      {
+        "actor": "A",
+        "name": "simultaneous_same_revision_commit_or_conflict",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 1,
+            "actor": "A",
+            "op_id": "race-A",
+            "kind": "claim",
+            "snapshot": {
+              "revision": 1,
+              "financial_revision": 0,
+              "reviewed": true,
+              "finalized": false,
+              "items": {
+                "dish": {
+                  "revision": 1,
+                  "quantity": 3,
+                  "line_sen": 1000,
+                  "claims": {
+                    "A": 2
+                  }
+                },
+                "tea": {
+                  "revision": 0,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "race_conserves_capacity",
+        "pass": true,
+        "detail": {
+          "revision": 1,
+          "quantity": 3,
+          "line_sen": 1000,
+          "claims": {
+            "A": 2
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "exact_replay_same_event",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 1,
+            "actor": "A",
+            "op_id": "race-A",
+            "kind": "claim",
+            "snapshot": {
+              "revision": 1,
+              "financial_revision": 0,
+              "reviewed": true,
+              "finalized": false,
+              "items": {
+                "dish": {
+                  "revision": 1,
+                  "quantity": 3,
+                  "line_sen": 1000,
+                  "claims": {
+                    "A": 2
+                  }
+                },
+                "tea": {
+                  "revision": 0,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "changed_id_body_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "operation_id_reused_with_different_content"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "dish_fully_claimed",
+        "pass": true,
+        "detail": {
+          "revision": 2,
+          "quantity": 3,
+          "line_sen": 1000,
+          "claims": {
+            "A": 2,
+            "B": 1
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "another_diner_edit_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "cannot_edit_another_diner_claim"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "diner_amount_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "organizer_only_financial_edit"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "diner_finalization_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "organizer_only_transition"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "stale_organizer_finalization_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "stale_meal_revision"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "organizer_integer_sen_edit_accepted",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 4,
+            "actor": "organizer",
+            "op_id": "edit-money",
+            "kind": "amount",
+            "snapshot": {
+              "revision": 4,
+              "financial_revision": 1,
+              "reviewed": false,
+              "finalized": false,
+              "items": {
+                "dish": {
+                  "revision": 3,
+                  "quantity": 3,
+                  "line_sen": 1001,
+                  "claims": {
+                    "A": 2,
+                    "B": 1
+                  }
+                },
+                "tea": {
+                  "revision": 1,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {
+                    "B": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "stale_financial_basis_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "stale_item_or_financial_revision"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "edited_money_requires_review",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "review_or_assignment_incomplete"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "organizer_review_accepted",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 5,
+            "actor": "organizer",
+            "op_id": "review-money",
+            "kind": "review",
+            "snapshot": {
+              "revision": 5,
+              "financial_revision": 1,
+              "reviewed": true,
+              "finalized": false,
+              "items": {
+                "dish": {
+                  "revision": 3,
+                  "quantity": 3,
+                  "line_sen": 1001,
+                  "claims": {
+                    "A": 2,
+                    "B": 1
+                  }
+                },
+                "tea": {
+                  "revision": 1,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {
+                    "B": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "receipt_total_mismatch_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "receipt_total_mismatch"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "receipt_total_correction_accepted",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 6,
+            "actor": "organizer",
+            "op_id": "correct-money",
+            "kind": "amount",
+            "snapshot": {
+              "revision": 6,
+              "financial_revision": 2,
+              "reviewed": false,
+              "finalized": false,
+              "items": {
+                "dish": {
+                  "revision": 4,
+                  "quantity": 3,
+                  "line_sen": 1000,
+                  "claims": {
+                    "A": 2,
+                    "B": 1
+                  }
+                },
+                "tea": {
+                  "revision": 1,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {
+                    "B": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "current_reviewed_finalization_accepted",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 8,
+            "actor": "organizer",
+            "op_id": "final-current",
+            "kind": "finalize",
+            "snapshot": {
+              "revision": 8,
+              "financial_revision": 2,
+              "reviewed": true,
+              "finalized": true,
+              "items": {
+                "dish": {
+                  "revision": 4,
+                  "quantity": 3,
+                  "line_sen": 1000,
+                  "claims": {
+                    "A": 2,
+                    "B": 1
+                  }
+                },
+                "tea": {
+                  "revision": 1,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {
+                    "B": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "finalized_claim_mutation_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "finalized_requires_explicit_amendment"
+          }
+        }
+      },
+      {
+        "actor": "A",
+        "name": "organizer_revokes_B",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "revoked": "B"
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "simultaneous_same_revision_commit_or_conflict",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "stale_item_or_financial_revision"
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "race_conserves_capacity",
+        "pass": true,
+        "detail": {
+          "revision": 1,
+          "quantity": 3,
+          "line_sen": 1000,
+          "claims": {
+            "A": 2
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "fresh_overclaim_rejected",
+        "pass": true,
+        "detail": {
+          "status": 409,
+          "body": {
+            "error": "quantity_capacity_exceeded"
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "remaining_quantity_claim_accepted",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 2,
+            "actor": "B",
+            "op_id": "one-B",
+            "kind": "claim",
+            "snapshot": {
+              "revision": 2,
+              "financial_revision": 0,
+              "reviewed": true,
+              "finalized": false,
+              "items": {
+                "dish": {
+                  "revision": 2,
+                  "quantity": 3,
+                  "line_sen": 1000,
+                  "claims": {
+                    "A": 2,
+                    "B": 1
+                  }
+                },
+                "tea": {
+                  "revision": 0,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "distinct_item_revision_accepted",
+        "pass": true,
+        "detail": {
+          "status": 200,
+          "body": {
+            "sequence": 3,
+            "actor": "B",
+            "op_id": "tea-B",
+            "kind": "claim",
+            "snapshot": {
+              "revision": 3,
+              "financial_revision": 0,
+              "reviewed": true,
+              "finalized": false,
+              "items": {
+                "dish": {
+                  "revision": 2,
+                  "quantity": 3,
+                  "line_sen": 1000,
+                  "claims": {
+                    "A": 2,
+                    "B": 1
+                  }
+                },
+                "tea": {
+                  "revision": 1,
+                  "quantity": 1,
+                  "line_sen": 300,
+                  "claims": {
+                    "B": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "missed_revisions_recovered",
+        "pass": true,
+        "detail": {
+          "from": 1,
+          "to": 8,
+          "count": 7
+        }
+      },
+      {
+        "actor": "B",
+        "name": "out_of_order_snapshot_guard",
+        "pass": true,
+        "detail": {
+          "revision": 8,
+          "financial_revision": 2,
+          "reviewed": true,
+          "finalized": true,
+          "items": {
+            "dish": {
+              "revision": 4,
+              "quantity": 3,
+              "line_sen": 1000,
+              "claims": {
+                "A": 2,
+                "B": 1
+              }
+            },
+            "tea": {
+              "revision": 1,
+              "quantity": 1,
+              "line_sen": 300,
+              "claims": {
+                "B": 1
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "finalized_visible_after_reconnect",
+        "pass": true,
+        "detail": {
+          "revision": 8,
+          "financial_revision": 2,
+          "reviewed": true,
+          "finalized": true,
+          "items": {
+            "dish": {
+              "revision": 4,
+              "quantity": 3,
+              "line_sen": 1000,
+              "claims": {
+                "A": 2,
+                "B": 1
+              }
+            },
+            "tea": {
+              "revision": 1,
+              "quantity": 1,
+              "line_sen": 300,
+              "claims": {
+                "B": 1
+              }
+            }
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "revoked_snapshot_denied",
+        "pass": true,
+        "detail": {
+          "status": 403,
+          "body": {
+            "error": "membership_revoked_or_unknown"
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "revoked_duplicate_replay_denied",
+        "pass": true,
+        "detail": {
+          "status": 403,
+          "body": {
+            "error": "membership_revoked_or_unknown"
+          }
+        }
+      },
+      {
+        "actor": "B",
+        "name": "revoked_event_read_denied",
+        "pass": true,
+        "detail": {
+          "status": 403,
+          "body": {
+            "error": "membership_revoked_or_unknown"
+          }
+        }
+      },
+      {
+        "actor": "independent-runner",
+        "name": "exactly_one_same_revision_race_commit",
+        "pass": true,
+        "detail": [
+          200,
+          409
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "scope": "pure supplied-fact calculation only; independent review pending",
+  "python": "3.14.6",
+  "tests_run": 15,
+  "failures": 0,
+  "errors": 0,
+  "elapsed_seconds": 0.018268499999976484,
+  "output": "test_adjustment_scope_sign_and_discount_limits_reject (test_calculation.CalculationTests.test_adjustment_scope_sign_and_discount_limits_reject) ... ok\ntest_all_registry_orders_and_strict_fact_shapes_are_checked (test_calculation.CalculationTests.test_all_registry_orders_and_strict_fact_shapes_are_checked) ... ok\ntest_boolean_is_not_money (test_calculation.CalculationTests.test_boolean_is_not_money) ... ok\ntest_decimal_money_parser_never_roundtrips_a_float (test_calculation.CalculationTests.test_decimal_money_parser_never_roundtrips_a_float) ... ok\ntest_each_split_mode_has_its_own_conservation_rule (test_calculation.CalculationTests.test_each_split_mode_has_its_own_conservation_rule) ... ok\ntest_facts_and_results_are_immutable_and_have_no_review_authority_flag (test_calculation.CalculationTests.test_facts_and_results_are_immutable_and_have_no_review_authority_flag) ... ok\ntest_full_one_sen_discount_uses_rounded_item_shares (test_calculation.CalculationTests.test_full_one_sen_discount_uses_rounded_item_shares) ... ok\ntest_largest_remainder_does_not_promise_monotonic_individual_shares (test_calculation.CalculationTests.test_largest_remainder_does_not_promise_monotonic_individual_shares) ... ok\ntest_malformed_identity_collection_quantity_and_bound_reject (test_calculation.CalculationTests.test_malformed_identity_collection_quantity_and_bound_reject) ... ok\ntest_quantity_assignment_must_conserve_explicit_quantity (test_calculation.CalculationTests.test_quantity_assignment_must_conserve_explicit_quantity) ... ok\ntest_quantity_line_total_is_apportioned_once (test_calculation.CalculationTests.test_quantity_line_total_is_apportioned_once) ... ok\ntest_receipt_adjustments_conserve_3365_sen (test_calculation.CalculationTests.test_receipt_adjustments_conserve_3365_sen) ... ok\ntest_tie_contract_negative_sign_and_input_order_are_stable (test_calculation.CalculationTests.test_tie_contract_negative_sign_and_input_order_are_stable) ... ok\ntest_total_reconciliation_and_negative_consumption_are_hard_gates (test_calculation.CalculationTests.test_total_reconciliation_and_negative_consumption_are_hard_gates) ... ok\ntest_zero_value_and_fractional_quantity_keep_valid_assignment_rules (test_calculation.CalculationTests.test_zero_value_and_fractional_quantity_keep_valid_assignment_rules) ... ok\n\n----------------------------------------------------------------------\nRan 15 tests in 0.005s\n\nOK\n",
+  "source_sha256": {
+    "tabwise/__init__.py": "7039881acd99d7ea66e4c6571c5fdf6374f52f393b3a51e3f56edf645a61ac5a",
+    "tabwise/calculation.py": "4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a",
+    "tests/test_calculation.py": "70d6dab36179bc2672712b236eea54d0313c85a2fd5a54480e03aefdbefea80c",
+    "docs/calculation-interface.md": "e447998ff254f1e9e6267b020a9777a599131eef1c7333b4c2f620134a9c2173"
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "scope": "DISPOSABLE domain simulation; NOT realtime/network/authentication validation",
+  "money": "integer sen",
+  "checks": [
+    {
+      "case": "last_writer_wins_counterexample",
+      "lost_A_claim": true
+    },
+    {
+      "case": "same_item_stale_write",
+      "result": "expected_rejection",
+      "reason": "stale_item_or_financial_revision"
+    },
+    {
+      "case": "distinct_item_edits_preserved",
+      "snapshot": {
+        "revision": 3,
+        "financial_revision": 0,
+        "reviewed": true,
+        "finalized": false,
+        "items": {
+          "dish": {
+            "revision": 2,
+            "quantity": 3,
+            "line_sen": 1000,
+            "claims": {
+              "A": 2,
+              "B": 1
+            }
+          },
+          "tea": {
+            "revision": 1,
+            "quantity": 1,
+            "line_sen": 300,
+            "claims": {
+              "B": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "case": "duplicate_operation_replayed_without_reapply",
+      "revision": 3
+    },
+    {
+      "case": "duplicate_id_changed_body",
+      "result": "expected_rejection",
+      "reason": "operation_id_reused_with_different_content"
+    },
+    {
+      "case": "diner_changes_another_claim",
+      "result": "expected_rejection",
+      "reason": "cannot_edit_another_diner_claim"
+    },
+    {
+      "case": "diner_changes_receipt_amount",
+      "result": "expected_rejection",
+      "reason": "organizer_only_financial_edit"
+    },
+    {
+      "case": "diner_finalizes",
+      "result": "expected_rejection",
+      "reason": "organizer_only_transition"
+    },
+    {
+      "case": "stale_organizer_finalization",
+      "result": "expected_rejection",
+      "reason": "stale_meal_revision"
+    },
+    {
+      "case": "stale_financial_basis",
+      "result": "expected_rejection",
+      "reason": "stale_item_or_financial_revision"
+    },
+    {
+      "case": "financial_edit_requires_reverification",
+      "result": "expected_rejection",
+      "reason": "review_or_assignment_incomplete"
+    },
+    {
+      "case": "finalized_claim_mutation",
+      "result": "expected_rejection",
+      "reason": "finalized_requires_explicit_amendment"
+    },
+    {
+      "case": "explicit_amendment_reopens_review",
+      "snapshot": {
+        "revision": 7,
+        "financial_revision": 1,
+        "reviewed": false,
+        "finalized": false,
+        "items": {
+          "dish": {
+            "revision": 3,
+            "quantity": 3,
+            "line_sen": 1001,
+            "claims": {
+              "A": 2,
+              "B": 1
+            }
+          },
+          "tea": {
+            "revision": 1,
+            "quantity": 1,
+            "line_sen": 300,
+            "claims": {
+              "B": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "case": "reconnect_and_out_of_order_snapshots",
+      "committed_events": 7
+    },
+    {
+      "case": "revocation_blocks_duplicate_replay",
+      "result": "expected_rejection",
+      "reason": "membership_revoked_or_unknown"
+    },
+    {
+      "case": "fresh_racing_overclaim_rejected",
+      "result": "expected_rejection",
+      "reason": "quantity_capacity_exceeded"
+    },
+    {
+      "case": "two_thread_race_single_commit",
+      "outcomes": [
+        "committed",
+        "rejected"
+      ],
+      "revision": 1
+    }
+  ],
+  "passed": 17,
+  "failed": 0,
+  "script_sha256": "4d4b5fd07bf23c34fa6f370b32742f723e2d86497fc8746968958782e548644d",
+  "limits": [
+    "No sockets, invitation tokens, browser clients, Internet latency or persistence",
+    "Lock models a serial authority, not distributed or offline multi-master replication",
+    "Roles are user-confirmed; identity/revocation implementation remains unselected",
+    "No production code or irreversible architecture commitment"
+  ]
+}

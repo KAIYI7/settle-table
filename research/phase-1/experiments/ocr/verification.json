@@ -1,0 +1,42 @@
+{
+  "access_date": "2026-10-16",
+  "scope": "disposable CPU benchmark; no hosted image calls",
+  "files_sha256": {
+    "acquire.py": "dbe3fd2cf8121beb8fb5856caacc1d33380f65d5a5b19baa757d91e68f908ab1",
+    "add_perspective.py": "aef4a5df54f147e076e1daa804439bc92dbe8736c56c99600dc8063b94fb083c",
+    "package-lock.json": "aaec2788a765ea1482d09334e5af12eded089e3a19601b95689a6f8fa9da55e7",
+    "package.json": "8e0dcea1ed059e496da6d321fe6a53803342a955406685d16e7674cb5b946b5a",
+    "parse_evaluate.py": "096a3de2cf0aa21a0d72f709b56831403b1c00683603f45005b9f999e0b6665d",
+    "prepare.py": "36a9beb69679cd4e8bddb5fb4cf3d8f39bcc0517ba98d4965959efbce6044ee6",
+    "requirements-frozen.txt": "ed642f90e072252659873f7a832cb93c4540fd07cf81cbfb82d2a6544fb66ea8",
+    "run_local.py": "80d7dda86386c18c89bb8a1fe04fef641c490a17673e225f8212af9e859a3229",
+    "run_tesseract.cjs": "304b8539e0c88af5a02520926bb90a96970ae77533546e3139be9284ab17c95d",
+    "data/corpus.json": "fa52eadeba1b5f2e8ce8703729132cca2efa559f8b9c8bfc0b1ae27b1243dd2f",
+    "data/truth.json": "e18b84f4ca364e11b03ad16cb23a0ccb28ba6f84dbc62d44913bc6ceb292a0c0",
+    "results/metrics.json": "bb48bc3af951ac10bf32eac88f66a4f1c2319f6706d5aec804d875d00858ce20",
+    "results/paddleocr.json": "4174fc834fb43f9f01a1349be6ba3cc58b4300b8aebc1b8198c4e9819f0ca288",
+    "results/parsed.json": "983cbf1a8fc24618ca665a01c75bf2bb6b8d69aba8e85189fb2f658b624e48e2",
+    "results/rapidocr.json": "ac0c9283e71cabb273ca92a2d341ac8cb9ec8e264cf8eccdf8cf79f5d74a21f9",
+    "results/tesseract.json": "46f679907d4abf84e3eb1b0745da8bdb2e987abd3519fc0b0df1d8561e38aaba"
+  },
+  "model_assets_sha256": {
+    ".venv/Lib/site-packages/rapidocr/models/ch_ppocr_mobile_v2.0_cls_mobile.onnx": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+    ".venv/Lib/site-packages/rapidocr/models/PP-OCRv6_det_small.onnx": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+    ".venv/Lib/site-packages/rapidocr/models/PP-OCRv6_rec_small.onnx": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+    "cache/paddlex/official_models/en_PP-OCRv5_mobile_rec/config.json": "16103ac291a82fca50f0bb000d62a4b8168f6042f03c89c44cf32f241d1eb1f2",
+    "cache/paddlex/official_models/en_PP-OCRv5_mobile_rec/inference.json": "fd1b6ec722ea841a72d3ba43e527df1d1066d5d7808e0503ee3eec7265188753",
+    "cache/paddlex/official_models/PP-OCRv5_mobile_det/config.json": "7ac1c33f377ba58561f4b89d3180b6add2b7c5c60a4edac90fa4e0ceccdc6665",
+    "cache/paddlex/official_models/PP-OCRv5_mobile_det/inference.json": "05feef1acb00aa4cd7362b15f7f501fc4f99d7b1fa73c1c871e0c7b1504b0f5c",
+    "cache/paddlex/official_models/PP-OCRv5_mobile_det/.cache/huggingface/trees/0d63e78e2b680928f6b1747d76a08db6e645efb7.json": "52f183ab0177d44d00b03b1978572d9d4991b13fc7cc9854f3807acfab7d903b",
+    "cache/paddlex/official_models/en_PP-OCRv5_mobile_rec/.cache/huggingface/trees/267c36e24c331595590fe7bd72bde2436fd286f2.json": "d38d53c7eafc1f99966f3992dba05b0286f584792322af4057699ec0d039f65c",
+    "cache/paddlex/official_models/en_PP-OCRv5_mobile_rec/inference.pdiparams": "3ec8a97ed6cefe8568d3e2ee90bb193299b566a7661aa4fd52d224b96b59f66b",
+    "cache/paddlex/official_models/PP-OCRv5_mobile_det/inference.pdiparams": "afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b",
+    "cache/tesseract/eng.traineddata": "5dc5d8d640a212c9d6184921ba103b186f50e0fed9ee716c53e6b312b400d747",
+    "cache/tesseract/msa.traineddata": "e82c6e95deb6acddf647e8ac433eedc8cdd38e160f5822e6a42acf3f7c935a7b"
+  },
+  "limits": [
+    "Models and image assets are research-local caches; redistribution rights not cleared",
+    "Same workstation exploratory timing; no phone/device/PWA/runtime comparison",
+    "Annotations are agent transcriptions and synthetic truth; not human-verified held-out gold"
+  ]
+}

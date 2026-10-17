@@ -1,0 +1,13 @@
+{
+  "scope": "Coordinator governance/current-index check, 2026-10-16",
+  "documents": 25,
+  "local_links_checked": 212,
+  "missing_links": [],
+  "context7_block_sha256": "f5f99c0bf9a12a4547d381464633f066dd41877f89dcc700711ae2d0cd4795b2",
+  "active_governance": "docs/agents/governance.md",
+  "status_source": "PROJECT_STATUS.md",
+  "phase_decision_owner": "main orchestrator",
+  "explicit_only_skill_policy_preserved": true,
+  "no_routine_phase_approval": true,
+  "check_context": "Updated after calculation-slice acceptance; line-suffixed file links resolved"
+}

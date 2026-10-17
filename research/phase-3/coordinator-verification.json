@@ -1,0 +1,46 @@
+{
+  "scope": "Main orchestrator reviewed actual source, tests, interface and specification; isolated financial core only",
+  "date": "2026-10-16",
+  "command": "python -m unittest discover -s tests -v",
+  "observed_exit_code": 0,
+  "observed_test_methods": 15,
+  "observed_failures": 0,
+  "observed_errors": 0,
+  "source_hash_matches": {
+    "tabwise/__init__.py": true,
+    "tabwise/calculation.py": true,
+    "tests/test_calculation.py": true,
+    "docs/calculation-interface.md": true,
+    "research/phase-2/mvp-specification.md": true
+  },
+  "review_status": "Accepted by main orchestrator for isolated calculation/parser slice; Phase3 whole MVP remains in progress",
+  "not_established": [
+    "human review or identity",
+    "current persisted revision/finalization authority",
+    "live collaborative production authorization",
+    "payer/settlement ledger",
+    "capture/OCR or private image handling",
+    "Notion integration",
+    "deployment/release readiness"
+  ],
+  "independent_reviews": {
+    "specification": {
+      "checks": 66,
+      "failed": 0,
+      "report": "research/phase-3/spec-review.md"
+    },
+    "engineering": {
+      "check_groups": 11,
+      "failed": 0,
+      "report": "research/phase-3/engineering-review.md"
+    }
+  },
+  "review_artifact_sha256": {
+    "research/phase-3/engineering-probes.json": "76aee49c8c1f1fc42644bc48f31a1834932ebfcaef7067f6f325702538931a0d",
+    "research/phase-3/engineering-review.md": "91bcd218ced8a6e340f15d4a1db161f4459250b6b6dc6fdfe2508efeb148d267",
+    "research/phase-3/engineering_probes.py": "9eae1afd3f7bc9d1202e440e66a79a1bb6c473d30d0ad2f7912c806966b77967",
+    "research/phase-3/independent-probes.json": "790d2f156f4f4a1a23fa2f2cace3df0ca82ef5c5cb323a4ff526b1b0458b53c3",
+    "research/phase-3/independent_probes.py": "d80b58294ed89147312c85bd17e450844cf11bf1f492863232716654f8f79db3",
+    "research/phase-3/spec-review.md": "0d54b5f5e04bac827961616e1405863bfc1be9baf834f08b60d34bd833c7eb57"
+  }
+}

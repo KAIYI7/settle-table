@@ -1,0 +1,36 @@
+{
+  "access_date": "2026-10-16",
+  "python_version": "3.14.6",
+  "AGENTS_outside_Current_phase_sha256": "681a3445bfa0c0a5c86eadaa5359ab58c98edac9b16d0f8730e3687ae533b226",
+  "checks": {
+    "domain": {
+      "scenarios": 67,
+      "randomized_assertions": 54000
+    },
+    "notion": {
+      "passed": 12,
+      "failed": 0
+    },
+    "collaboration": {
+      "passed": 17,
+      "failed": 0
+    },
+    "normalized_ocr_money": "integer sen or null; presence metadata and raw OCR strings are not monetary amounts",
+    "ocr_integrity": {
+      "files": 16,
+      "model_files": 13,
+      "all_match": true
+    }
+  },
+  "scope": "Phase1 only; no production scaffold or hosted image inference",
+  "limitations": [
+    "No real-device/browser realtime trial",
+    "No representative modern SST/voucher corpus or human gold",
+    "Notion live evidence is connector, recovery is fake remote; raw REST untested"
+  ],
+  "document_check": {
+    "required_outputs": 6,
+    "markdown_documents_checked": 34,
+    "broken_relative_links": 0
+  }
+}

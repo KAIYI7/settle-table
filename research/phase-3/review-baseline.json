@@ -1,0 +1,10 @@
+{
+  "scope": "New isolated calculation slice; full current files, no Git repository or user-provided diff baseline",
+  "files": {
+    "tabwise/__init__.py": "7039881acd99d7ea66e4c6571c5fdf6374f52f393b3a51e3f56edf645a61ac5a",
+    "tabwise/calculation.py": "4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a",
+    "tests/test_calculation.py": "70d6dab36179bc2672712b236eea54d0313c85a2fd5a54480e03aefdbefea80c",
+    "docs/calculation-interface.md": "e447998ff254f1e9e6267b020a9777a599131eef1c7333b4c2f620134a9c2173",
+    "research/phase-2/mvp-specification.md": "4de5af56ea05a71ef894ee08accea375655dcae1f7888a45825bf80b43faf711"
+  }
+}

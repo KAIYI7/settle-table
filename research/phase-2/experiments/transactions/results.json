@@ -1,0 +1,216 @@
+{
+  "scope": "DISPOSABLE real-file SQLite; synthetic actors and data; no HTTP",
+  "python": "3.14.6",
+  "sqlite": "3.50.4",
+  "script_sha256": "3a74a95997dfeeba28465a7800b3a2b6e78cc261e003e51d4ad7759e83156cfb",
+  "database": "DISPOSABLE-transactions-7d1a229062f94a0cabbc5c5b8071409f.sqlite",
+  "configuration": {
+    "journal_mode": "wal",
+    "synchronous": 2,
+    "foreign_keys": 1
+  },
+  "passed": 20,
+  "failed": 0,
+  "checks": [
+    {
+      "case": "real_second_connection_blocked_by_immediate_writer_then_recovers",
+      "passed": true
+    },
+    {
+      "case": "underassigned_finalization_rolls_back_without_result",
+      "passed": true
+    },
+    {
+      "case": "two_real_connections_same_revision_exactly_one_accepts_no_lost_claim",
+      "passed": true
+    },
+    {
+      "case": "explicit_retry_current_revision_preserves_both_diners",
+      "passed": true
+    },
+    {
+      "case": "exact_old_command_result_replayed_after_newer_revision_without_reapply",
+      "passed": true
+    },
+    {
+      "case": "same_command_id_altered_body_rejected",
+      "passed": true
+    },
+    {
+      "case": "after_state_exception_rolls_back_state_and_command_result",
+      "passed": true
+    },
+    {
+      "case": "after_result_exception_rolls_back_state_and_command_result",
+      "passed": true
+    },
+    {
+      "case": "capacity_error_restores_deleted_previous_claim",
+      "passed": true
+    },
+    {
+      "case": "receipt_total_mismatch_prevents_finalization_without_committed_result",
+      "passed": true
+    },
+    {
+      "case": "atomic_finalize_conserves_odd_sen_with_deterministic_residue",
+      "passed": true
+    },
+    {
+      "case": "separate_python_process_reads_exact_durable_committed_result",
+      "passed": true
+    },
+    {
+      "case": "close_reopen_reconnect_replays_exact_committed_result",
+      "passed": true
+    },
+    {
+      "case": "boolean_and_fractional_money_rejected_before_financial_write",
+      "passed": true
+    },
+    {
+      "case": "strict_sql_integer_column_rejects_fractional_money",
+      "passed": true
+    },
+    {
+      "case": "same_actual_transfer_across_suggestion_batches_counted_once",
+      "passed": true
+    },
+    {
+      "case": "same_actual_transfer_id_changed_facts_rejected",
+      "passed": true
+    },
+    {
+      "case": "accepted_command_results_cannot_update_or_delete_via_schema",
+      "passed": true
+    },
+    {
+      "case": "later_accepted_edit_invalidates_finalize_without_erasing_actual_transfer",
+      "passed": true
+    },
+    {
+      "case": "database_integrity_check",
+      "passed": true
+    }
+  ],
+  "concurrent_outcomes": [
+    [
+      "A",
+      "conflict",
+      "stale meal revision"
+    ],
+    [
+      "B",
+      "accepted",
+      "{\"item_revision\":1,\"person\":\"B\",\"revision\":1,\"status\":\"accepted\",\"units\":1}"
+    ]
+  ],
+  "finalized_result": {
+    "person_sen": {
+      "A": 501,
+      "B": 500
+    },
+    "revision": 3,
+    "status": "finalized",
+    "total_sen": 1001
+  },
+  "final_snapshot": {
+    "meals": [
+      {
+        "id": "meal",
+        "total_sen": 1001,
+        "revision": 4,
+        "finalized_revision": null
+      }
+    ],
+    "items": [
+      {
+        "id": "dish",
+        "meal": "meal",
+        "quantity": 2,
+        "line_sen": 1001,
+        "revision": 3
+      }
+    ],
+    "claims": [
+      {
+        "item": "dish",
+        "person": "A",
+        "units": 1
+      },
+      {
+        "item": "dish",
+        "person": "B",
+        "units": 1
+      }
+    ],
+    "commands": [
+      {
+        "actor": "A",
+        "meal": "meal",
+        "command_id": "post-final-edit",
+        "body": "{\"expected_item_revision\":2,\"expected_revision\":3,\"kind\":\"claim\",\"units\":1}",
+        "digest": "21a8581d9e22ebab25fec758981cabf46493dad075f0d981628810ab8ff1969e",
+        "result": "{\"item_revision\":3,\"person\":\"A\",\"revision\":4,\"status\":\"accepted\",\"units\":1}"
+      },
+      {
+        "actor": "A",
+        "meal": "meal",
+        "command_id": "retry-after-conflict",
+        "body": "{\"expected_item_revision\":1,\"expected_revision\":1,\"kind\":\"claim\",\"units\":1}",
+        "digest": "487c4817edb94b5c4907af8507babf3e58d3a5cd217586c0fae8e215d34dee79",
+        "result": "{\"item_revision\":2,\"person\":\"A\",\"revision\":2,\"status\":\"accepted\",\"units\":1}"
+      },
+      {
+        "actor": "B",
+        "meal": "meal",
+        "command_id": "initial-B",
+        "body": "{\"expected_item_revision\":0,\"expected_revision\":0,\"kind\":\"claim\",\"units\":1}",
+        "digest": "4cbfb26019c90aac85fd8e2bf1f575aa120703ab55a881bf02da3bdc4823c835",
+        "result": "{\"item_revision\":1,\"person\":\"B\",\"revision\":1,\"status\":\"accepted\",\"units\":1}"
+      },
+      {
+        "actor": "organizer",
+        "meal": "meal",
+        "command_id": "finalize",
+        "body": "{\"expected_revision\":2,\"kind\":\"finalize\"}",
+        "digest": "e49866fc51bb273659fd5178ee713e7dd933e072864bfeb2d16edacad92bce85",
+        "result": "{\"person_sen\":{\"A\":501,\"B\":500},\"revision\":3,\"status\":\"finalized\",\"total_sen\":1001}"
+      },
+      {
+        "actor": "synthetic-confirmed-import",
+        "meal": "meal",
+        "command_id": "transfer-first",
+        "body": "{\"actual_id\":\"actual-001\",\"amount_sen\":200,\"kind\":\"record_already_confirmed_transfer\",\"recipient\":\"A\",\"sender\":\"B\",\"suggestion_batch\":\"batch-old\"}",
+        "digest": "25d3da4e12c8b108440051fadc909715f291733a06f51a255d6431f32aee7de1",
+        "result": "{\"actual_id\":\"actual-001\",\"amount_sen\":200,\"status\":\"recorded\"}"
+      },
+      {
+        "actor": "synthetic-confirmed-import",
+        "meal": "meal",
+        "command_id": "transfer-new-batch",
+        "body": "{\"actual_id\":\"actual-001\",\"amount_sen\":200,\"kind\":\"record_already_confirmed_transfer\",\"recipient\":\"A\",\"sender\":\"B\",\"suggestion_batch\":\"batch-new\"}",
+        "digest": "786d6b63e2e5031c8a611deb887bed7fd8b9ffbb8a696ca8fc914f7f61f6ff66",
+        "result": "{\"actual_id\":\"actual-001\",\"amount_sen\":200,\"status\":\"recorded\"}"
+      }
+    ],
+    "transfers": [
+      {
+        "actual_id": "actual-001",
+        "meal": "meal",
+        "sender": "B",
+        "recipient": "A",
+        "amount_sen": 200
+      }
+    ]
+  },
+  "limitations": [
+    "No OS/process kill or power-loss test",
+    "No browser, network, auth, invitation or account flow",
+    "One host, one SQLite file, two threaded independent connections; no multiprocess load test",
+    "Whole-meal revisions are deliberately conservative; no independent-item concurrency proof",
+    "One positive integer-quantity item only; full charges, rationals, refunds and settlement consent not modeled",
+    "Rejected command outcomes are not persisted; accepted outcomes only are replayed",
+    "Synthetic already-confirmed transfer facts do not select who may confirm real transfers"
+  ]
+}

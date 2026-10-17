@@ -1,0 +1,11 @@
+skills\in-progress\chief-of-staff\SKILL.md
+skills\in-progress\claude-handoff\SKILL.md
+skills\in-progress\loop-me\SKILL.md
+skills\in-progress\setup-ts-deep-modules\SKILL.md
+skills\in-progress\writing-beats\SKILL.md
+skills\in-progress\writing-fragments\SKILL.md
+skills\in-progress\writing-shape\SKILL.md
+skills\misc\git-guardrails-claude-code\SKILL.md
+skills\misc\migrate-to-shoehorn\SKILL.md
+skills\misc\scaffold-exercises\SKILL.md
+skills\misc\setup-pre-commit\SKILL.md
