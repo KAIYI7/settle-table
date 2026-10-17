@@ -3,6 +3,9 @@ import unittest
 from pathlib import Path
 from dataclasses import replace
 from fractions import Fraction
+from unittest.mock import patch
+import sqlite3
+import time
 
 from tabwise.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
                                ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize, ReceiptAdjustment,
@@ -198,6 +201,108 @@ class AuthorityTests(unittest.TestCase):
                 with self.assertRaises(AuthorityError) as self_revoke:
                     self.authority.apply(credentials['A'], 'meal', kind('self', 3, 'A'))
                 self.assertEqual(self_revoke.exception.code, 'forbidden')
+
+    def test_injected_precommit_failures_rollback_state_and_response_then_retry(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 1, 100),), 100, 100)
+        for stage in ('after_state', 'after_result', 'before_commit'):
+            with self.subTest(stage=stage):
+                self.authority.close()
+                armed = [True]
+                def fail(point):
+                    if armed[0] and point == stage:
+                        raise RuntimeError('private dependency diagnostic')
+                self.authority = Authority(self.path, clock=lambda: 1000, failure_hook=fail)
+                snapshot = self.authority.snapshot(credentials['A'], 'meal')
+                command = ReplaceReceipt(stage, snapshot.revision, snapshot.financial_revision, receipt)
+                with self.assertRaises(AuthorityError) as rejected:
+                    self.authority.apply(credentials['A'], 'meal', command)
+                self.assertEqual(str(rejected.exception), 'storage_error')
+                self.assertEqual(self.authority.snapshot(credentials['A'], 'meal'), snapshot)
+                armed[0] = False
+                result = self.authority.apply(credentials['A'], 'meal', command)
+                self.assertEqual(result.revision, snapshot.revision + 1)
+                self.assertEqual(self.authority.apply(credentials['A'], 'meal', command), result)
+
+    def test_invalid_typed_facts_reject_without_mutation(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 1, 100),), 100, 100)
+        bad = (
+            replace(receipt, items=list(receipt.items)),
+            replace(receipt, subtotal_sen=True), replace(receipt, total_sen=100.0),
+            replace(receipt, total_sen=1_000_000_001),
+            replace(receipt, items=(replace(receipt.items[0], quantity=True),)),
+            replace(receipt, items=(replace(receipt.items[0], quantity=Fraction(1, 1_000_001)),)),
+            replace(receipt, items=(replace(receipt.items[0], quantity=0),)),
+            replace(receipt, items=(replace(receipt.items[0], label=' '),)),
+            replace(receipt, items=(replace(receipt.items[0], label='x' * 161),)),
+            replace(receipt, items=(replace(receipt.items[0], label='a\x00b'),)),
+            replace(receipt, items=(replace(receipt.items[0], label='\ud800'),)),
+            replace(receipt, items=(replace(receipt.items[0], id='.bad'),)),
+            replace(receipt, items=receipt.items * 501),
+            replace(receipt, items=receipt.items * 2),
+            replace(receipt, adjustments=(ReceiptAdjustment('fee', 'SST', 'tax', -1, ('dish',), 'Printed'),)),
+            replace(receipt, adjustments=(ReceiptAdjustment('fee', 'Fee', 'service', 1, ('foreign',), 'Printed'),)),
+            replace(receipt, adjustments=(ReceiptAdjustment('fee', 'Fee', 'service', 1, ('dish', 'dish'), 'Printed'),)),
+        )
+        snapshot = self.authority.snapshot(credentials['A'], 'meal')
+        for index, malformed in enumerate(bad):
+            with self.subTest(index=index), self.assertRaises(AuthorityError):
+                self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('invalid', 0, 0, malformed))
+            self.assertEqual(self.authority.snapshot(credentials['A'], 'meal'), snapshot)
+
+    def test_entropy_failure_is_safe_and_does_not_reserve_bootstrap_identity(self):
+        with patch('tabwise.authority.secrets.token_urlsafe', side_effect=OSError('private entropy failure')):
+            with self.assertRaises(AuthorityError) as rejected:
+                self.bootstrap()
+        self.assertEqual(str(rejected.exception), 'storage_error')
+        credentials = self.bootstrap()
+        self.assertEqual(self.authority.snapshot(credentials['A'], 'meal').revision, 0)
+
+    def test_busy_is_bounded_and_does_not_accept_or_reserve_command(self):
+        credentials = self.bootstrap()
+        command = ReplaceReceipt('entry', 0, 0, Receipt())
+        competitor = sqlite3.connect(self.path, isolation_level=None)
+        try:
+            competitor.execute('BEGIN IMMEDIATE')
+            started = time.monotonic()
+            with self.assertRaises(AuthorityError) as busy:
+                self.authority.apply(credentials['A'], 'meal', command)
+            self.assertEqual(busy.exception.code, 'busy')
+            self.assertLess(time.monotonic() - started, 3)
+            competitor.execute('ROLLBACK')
+            self.assertEqual(self.authority.apply(credentials['A'], 'meal', command).revision, 1)
+        finally:
+            competitor.close()
+
+    def test_hook_authority_error_does_not_escape_as_private_diagnostic(self):
+        credentials = self.bootstrap()
+        self.authority.close()
+        def fail(stage):
+            if stage == 'after_state':
+                raise AuthorityError('private dependency diagnostic')
+        self.authority = Authority(self.path, clock=lambda: 1000, failure_hook=fail)
+        with self.assertRaises(AuthorityError) as rejected:
+            self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, Receipt()))
+        self.assertEqual(str(rejected.exception), 'storage_error')
+        self.assertEqual(self.authority.snapshot(credentials['A'], 'meal').revision, 0)
+
+    def test_clock_dependency_error_never_impersonates_public_rejection(self):
+        credentials = self.bootstrap()
+        self.authority.close()
+        def broken_clock():
+            raise AuthorityError('private clock diagnostic')
+        self.authority = Authority(self.path, clock=broken_clock)
+        for operation in (lambda: self.authority.snapshot(credentials['A'], 'meal'),
+                          lambda: self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, Receipt()))):
+            with self.assertRaises(AuthorityError) as rejected:
+                operation()
+            self.assertEqual(str(rejected.exception), 'storage_error')
+            self.assertIsNone(rejected.exception.__cause__)
+            self.assertTrue(rejected.exception.__suppress_context__)
+        self.authority.close()
+        self.authority = Authority(self.path, clock=lambda: 1000)
+        self.assertEqual(self.authority.snapshot(credentials['A'], 'meal').revision, 0)
 
 
 if __name__ == '__main__':

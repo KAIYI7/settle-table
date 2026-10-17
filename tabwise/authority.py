@@ -176,6 +176,7 @@ def _id(value):
 def _text(value, maximum):
     _require(type(value) is str and 1 <= len(value) <= maximum)
     _require(not any(unicodedata.category(c) in ('Cc', 'Cs') for c in value))
+    _require(any(not c.isspace() and unicodedata.category(c) != 'Cf' for c in value))
 
 
 def _tuple(value, maximum, minimum=0):
@@ -380,14 +381,21 @@ class Authority:
                 pass
 
     def _now(self):
-        value = self._clock()
+        try:
+            value = self._clock()
+        except Exception:
+            raise AuthorityError('storage_error') from None
         _require(type(value) in (int, float) and math.isfinite(value)
                  and abs(value) <= 1_000_000_000_000, 'storage_error')
         return value
 
     def _hook(self, stage):
         if self._failure_hook is not None:
-            self._failure_hook(stage)
+            try:
+                self._failure_hook(stage)
+            except Exception:
+                # Dependency failures must not impersonate domain rejections.
+                raise RuntimeError('dependency_failure') from None
 
     def _rollback(self):
         try:
@@ -415,13 +423,13 @@ class Authority:
             seen.add(person.id)
         _require(sum(p.organizer for p in participants) == 1)
         _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
-        grants = tuple(SessionGrant(p.id, secrets.token_urlsafe(32)) for p in participants)
         state = {'revision': 0, 'financial_revision': 0, 'receipt': None,
                  'item_revisions': {}, 'claims': [], 'review': None,
                  'calculation': None, 'retired_ids': []}
         committed = False
         commit_attempted = False
         try:
+            grants = tuple(SessionGrant(p.id, secrets.token_urlsafe(32)) for p in participants)
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN IMMEDIATE')
             _require(self._db.execute('SELECT 1 FROM meals WHERE id=?', (meal_id,)).fetchone() is None, 'meal_exists')
