@@ -208,8 +208,8 @@ def _money(value, *, signed=False):
 
 def _rational(value):
     _require(type(value) in (int, Fraction))
-    _require(0 < value <= 1_000_000 and value.numerator <= 1_000_000_000
-             and value.denominator <= 1_000_000)
+    _require(0 < value.numerator <= 1_000_000_000 and value.denominator <= 1_000_000)
+    _require(value <= 1_000_000)
     return [value.numerator, value.denominator]
 
 
@@ -309,7 +309,26 @@ def _decode_result(wire):
     claims = tuple(Claim(c['item_id'], c['participant_id'], Fraction(*c['quantity']),
                          c['financial_revision'], c['status']) for c in data['changed_claims'])
     return AcceptedResult(data['command_id'], data['kind'], data['revision'],
-                          data['financial_revision'], claims, None, wire)
+                          data['financial_revision'], claims, _decode_calculation(data['calculation']), wire)
+
+
+def _calculation_data(result):
+    def amounts(rows):
+        return [{'participant_id': p.participant_id, 'sen': p.sen} for p in rows]
+    def sources(rows):
+        return [{'source_id': source.source_id, 'shares': amounts(source.shares)} for source in rows]
+    return {'items': sources(result.items), 'adjustments': sources(result.adjustments),
+            'consumption': amounts(result.consumption)}
+
+
+def _decode_calculation(data):
+    if data is None:
+        return None
+    def amounts(rows):
+        return tuple(calc.PersonAmount(p['participant_id'], p['sen']) for p in rows)
+    def sources(rows):
+        return tuple(calc.SourceAllocation(s['source_id'], amounts(s['shares'])) for s in rows)
+    return calc.Calculation(sources(data['items']), sources(data['adjustments']), amounts(data['consumption']))
 
 
 def _claim_data(claim):
@@ -419,6 +438,8 @@ class Authority:
             return BootstrapResult(meal_id, grants)
         except AuthorityError:
             self._rollback()
+            if committed:
+                raise AuthorityError('commit_uncertain') from None
             raise
         except sqlite3.Error as error:
             self._storage_failure(error)
@@ -446,7 +467,9 @@ class Authority:
             result = DraftSnapshot(meal_id, state['revision'], state['financial_revision'],
                                    _receipt_digest(state['receipt']), _decode_receipt(state['receipt']),
                                    tuple(ItemState(i, revision) for i, revision in sorted(state['item_revisions'].items())),
-                                   _claims(state), None, None, False, self._issues(state),
+                                   _claims(state), None if state['review'] is None else ReviewRecord(**state['review']),
+                                   _decode_calculation(state['calculation']), state['calculation'] is not None,
+                                   self._issues(state),
                                    tuple(Participant(p[0], p[1], bool(p[2])) for p in people),
                                    tuple(p[0] for p in people if not p[3]))
             self._db.execute('COMMIT')
@@ -552,6 +575,34 @@ class Authority:
         _revision(state['item_revisions'][item_id])
         return tuple(c for c in _claims(state) if c.item_id == item_id and c.participant_id == actor)
 
+    def _review_receipt(self, state, actor, data):
+        _require(data['receipt_digest'] == _receipt_digest(state['receipt']), 'receipt_digest_conflict')
+        issues = self._receipt_issues(state)
+        _require(not issues, issues[0] if issues else 'receipt_issue')
+        state['review'] = {'participant_id': actor, 'financial_revision': state['financial_revision'],
+                           'receipt_digest': data['receipt_digest'], 'command_id': data['command_id']}
+
+    def _finalize(self, state, meal_id):
+        review = state['review']
+        _require(review is not None and review['financial_revision'] == state['financial_revision']
+                 and review['receipt_digest'] == _receipt_digest(state['receipt']), 'review_required')
+        issues = self._issues(state)
+        _require(not issues, issues[0] if issues else 'draft_incomplete')
+        receipt = state['receipt']
+        people = tuple(p[0] for p in self._db.execute('SELECT id FROM participants WHERE meal_id=? ORDER BY id', (meal_id,)))
+        items = tuple(calc.Item(i['id'], i['line_sen'],
+                                calc.Split('quantity', tuple(calc.Share(c.participant_id, c.quantity)
+                                     for c in _claims(state) if c.item_id == i['id'])),
+                                Fraction(*i['quantity'])) for i in receipt['items'])
+        adjustments = tuple(calc.Adjustment(a['id'], a['kind'], a['amount_sen'],
+                                            tuple(a['eligible_item_ids'])) for a in receipt['adjustments'])
+        try:
+            result = calc.calculate(calc.Meal(people, items, receipt['subtotal_sen'], receipt['total_sen'],
+                                               adjustments, receipt['included_tax_sen']))
+        except calc.CalculationError:
+            raise AuthorityError('calculation_rejected') from None
+        state['calculation'] = _calculation_data(result)
+
     def apply(self, credential, meal_id, command):
         verifier = _verifier(credential)
         _id(meal_id)
@@ -586,6 +637,12 @@ class Authority:
                 changed = self._replace_receipt(state, data)
             elif data['kind'] == 'SetOwnQuantity':
                 changed = self._set_own_quantity(state, actor, data)
+            elif data['kind'] == 'ReviewReceipt':
+                self._review_receipt(state, actor, data)
+                changed = ()
+            elif data['kind'] == 'Finalize':
+                self._finalize(state, meal_id)
+                changed = ()
             else:
                 raise AuthorityError('unsupported_command')
             state['revision'] += 1
@@ -596,7 +653,8 @@ class Authority:
             self._hook('after_state')
             result_bytes = _wire({'command_id': command.command_id, 'kind': data['kind'],
                                   'revision': state['revision'], 'financial_revision': state['financial_revision'],
-                                  'changed_claims': [_claim_data(c) for c in changed], 'calculation': None})
+                                  'changed_claims': [_claim_data(c) for c in changed],
+                                  'calculation': state['calculation'] if data['kind'] == 'Finalize' else None})
             self._db.execute('INSERT INTO commands VALUES (?,?,?,?,?,?,?)',
                              (meal_id, actor, command.command_id, body, digest, result_bytes, int(security)))
             self._hook('after_result')
@@ -608,9 +666,15 @@ class Authority:
             return _decode_result(result_bytes)
         except AuthorityError:
             self._rollback()
+            if committed:
+                raise AuthorityError('commit_uncertain') from None
             raise
         except sqlite3.Error as error:
-            uncertain = committed or (commit_attempted and self._db is not None and not self._db.in_transaction)
+            try:
+                transaction_open = self._db is not None and self._db.in_transaction
+            except Exception:
+                transaction_open = None
+            uncertain = committed or (commit_attempted and transaction_open is not True)
             if uncertain:
                 self._rollback()
                 raise AuthorityError('commit_uncertain') from None

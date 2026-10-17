@@ -5,7 +5,7 @@ from dataclasses import replace
 from fractions import Fraction
 
 from tabwise.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
-                               ReplaceReceipt, SetOwnQuantity)
+                               ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize, ReceiptAdjustment)
 
 
 class AuthorityTests(unittest.TestCase):
@@ -93,6 +93,81 @@ class AuthorityTests(unittest.TestCase):
         self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('release', 'dish', None, 4, 2))
         self.assertEqual(tuple((c.participant_id, c.quantity) for c in self.authority.snapshot(credentials['A'], 'meal').claims),
                          (('A', Fraction(2)),))
+
+    def test_review_precedes_claims_and_finalization_uses_actual_calculator(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 3, 1001),), 1001, 1001)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+        digest = self.authority.snapshot(credentials['A'], 'meal').receipt_digest
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('review', 1, 1, digest))
+        reviewed = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual((reviewed.review.participant_id, reviewed.review.financial_revision), ('A', 1))
+        self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('a', 'dish', 1, 1, 1))
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('b', 'dish', 2, 2, 1))
+        self.assertEqual(self.authority.snapshot(credentials['A'], 'meal').review, reviewed.review)
+        with self.assertRaises(AuthorityError) as stale:
+            self.authority.apply(credentials['A'], 'meal', Finalize('stale-final', 2, 1))
+        self.assertEqual(stale.exception.code, 'revision_conflict')
+        final_command = Finalize('final', 4, 1)
+        result = self.authority.apply(credentials['A'], 'meal', final_command)
+        self.assertEqual(tuple((p.participant_id, p.sen) for p in result.calculation.consumption), (('A', 334), ('B', 667)))
+        self.assertTrue(self.authority.snapshot(credentials['A'], 'meal').finalized)
+        with self.assertRaises(AuthorityError) as readonly:
+            self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('late', 'dish', None, 3, 1))
+        self.assertEqual(readonly.exception.code, 'finalized')
+        self.authority.close()
+        self.authority = Authority(self.path, clock=lambda: 1000)
+        self.assertEqual(self.authority.apply(credentials['A'], 'meal', final_command), result)
+        self.assertEqual(self.authority.snapshot(credentials['A'], 'meal').calculation, result.calculation)
+
+    def finalize_receipt(self, credentials, receipt, claims):
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+        for index, (person, item_id, quantity) in enumerate(claims):
+            snapshot = self.authority.snapshot(credentials[person], 'meal')
+            item_revision = next(i.item_revision for i in snapshot.items if i.item_id == item_id)
+            self.authority.apply(credentials[person], 'meal', SetOwnQuantity(f'claim{index}', item_id, quantity, item_revision, 1))
+        snapshot = self.authority.snapshot(credentials['A'], 'meal')
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('review', snapshot.revision, 1, snapshot.receipt_digest))
+        return self.authority.apply(credentials['A'], 'meal', Finalize('final', snapshot.revision + 1, 1))
+
+    def test_scoped_charges_use_accepted_rounded_original_bases(self):
+        credentials = self.bootstrap()
+        adjustments = tuple(ReceiptAdjustment(id_, label, kind, amount, ('dish',), 'Printed receipt component')
+            for id_, label, kind, amount in (('discount', 'Discount', 'discount', -101),
+                                           ('sst', 'SST', 'tax', 174),
+                                           ('service', 'Service', 'service', 290),
+                                           ('round', 'Rounding', 'rounding', 1)))
+        receipt = Receipt((ReceiptItem('dish', 'Shared meal', 3001, 3001),), 3001, 3365, adjustments)
+        result = self.finalize_receipt(credentials, receipt, (('A', 'dish', 1501), ('B', 'dish', 1500)))
+        self.assertEqual(tuple(p.sen for p in result.calculation.consumption), (1683, 1682))
+        self.assertEqual(tuple((a.source_id, tuple(s.sen for s in a.shares)) for a in result.calculation.adjustments),
+                         (('discount', (-51, -50)), ('round', (1, 0)), ('service', (145, 145)), ('sst', (87, 87))))
+
+    def test_included_tax_is_informational_and_full_discount_keeps_zero_totals(self):
+        for case, receipt, claims, expected in (
+            ('included', Receipt((ReceiptItem('dish', 'Gross meal', 1, 600),), 600, 600, included_tax_sen=34),
+             (('A', 'dish', 1),), (600, 0)),
+            ('discount', Receipt((ReceiptItem('tiny', 'Tiny', 2, 1),), 1, 0,
+                (ReceiptAdjustment('free', 'Discount', 'discount', -1, ('tiny',), 'Printed discount'),)),
+             (('A', 'tiny', 1), ('B', 'tiny', 1)), (0, 0)),
+        ):
+            with self.subTest(case=case):
+                self.authority.close()
+                self.authority = Authority(Path(self.temp.name) / (case + '.sqlite'), clock=lambda: 1000)
+                result = self.finalize_receipt(self.bootstrap(), receipt, claims)
+                self.assertEqual(tuple(p.sen for p in result.calculation.consumption), expected)
+
+    def test_overlapping_discounts_rejected_by_real_calculator_without_acceptance(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('a', 'Small', 1, 1), ReceiptItem('b', 'Large', 1, 100)), 101, 99,
+            tuple(ReceiptAdjustment(id_, 'Printed discount', 'discount', -1, ('a',), 'Separate printed line') for id_ in ('d1', 'd2')))
+        with self.assertRaises(AuthorityError) as rejected:
+            self.finalize_receipt(credentials, receipt, (('A', 'a', 1), ('B', 'b', 1)))
+        self.assertEqual(rejected.exception.code, 'calculation_rejected')
+        snapshot = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(snapshot.revision, 4)
+        self.assertFalse(snapshot.finalized)
+        self.assertIsNone(snapshot.calculation)
 
 
 if __name__ == '__main__':
