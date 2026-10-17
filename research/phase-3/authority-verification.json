@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-17",
+  "branch": "feature/authoritative-draft",
+  "python": "3.14.6",
+  "sqlite": "3.50.4",
+  "authority_source_unchanged_since_complete_run": true,
+  "calculator_unchanged": true,
+  "complete_run": {
+    "command": "python -m unittest discover -s tests -v",
+    "tests": 60,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 195.536,
+    "exit_code": 0,
+    "includes_actual_10000_command_quota": true,
+    "loaded_test_contents_equivalent_to_commit": "b82767660e5d1f929356afb32fc03a1165930f8d",
+    "test_hashes": {
+      "tests/test_authority.py": "8551bc029405fadaa59bc153b3ee93a4d6053e9b2d2485b4c33d8abc1cd78dc5",
+      "tests/test_authority_adversarial.py": "cf8687d40a8c7dfcd0e7aaf812d9c06384b008edc8c789c50f7551fa79239721",
+      "tests/test_authority_security.py": "f96391f17293aa84a53bcbdbbd82ea82d396fba149e9613841e7ff566529024c",
+      "tests/test_authority_validation.py": "dbe85b50936ebd974e7c976c4926bf2593a9f28eeb5d8501cc0647dd23b28717",
+      "tests/test_calculation.py": "70d6dab36179bc2672712b236eea54d0313c85a2fd5a54480e03aefdbefea80c"
+    }
+  },
+  "final_diagnostic_only_delta": {
+    "description": "Credential/verifier leak assertions use fixed safe messages; predicates/scenarios unchanged. Production source unchanged.",
+    "adversarial_rerun": {
+      "tests": 20,
+      "seconds": 1.733,
+      "failures": 0,
+      "errors": 0
+    },
+    "security_nonquota_rerun": {
+      "tests": 7,
+      "seconds": 0.421,
+      "failures": 0,
+      "errors": 0
+    },
+    "quota_not_repeated_after_diagnostic_only_edit": true
+  },
+  "method_counts": {
+    "implementation": 15,
+    "adversarial": 20,
+    "security": 8,
+    "coordinator_validation": 2,
+    "existing_calculator": 15
+  },
+  "final_file_sha256": {
+    "tabwise/authority.py": "1eef9e7959639de5407bc445e9344f3ef7e0bb9502bafcfb2026d2c794ed81f0",
+    "tabwise/calculation.py": "4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a",
+    "docs/authority-interface.md": "961b01a270b4585543c8046d5521403feee1d891784e485b51ea37a5c74bbe4e",
+    "tests/test_authority.py": "8551bc029405fadaa59bc153b3ee93a4d6053e9b2d2485b4c33d8abc1cd78dc5",
+    "tests/test_authority_adversarial.py": "81e0d02c54195bcabe45422e79ce024b2940192061363a0cdf1e740045db94de",
+    "tests/test_authority_security.py": "3c3fa2cfb002925e304dee41b3581992b518c0aab45fad1c43a9b79e64d948e3",
+    "tests/test_authority_validation.py": "dbe85b50936ebd974e7c976c4926bf2593a9f28eeb5d8501cc0647dd23b28717",
+    "tests/test_calculation.py": "70d6dab36179bc2672712b236eea54d0313c85a2fd5a54480e03aefdbefea80c"
+  },
+  "limits": [
+    "Functional checks, not statistical coverage or throughput.",
+    "Response-size rollback uses explicit injection with real unchanged bound; command-size test uses actual public input.",
+    "No OS-crash, backup/restore, multi-host, real Internet identity, UI or deployment evidence."
+  ],
+  "material_findings": "A1, S1, S2 resolved; see original findings and regression evidence in independent reviews."
+}

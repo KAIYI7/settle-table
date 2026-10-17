@@ -8,10 +8,10 @@ Repository: [KAIYI7/settle-table](https://github.com/KAIYI7/settle-table). The l
 
 The checkout contains sanitized research, aggregate results and source metadata. Receipt images/text, models, environments, local databases and private Notion locators are excluded. Read [publication and reproducibility notes](research/publishing/README.md) before reproducing experiments or restoring the locally installed Impeccable skill.
 
-The first production module is a Python standard-library financial calculator, separate from disposable research experiments. Run its public-interface tests from this directory:
+The production modules are a Python standard-library financial calculator and a bounded local SQLite draft authority, separate from disposable research experiments. Read the [authority interface](docs/authority-interface.md) for trusted bootstrap, snapshot and command use. Run public-interface tests from this directory:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-See the [bounded specification](research/phase-2/mvp-specification.md) and [implementation record](research/phase-3/README.md). Passing calculation tests does not establish identity, human verification, live collaboration, OCR accuracy or Notion delivery. Those capabilities have their own acceptance gates.
+The suite includes10,000 real durable command transactions and may take several minutes. Disposable databases use ignored `.local/tests/`. See the [authority specification](.scratch/authoritative-draft/SPEC.md), [acceptance evidence](research/phase-3/authority-acceptance.md) and [implementation record](research/phase-3/README.md). Local authority acceptance does not establish Internet identity, an operational session product, OCR accuracy or Notion delivery. Those capabilities have their own gates.
