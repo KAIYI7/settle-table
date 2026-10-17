@@ -19,3 +19,7 @@ The calculator cannot establish human review, identity, current revision or perm
 | [Engineering review](engineering-review.md), [probe source](engineering_probes.py), [results](engineering-probes.json) |11 targeted groups PASS; zero material findings |
 
 The original pre-review log/result snapshots retain their historical pending-review wording; the acceptance ledger and current project status supersede that status. No phase or skill workflow overrides human escalation for spend, deployment, credentials, private information or product-policy preferences.
+
+## Next slice — local authoritative draft
+
+2026-10-17: after the GitHub baseline and annotated checkpoint were remotely verified, the orchestrator resumed the [bounded specification](../../.scratch/authoritative-draft/SPEC.md). An [independent security/specification challenge](authority-spec-review.md) identified five clarifications, all resolved before the orchestrator recorded local implementation readiness in the [ledger](../../docs/agents/phase-transitions.md). No additional production implementation or integrated authority test result is claimed here. The local scope excludes network/UI/invitation delivery and future policy-dependent features; acceptance requires actual calculator, SQLite and authorization behavior tested together.
