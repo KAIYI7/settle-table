@@ -83,3 +83,15 @@ Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PR
 | Full Internet application/release | FAIL / excluded from this slice | Real identity/invitation/transport, UI, backup/restore, other split editors, settlement/correction policies, OCR and Notion require later gates. |
 
 No scope redesign, calculator modification, paid/external-data operation or listener was needed. Ordinary state headroom below1MiB preserves security revocations; natural maximal-result capacity remains unmeasured and the response-size fault test is labeled as injected. The requested PR is the deliverable; this decision does not merge it or authorize another feature within this task.
+
+## 2026-10-17 — Authority merge/checkpoint and repository foundation
+
+The user reports completed independent external review without a merge blocker and explicitly authorizes merge/checkpoint and repository-foundation work. This supersedes the preceding task's stop-at-PR boundary.
+
+| Gate | Decision / verified evidence |
+|---|---|
+| Reviewed head/base unchanged | PASS — actual PR1 metadata and Git remote refs match head `59cba5feb25423ebd43ebee17b7666d84f83d584` and main `7db4ef155149526f6c646158814d1851b5fdb21b`; GitHub reports mergeable. External review completion is user-supplied evidence, not fabricated GitHub review submissions. |
+| Preserve accepted history | PASS — GitHub merge method `merge`, expected-head guard; resulting `af7ba147642b8b8e9a5aee973a95c59d46c38b9a` has those exact two parents and the reviewed head's tree. |
+| Remote checkpoint | PASS — remote main verified at merge; annotated `authority-v1-accepted` object `389eb52462cfe0a17a4456504a41214956ae15bc` peels to the merge. |
+| CI activation cost | PENDING account evidence — establish minimal full-suite CI only within included usage and verified zero paid-overage exposure; do not alter billing/payment settings. |
+| Foundation and next-slice scope | PASS to research/review separate CI and package refactor changes, preserving all deterministic and persisted domains; then plan transport/identity/invitations. No new product feature begins in this foundation step. |
