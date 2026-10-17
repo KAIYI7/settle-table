@@ -69,3 +69,17 @@ Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PR
 | Human escalation required for this bounded action | PASS — none | No spend, account action, external/private-data operation or unresolved policy activation. Future policy-dependent features remain gated. |
 
 **Authorized next work:** implement/test trusted bootstrap and authenticated snapshots first, then accepted command replay, quantity claims, receipt attestation and atomic finalization with the accepted calculator. Use small red→green behaviors and disposable test databases; retain strict integer money and rational bounds. Independently review actual source and integrated evidence before accepting the slice. No routine phase approval is requested.
+
+## 2026-10-17 — Local authoritative-draft acceptance on feature branch
+
+**Orchestrator decision: PASS for the bounded local implementation; publish `feature/authoritative-draft` and open its PR against main as requested.** This accepts one slice within Phase 3, not a full product or public deployment. Main read the actual production module, tests/interface, independent reports and twenty-case mapping. [Acceptance detail](../../research/phase-3/authority-acceptance.md), [exact verification/hashes](../../research/phase-3/authority-verification.json).
+
+| Gate | Decision / evidence | Remaining restriction |
+|---|---|---|
+| Spec, exact finance and calculator integrity | PASS — all20 cases mapped, actual calculator finalization and unchanged source hash | Quantity claims only; supplied receipt facts still require organizer attestation. |
+| Test execution and atomic persistence | PASS — main60 tests in195.536s; real independent connections, races, rollback, reopen/fresh process and actual10,000-command quota | No power-loss/restore/load claim. Diagnostic-only assertion hardening followed by27 targeted passing reruns. |
+| Independent source/spec and security reviews | PASS — both final reports pin source `1eef9e7959639de5407bc445e9344f3ef7e0bb9502bafcfb2026d2c794ed81f0`; material A1/S1/S2 fixed and retested | Original failures remain documented; no open material finding. |
+| Credential/replay/current access | PASS — hash-only credentials, safe callbacks/cleanup, current authorization before replay, real reserve and nonleak checks | Trusted host/bootstrap/clock; fixed sessions lack renewal and recovery. Lost bootstrap acknowledgement cannot reissue credentials. |
+| Full Internet application/release | FAIL / excluded from this slice | Real identity/invitation/transport, UI, backup/restore, other split editors, settlement/correction policies, OCR and Notion require later gates. |
+
+No scope redesign, calculator modification, paid/external-data operation or listener was needed. Ordinary state headroom below1MiB preserves security revocations; natural maximal-result capacity remains unmeasured and the response-size fault test is labeled as injected. The requested PR is the deliverable; this decision does not merge it or authorize another feature within this task.

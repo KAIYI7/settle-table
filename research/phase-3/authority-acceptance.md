@@ -1,6 +1,6 @@
 # Authoritative-draft implementation acceptance
 
-Started2026-10-17 on `feature/authoritative-draft`, from main `7db4ef155149526f6c646158814d1851b5fdb21b`. This record is incremental; **implementation acceptance is pending**.
+Started2026-10-17 on `feature/authoritative-draft`, from main `7db4ef155149526f6c646158814d1851b5fdb21b`. **Orchestrator decision: PASS / accepted for the bounded local authority slice.** This is internal acceptance on the feature branch, not merge or release of the complete application.
 
 ## Scope and test seams
 
@@ -12,13 +12,27 @@ The accepted calculator must remain byte-identical to baseline SHA-256 `4e448475
 
 | Gate | Current evidence/status |
 |---|---|
-| Small red→green implementation increments | Pending; [implementation log](authority-implementation-log.md) will record actual failing/passing checks. |
-| All20 specification acceptance scenarios | Pending; implementation and independent adversarial tests must map actual coverage and limits. |
-| Actual calculator/SQLite/access/review integration | Pending; exact supplied examples and atomic accepted responses must be exercised. |
-| Concurrent independent connections, reopen/fresh process, injected rollback | Pending; no OS crash/power-loss durability claim follows from these tests. |
-| Credential nonleak, permission-before-replay, revocation and bounded inputs | Pending independent [security review](authority-security-review.md). |
-| Independent actual-source/specification review | Pending [adversarial review](authority-adversarial-review.md), plus main artifact review. |
-| Branch publication and PR | Pending successful acceptance; main and checkpoint tag remain unchanged. |
+| Small red→green implementation increments | PASS — [implementation log](authority-implementation-log.md), separate capability commits and actual failing/passing observations. |
+| All20 specification acceptance scenarios | PASS — [twenty-case mapping](authority-adversarial-review.md), inspected against all four authority test files. |
+| Actual calculator/SQLite/access/review integration | PASS — real `calculate` runs before the single state/result commit; literal334/667,3365, included-tax600/34 and one-sen discount examples pass. Calculator source remains unchanged. |
+| Concurrent independent connections, reopen/fresh process, injected rollback | PASS — barrier/event-coordinated races, both revocation orders, coherent snapshots and reopen/replay; no OS crash/power-loss claim. |
+| Credential nonleak, permission-before-replay, revocation and bounded inputs | PASS — independent [security review](authority-security-review.md), actual10,000 ordinary-command exhaustion then both revocations, safe input/dependency errors and token-free storage/results/logs. |
+| Independent actual-source/specification review | PASS — [adversarial review](authority-adversarial-review.md) and security review pin final source; main read actual source, tests, interface and reports, including original findings/resolutions. |
+| Branch publication and PR | Implementation gates PASS; publication follows this record. Main and checkpoint tag remain unchanged. |
+
+## Coordinator execution and resolved findings
+
+`python -m unittest discover -s tests -v`: **60 tests PASS in195.536 seconds**, Python3.14.6 / SQLite3.50.4. Breakdown:15 implementation,20 adversarial,8 security,2 coordinator validation and15 existing calculator methods. These are functional checks, not statistical coverage or a throughput estimate. [Exact hashes and run record](authority-verification.json).
+
+The complete run loaded the review tests before a final diagnostic-only change: credential/verifier leak assertions now use fixed safe failure messages instead of printing their compared data. Predicates and scenarios are unchanged. Main reran all20 adversarial methods (1.733s) and the7 non-quota security methods (0.421s) against these final files; no redundant third quota run was needed. The actual quota ran in both the independent security workstream and the main complete suite.
+
+Material original findings remain visible: rollback/close failure containment (S1), incorrect postcommit rejection (A1), unsafe trusted-clock diagnostics (S2). Each was fixed and retested. Implementation additionally closed hook diagnostic/entropy failure and invisible-label validation gaps. No material finding remains open. No reference-app source or calculator changes were required.
+
+## Assumptions and unverified boundaries
+
+Trust the local host, bootstrap caller, database owner and clock/fault dependencies; this is not Internet identity. Fixed participants and one expiring session each have no renewal/recovery. A lost bootstrap acknowledgement can leave credentials unrecoverable; automatic reset is excluded. Revoked financial identities/claims remain and may block later corrections. Ordinary state is limited to900,000 bytes to reserve revocation headroom below1MiB.
+
+The real encoded-command limit was exercised through valid individual fields/counts. Accepted-response size rejection used an explicitly documented serialization fault with the real1MiB bound, not a naturally maximal receipt. Power-loss/process-kill durability, backup/restore, large natural-result capacity, load, phone/client behavior and operational account security remain unverified. These block their later capabilities, not this tested local module. No HTTP/UI/invitations/settlements/OCR/Notion/deployment was added.
 
 ## Documentation consulted
 
