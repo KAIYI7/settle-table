@@ -2,6 +2,8 @@
 
 Prepared2026-10-17, Asia/Kuala_Lumpur. Repository: [KAIYI7/settle-table](https://github.com/KAIYI7/settle-table). This work establishes a clean accepted checkpoint before the next implementation slice. The local filesystem directory is unchanged. The calculator's accepted source/tests and versioned rounding identity are unchanged; `tabwise` remains its technical Python namespace.
 
+**Verified checkpoint:** baseline `69895457d9e3524c90df24f3a21c284ea70cef6c`, annotated `phase2-accepted`. Actual remote `main` and peeled tag target matched before any next-slice work resumed; [verification record](checkpoint.json). Subsequent status/documentation commits may advance `main` without moving the checkpoint.
+
 ## Included versus local-only
 
 Include project guidance/specifications/research, independently written code/tests/prototypes, sanitized Notion connector observations, aggregate OCR metrics, corpus identity/hash manifest, dependency locks and original verification hashes. Matt's complete published27-skill manifest is retained with its MIT license and invocation metadata. No project-wide open-source license is inferred from dependency/skill licenses.

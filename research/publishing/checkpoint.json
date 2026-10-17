@@ -1,0 +1,19 @@
+{
+  "verified_date": "2026-10-17",
+  "repository": "https://github.com/KAIYI7/settle-table",
+  "baseline_commit": "69895457d9e3524c90df24f3a21c284ea70cef6c",
+  "commit_message": "chore: establish SettleTable project baseline",
+  "branch_at_checkpoint_verification": "main",
+  "remote_branch_at_checkpoint_verification": "69895457d9e3524c90df24f3a21c284ea70cef6c",
+  "checkpoint_tag": "phase2-accepted",
+  "tag_type": "annotated",
+  "tag_object": "42acff45556c3a0ed6fd85ab751cfdba25791023",
+  "remote_peeled_tag_target": "69895457d9e3524c90df24f3a21c284ea70cef6c",
+  "verification": "PASS: actual git ls-remote branch/tag/peeled target matched; local cat-file type tag",
+  "baseline_files": 201,
+  "baseline_staged_secret_findings": 0,
+  "known_private_notion_identity_survivors": 0,
+  "calculator_test_methods_passed": 15,
+  "next_slice_work_began_after_remote_verification": true,
+  "note": "Point-in-time verification, not a claim that main can never advance beyond the baseline. The checkpoint tag remains fixed."
+}
