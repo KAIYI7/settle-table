@@ -125,7 +125,7 @@ class AuthorityAdversarialTests(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
         rendered = repr(before)
         for credential in self.credentials.values():
-            self.assertNotIn(credential, rendered)
+            self.assertFalse(credential in rendered, "session material leaked")
 
     def test_expiry_at_boundary_and_wrong_meal_isolation(self):
         grant = self.authority.bootstrap("other", (
@@ -206,12 +206,12 @@ finally:
         process = subprocess.run([sys.executable, "-c", source], input=json.dumps({
             "path": str(self.path.resolve()), "credential": self.credentials["O"],
         }), text=True, capture_output=True, timeout=10)
+        for credential in self.credentials.values():
+            self.assertFalse(credential in process.stdout + process.stderr, "session material leaked")
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(json.loads(process.stdout), {
             "result": saved.canonical_bytes.hex(), "revision": 1,
         })
-        for credential in self.credentials.values():
-            self.assertNotIn(credential, process.stdout + process.stderr)
         self.assertEqual(self.snapshot().revision, 1)
 
     def test_postcommit_public_error_still_reports_uncertain_not_rejection(self):

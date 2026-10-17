@@ -21,8 +21,8 @@ class AuthoritySecurityTests(unittest.TestCase):
         bootstrap = self.authority.bootstrap('meal', (
             auth.Participant('A', 'Organizer', True), auth.Participant('B', 'Diner')))
         self.credentials = {grant.participant_id: grant.credential for grant in bootstrap.sessions}
-        self.assertNotIn(self.credentials['A'], repr(bootstrap))
-        self.assertNotIn(self.credentials['B'], repr(bootstrap.sessions))
+        self.assertFalse(self.credentials['A'] in repr(bootstrap), 'session material leaked')
+        self.assertFalse(self.credentials['B'] in repr(bootstrap.sessions), 'session material leaked')
 
     def tearDown(self):
         self.authority.close()
@@ -48,20 +48,20 @@ class AuthoritySecurityTests(unittest.TestCase):
                                 operation()
                             self.assertEqual(rejected.exception.code, 'invalid_session')
                             self.assertEqual(str(rejected.exception), 'invalid_session')
-        self.assertEqual(output.getvalue(), '')
+        self.assertFalse(output.getvalue(), 'unexpected diagnostic output')
 
     def test_storage_contains_only_domain_separated_verifiers(self):
         snapshot = self.authority.snapshot(self.credentials['A'], 'meal')
         for credential in self.credentials.values():
-            self.assertNotIn(credential, repr(snapshot))
+            self.assertFalse(credential in repr(snapshot), 'session material leaked')
         with closing(sqlite3.connect(self.path)) as database:
             verifiers = tuple(row[0] for row in database.execute('SELECT verifier FROM sessions'))
             dump = '\n'.join(database.iterdump())
         for credential in self.credentials.values():
             expected = hashlib.sha256(b'settletable-local-session-v1\0' + credential.encode('ascii')).digest()
-            self.assertIn(expected, verifiers)
-            self.assertNotIn(credential, dump)
-            self.assertNotIn(credential.encode('ascii'), self.path.read_bytes())
+            self.assertTrue(expected in verifiers, 'expected session verifier missing')
+            self.assertFalse(credential in dump, 'session material leaked')
+            self.assertFalse(credential.encode('ascii') in self.path.read_bytes(), 'session material leaked')
         self.assertEqual(len(set(verifiers)), 2)
 
     def test_permission_is_checked_before_replay_lookup(self):
@@ -128,18 +128,18 @@ class AuthoritySecurityTests(unittest.TestCase):
             self.assertEqual(replay.canonical_bytes, final.canonical_bytes)
             self.assertEqual(tuple(p.sen for p in final.calculation.consumption), (334, 667))
             snapshot = self.authority.snapshot(self.credentials['B'], 'meal')
-        self.assertEqual(output.getvalue(), '')
+        self.assertFalse(output.getvalue(), 'unexpected diagnostic output')
         for credential in self.credentials.values():
             verifier = hashlib.sha256(b'settletable-local-session-v1\0' + credential.encode('ascii')).digest()
             for ordinary_result in (*results, replay, snapshot):
-                self.assertNotIn(credential, repr(ordinary_result))
-                self.assertNotIn(verifier.hex(), repr(ordinary_result))
+                self.assertFalse(credential in repr(ordinary_result), 'session material leaked')
+                self.assertFalse(verifier.hex() in repr(ordinary_result), 'session material leaked')
             for result in (*results, replay):
-                self.assertNotIn(credential.encode('ascii'), result.canonical_bytes)
-                self.assertNotIn(verifier.hex().encode('ascii'), result.canonical_bytes)
+                self.assertFalse(credential.encode('ascii') in result.canonical_bytes, 'session material leaked')
+                self.assertFalse(verifier.hex().encode('ascii') in result.canonical_bytes, 'session material leaked')
             for path in Path(self.temp.name).iterdir():
                 if path.is_file():
-                    self.assertNotIn(credential.encode('ascii'), path.read_bytes())
+                    self.assertFalse(credential.encode('ascii') in path.read_bytes(), 'session material leaked')
 
     def test_failed_rollback_and_close_discard_connection_without_leaking(self):
         class BrokenCleanup:
@@ -219,8 +219,8 @@ class AuthoritySecurityTests(unittest.TestCase):
                              [(0, 10_000), (1, 2)])
             persisted = '\n'.join(database.iterdump())
         for credential in self.credentials.values():
-            self.assertNotIn(credential, persisted)
-            self.assertNotIn(credential.encode('ascii'), self.path.read_bytes())
+            self.assertFalse(credential in persisted, 'session material leaked')
+            self.assertFalse(credential.encode('ascii') in self.path.read_bytes(), 'session material leaked')
 
 
 if __name__ == '__main__':

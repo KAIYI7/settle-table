@@ -13,7 +13,7 @@ Reviewed the [bounded specification](../../.scratch/authoritative-draft/SPEC.md)
 - Exercise strict frozen/tuple inputs, booleans/floats/foreign IDs and bounded canonical/rational/text handling before expensive work.
 - Exhaust the ordinary financial-history limit and verify first-time session/member revocations remain possible through the finite security reserve.
 
-Final reviewed [authority source](../../tabwise/authority.py) SHA-256: `1eef9e7959639de5407bc445e9344f3ef7e0bb9502bafcfb2026d2c794ed81f0`. Independent [security tests](../../tests/test_authority_security.py) SHA-256: `f96391f17293aa84a53bcbdbbd82ea82d396fba149e9613841e7ff566529024c`. The reviewer read the actual complete implementation incrementally, then the final changed hunks, not only implementer summaries. No external services, private receipts or real accounts are part of this review. Temporary databases and session values remain disposable local test data.
+Final reviewed [authority source](../../tabwise/authority.py) SHA-256: `1eef9e7959639de5407bc445e9344f3ef7e0bb9502bafcfb2026d2c794ed81f0`. Current independent [security tests](../../tests/test_authority_security.py) SHA-256: `3c3fa2cfb002925e304dee41b3581992b518c0aab45fad1c43a9b79e64d948e3`. The reviewer read the actual complete implementation incrementally, then the final changed hunks, not only implementer summaries. No external services, private receipts or real accounts are part of this review. Temporary databases and session values remain disposable local test data.
 
 ## Incremental evidence and findings
 
@@ -41,6 +41,8 @@ Additional executed probes cover:
 - A real finalization produces A334/B667 for quantity1:2 of1001sen, survives close/reopen and exact replay, emits no stdout/stderr, and exposes neither raw credentials nor verifier encodings in ordinary snapshots/results/canonical response bytes. All temporary database/sidecar files are checked for raw credentials.
 - Entropy-source failure becomes a safe storage error with no committed meal. Grant representations hide the raw values; verifier-only storage is domain-separated and matches independently calculated SHA-256.
 - All five organizer-only command kinds deny a diner, actor/role/`reviewed` dictionary injection rejects, and neither failure creates command history or advances revision.
+
+**Final test-diagnostic hardening:** the independent adversarial reviewer noted that ordinary `assertNotIn(secret, observed)` failure formatting could print both token and observed database/result. This was a test failure-path risk; no actual token was emitted in the passing runs. Secret/verifier membership checks now assert only the boolean condition with a fixed safe message. Empty-output assertions likewise avoid printing captured diagnostics. Production behavior, attack inputs, quota and assertion truth conditions are unchanged. Previous test hash `f96391f17293aa84a53bcbdbbd82ea82d396fba149e9613841e7ff566529024c` identifies the pre-hardening file used by earlier runs. After this diagnostic-only delta, all seven non-quota security methods reran together: **7 PASS in0.882 seconds**. The real10,000-command experiment was not repeated solely for failure-message changes; the orchestrator's already-running final suite uses its loaded prior diagnostic formatting. No credential, verifier, dump or captured log is included in test assertion messages.
 
 ## Capability limits and remaining risk
 
