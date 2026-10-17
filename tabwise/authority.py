@@ -354,11 +354,11 @@ class Authority:
 
     def close(self):
         if self._db is not None:
+            connection, self._db = self._db, None
             try:
-                self._db.close()
-            except sqlite3.Error:
+                connection.close()
+            except Exception:
                 pass
-            self._db = None
 
     def _now(self):
         value = self._clock()
@@ -374,7 +374,7 @@ class Authority:
         try:
             if self._db is not None and self._db.in_transaction:
                 self._db.execute('ROLLBACK')
-        except sqlite3.Error:
+        except Exception:
             # An unconfirmed transaction must never be reused after cleanup fails.
             self.close()
 
@@ -461,7 +461,7 @@ class Authority:
             raise AuthorityError('storage_error') from None
 
     @staticmethod
-    def _issues(state):
+    def _receipt_issues(state):
         receipt = state['receipt']
         if receipt is None or not receipt['items']:
             return ('missing_receipt',)
@@ -482,6 +482,19 @@ class Authority:
                 issues.append('discount_over_base')
             if change['amount_sen'] and not base:
                 issues.append('zero_base')
+        return tuple(sorted(set(issues)))
+
+    @classmethod
+    def _issues(cls, state):
+        issues = list(cls._receipt_issues(state))
+        if any(c['financial_revision'] != state['financial_revision'] for c in state['claims']):
+            issues.append('pending_claim')
+        if state['receipt'] is not None:
+            for item in state['receipt']['items']:
+                quantity = sum((Fraction(*c['quantity']) for c in state['claims']
+                                if c['item_id'] == item['id'] and c['financial_revision'] == state['financial_revision']), Fraction())
+                if quantity != Fraction(*item['quantity']):
+                    issues.append('incomplete_quantity')
         return tuple(sorted(set(issues)))
 
     def _permission(self, actor, organizer, meal_id, data):
@@ -516,6 +529,29 @@ class Authority:
         state['review'] = None
         return _claims(state)
 
+    def _set_own_quantity(self, state, actor, data):
+        item_id = data['item_id']
+        _require(item_id in state['item_revisions'], 'unknown_item')
+        _require(data['expected_item_revision'] == state['item_revisions'][item_id], 'item_revision_conflict')
+        previous = [c for c in state['claims'] if c['item_id'] == item_id and c['participant_id'] == actor]
+        quantity = data['quantity']
+        if quantity is None:
+            _require(bool(previous), 'claim_missing')
+            state['claims'].remove(previous[0])
+        else:
+            current = sum((Fraction(*c['quantity']) for c in state['claims']
+                           if c['item_id'] == item_id and c['participant_id'] != actor
+                           and c['financial_revision'] == state['financial_revision']), Fraction())
+            item = next(i for i in state['receipt']['items'] if i['id'] == item_id)
+            _require(current + Fraction(*quantity) <= Fraction(*item['quantity']), 'quantity_capacity')
+            if previous:
+                state['claims'].remove(previous[0])
+            state['claims'].append({'item_id': item_id, 'participant_id': actor,
+                                    'quantity': quantity, 'financial_revision': state['financial_revision']})
+        state['item_revisions'][item_id] += 1
+        _revision(state['item_revisions'][item_id])
+        return tuple(c for c in _claims(state) if c.item_id == item_id and c.participant_id == actor)
+
     def apply(self, credential, meal_id, command):
         verifier = _verifier(credential)
         _id(meal_id)
@@ -546,11 +582,17 @@ class Authority:
                 _require(data['expected_revision'] == state['revision'], 'revision_conflict')
             if 'expected_financial_revision' in data:
                 _require(data['expected_financial_revision'] == state['financial_revision'], 'financial_revision_conflict')
-            _require(data['kind'] == 'ReplaceReceipt', 'unsupported_command')
-            changed = self._replace_receipt(state, data)
+            if data['kind'] == 'ReplaceReceipt':
+                changed = self._replace_receipt(state, data)
+            elif data['kind'] == 'SetOwnQuantity':
+                changed = self._set_own_quantity(state, actor, data)
+            else:
+                raise AuthorityError('unsupported_command')
             state['revision'] += 1
             _revision(state['revision'])
-            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+            state_bytes = _wire(state)
+            _require(security or len(state_bytes) <= 900_000, 'resource_limit')
+            self._db.execute('UPDATE meals SET state=? WHERE id=?', (state_bytes, meal_id))
             self._hook('after_state')
             result_bytes = _wire({'command_id': command.command_id, 'kind': data['kind'],
                                   'revision': state['revision'], 'financial_revision': state['financial_revision'],

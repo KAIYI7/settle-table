@@ -19,4 +19,6 @@ Commands (positional order shown; keywords recommended):
 
 Trusted `failure_hook(stage)` can raise at `after_state`, `after_result`, `before_commit`, or `after_commit`. Precommit exceptions roll back both state and response. An `after_commit` exception reports `commit_uncertain`; retry the identical command. Hooks receive no credentials or state. They are trusted test dependencies, not an untrusted callback facility. Database administrators and privileged Python callers remain outside this permission guarantee.
 
+Commands and accepted results are at most 1MiB of canonical JSON. Ordinary state mutations additionally retain a 900,000-byte state ceiling, leaving security-revocation headroom below the 1MiB storage ceiling. State/response limits reject before commit without pruning earlier accepted history. A failed rollback discards the connection; reopen through a new `Authority` before further work.
+
 No networking, invitation lifecycle, UI, settlement, OCR or Notion is included. Read the binding [specification](../.scratch/authoritative-draft/SPEC.md) for bounds, permission/replay ordering, pending ownership and deferred policy gates.

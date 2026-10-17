@@ -1,9 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+from dataclasses import replace
+from fractions import Fraction
 
 from tabwise.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
-                               ReplaceReceipt)
+                               ReplaceReceipt, SetOwnQuantity)
 
 
 class AuthorityTests(unittest.TestCase):
@@ -50,6 +52,47 @@ class AuthorityTests(unittest.TestCase):
         self.authority.close()
         self.authority = Authority(self.path, clock=lambda: 1000)
         self.assertEqual(self.authority.apply(credentials['A'], 'meal', command), result)
+
+    def test_own_claim_capacity_stale_items_and_release(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 3, 1001), ReceiptItem('drink', 'Tea', 1, 100)), 1101, 1101)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+        first = self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('a', 'dish', 1, 1, 1))
+        self.assertEqual(first.changed_claims[0].participant_id, 'A')
+        with self.assertRaises(AuthorityError) as stale:
+            self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('stale', 'dish', 2, 1, 1))
+        self.assertEqual(stale.exception.code, 'item_revision_conflict')
+        with self.assertRaises(AuthorityError) as over:
+            self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('over', 'dish', 3, 2, 1))
+        self.assertEqual(over.exception.code, 'quantity_capacity')
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('b', 'dish', 2, 2, 1))
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('tea', 'drink', 1, 1, 1))
+        snapshot = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(tuple((c.item_id, c.participant_id, c.quantity) for c in snapshot.claims),
+                         (('dish', 'A', 1), ('dish', 'B', 2), ('drink', 'B', 1)))
+        self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('release', 'dish', None, 3, 1))
+        self.assertEqual(len(self.authority.snapshot(credentials['A'], 'meal').claims), 2)
+
+    def test_receipt_edit_keeps_pending_claims_without_reserving_capacity(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 2, 1000),), 1000, 1000)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('b', 'dish', 2, 1, 1))
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('correction', 2, 1,
+            replace(receipt, items=(ReceiptItem('dish', 'Rice corrected', 2, 1001),), subtotal_sen=1001, total_sen=1001)))
+        snapshot = self.authority.snapshot(credentials['B'], 'meal')
+        self.assertEqual(snapshot.claims[0].status, 'pending')
+        self.assertIn('pending_claim', snapshot.issues)
+        self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('a', 'dish', 2, 3, 2))
+        with self.assertRaises(AuthorityError) as capacity:
+            self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('reconfirm', 'dish', 2, 4, 2))
+        self.assertEqual(capacity.exception.code, 'quantity_capacity')
+        with self.assertRaises(AuthorityError) as deletion:
+            self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('delete', 4, 2, Receipt()))
+        self.assertEqual(deletion.exception.code, 'claimed_item_deletion')
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('release', 'dish', None, 4, 2))
+        self.assertEqual(tuple((c.participant_id, c.quantity) for c in self.authority.snapshot(credentials['A'], 'meal').claims),
+                         (('A', Fraction(2)),))
 
 
 if __name__ == '__main__':
