@@ -18,7 +18,7 @@ The accepted calculator must remain byte-identical to baseline SHA-256 `4e448475
 | Concurrent independent connections, reopen/fresh process, injected rollback | PASS — barrier/event-coordinated races, both revocation orders, coherent snapshots and reopen/replay; no OS crash/power-loss claim. |
 | Credential nonleak, permission-before-replay, revocation and bounded inputs | PASS — independent [security review](authority-security-review.md), actual10,000 ordinary-command exhaustion then both revocations, safe input/dependency errors and token-free storage/results/logs. |
 | Independent actual-source/specification review | PASS — [adversarial review](authority-adversarial-review.md) and security review pin final source; main read actual source, tests, interface and reports, including original findings/resolutions. |
-| Branch publication and PR | Implementation gates PASS; publication follows this record. Main and checkpoint tag remain unchanged. |
+| Branch publication and PR | PASS — [PR #1](https://github.com/KAIYI7/settle-table/pull/1) open against main; actual remote feature head verified. Main remains `7db4ef155149526f6c646158814d1851b5fdb21b`; annotated checkpoint target remains `69895457d9e3524c90df24f3a21c284ea70cef6c`. Later documentation commits may advance the feature head without changing tested source. |
 
 ## Coordinator execution and resolved findings
 
