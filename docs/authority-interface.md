@@ -1,6 +1,6 @@
 # Local draft authority interface
 
-`tabwise.authority` owns one-host SQLite meal state. The external seam is `Authority(path, *, clock=time.time, failure_hook=None)`, `bootstrap`, `snapshot`, `apply` and `close`. It raises `AuthorityError` with a safe stable `code`; it never returns raw storage exceptions. Inputs and outputs are exact frozen slotted dataclasses and exact tuples. Constructors alone do not validate facts.
+`settletable.authority` owns one-host SQLite meal state. The external seam is `Authority(path, *, clock=time.time, failure_hook=None)`, `bootstrap`, `snapshot`, `apply` and `close`. It raises `AuthorityError` with a safe stable `code`; it never returns raw storage exceptions. Inputs and outputs are exact frozen slotted dataclasses and exact tuples. Constructors alone do not validate facts.
 
 `bootstrap(meal_id, participants, *, session_ttl=3600)` accepts a tuple of `Participant(id, name, organizer=False)` with exactly one organizer. It returns `BootstrapResult(meal_id, sessions)`, containing one `SessionGrant(participant_id, credential)` per participant. Credentials appear only in that one-time trusted return, are omitted from its representation, and are never persisted. This is trusted local provisioning, not account registration. `snapshot(credential, meal_id)` returns the entire consistent immutable `DraftSnapshot`; `apply(credential, meal_id, command)` returns `AcceptedResult` only after commit. `close()` closes the connection.
 

@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from tabwise.calculation import (Adjustment, CalculationError, Item, Meal, Share,
+from settletable.calculation import (Adjustment, CalculationError, Item, Meal, Share,
                                  Split, calculate, parse_money)
 
 
@@ -135,7 +135,7 @@ def main():
 
     report={'scope':'independent public API engineering probes, not production test mutation',
             'passed':len(checks),'failed':0,'checks':checks,
-            'module_sha256':hashlib.sha256((ROOT/'tabwise/calculation.py').read_bytes()).hexdigest(),
+            'module_sha256':hashlib.sha256((ROOT/'settletable/calculation.py').read_bytes()).hexdigest(),
             'tests_sha256':hashlib.sha256((ROOT/'tests/test_calculation.py').read_bytes()).hexdigest()}
     (Path(__file__).with_name('engineering-probes.json')).write_text(json.dumps(report,indent=2),encoding='utf-8')
     print(json.dumps({'passed':len(checks),'failed':0}))

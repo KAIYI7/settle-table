@@ -4,7 +4,7 @@
 
 ## Fixed review scope
 
-Reviewed actual full [production calculation source](../../tabwise/calculation.py), [public-interface tests](../../tests/test_calculation.py), [interface documentation](../../docs/calculation-interface.md), [implementation log](implementation-log.md) and the accepted [C1–C4 specification](../phase-2/mvp-specification.md). Baseline: [review-baseline.json](review-baseline.json).
+Reviewed actual full [production calculation source](https://github.com/KAIYI7/settle-table/blob/af7ba147642b8b8e9a5aee973a95c59d46c38b9a/tabwise/calculation.py), [public-interface tests](../../tests/test_calculation.py), [interface documentation](../../docs/calculation-interface.md), [implementation log](implementation-log.md) and the accepted [C1–C4 specification](../phase-2/mvp-specification.md). Baseline: [review-baseline.json](review-baseline.json).
 
 - `tabwise/calculation.py` SHA256 `4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a`.
 - `tests/test_calculation.py` SHA256 `70d6dab36179bc2672712b236eea54d0313c85a2fd5a54480e03aefdbefea80c`.

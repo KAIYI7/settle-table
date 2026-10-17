@@ -13,7 +13,7 @@ Reviewed the [bounded specification](../../.scratch/authoritative-draft/SPEC.md)
 - Exercise strict frozen/tuple inputs, booleans/floats/foreign IDs and bounded canonical/rational/text handling before expensive work.
 - Exhaust the ordinary financial-history limit and verify first-time session/member revocations remain possible through the finite security reserve.
 
-Final reviewed [authority source](../../tabwise/authority.py) SHA-256: `1eef9e7959639de5407bc445e9344f3ef7e0bb9502bafcfb2026d2c794ed81f0`. Current independent [security tests](../../tests/test_authority_security.py) SHA-256: `3c3fa2cfb002925e304dee41b3581992b518c0aab45fad1c43a9b79e64d948e3`. The reviewer read the actual complete implementation incrementally, then the final changed hunks, not only implementer summaries. No external services, private receipts or real accounts are part of this review. Temporary databases and session values remain disposable local test data.
+Final reviewed [authority source](https://github.com/KAIYI7/settle-table/blob/af7ba147642b8b8e9a5aee973a95c59d46c38b9a/tabwise/authority.py) SHA-256: `1eef9e7959639de5407bc445e9344f3ef7e0bb9502bafcfb2026d2c794ed81f0`. Current independent [security tests](../../tests/test_authority_security.py) SHA-256: `3c3fa2cfb002925e304dee41b3581992b518c0aab45fad1c43a9b79e64d948e3`. The reviewer read the actual complete implementation incrementally, then the final changed hunks, not only implementer summaries. No external services, private receipts or real accounts are part of this review. Temporary databases and session values remain disposable local test data.
 
 ## Incremental evidence and findings
 

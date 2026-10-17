@@ -7,7 +7,7 @@ from unittest.mock import patch
 import sqlite3
 import time
 
-from tabwise.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
+from settletable.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
                                ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize, ReceiptAdjustment,
                                RevokeSession, RevokeMembership)
 
@@ -252,7 +252,7 @@ class AuthorityTests(unittest.TestCase):
             self.assertEqual(self.authority.snapshot(credentials['A'], 'meal'), snapshot)
 
     def test_entropy_failure_is_safe_and_does_not_reserve_bootstrap_identity(self):
-        with patch('tabwise.authority.secrets.token_urlsafe', side_effect=OSError('private entropy failure')):
+        with patch('settletable.authority.secrets.token_urlsafe', side_effect=OSError('private entropy failure')):
             with self.assertRaises(AuthorityError) as rejected:
                 self.bootstrap()
         self.assertEqual(str(rejected.exception), 'storage_error')

@@ -13,7 +13,7 @@ import sys
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from tabwise.calculation import (Adjustment, CalculationError, Item, Meal, Share,
+from settletable.calculation import (Adjustment, CalculationError, Item, Meal, Share,
                                  Split, calculate, parse_money)
 
 
@@ -153,7 +153,7 @@ def run():
         raise AssertionError("result mutable")
     check("result_immutable", immutable_result)
     return {"scope": "independent disposable specification probes; no UI/auth/ledger claim",
-            "source_sha256": hashlib.sha256((ROOT / "tabwise/calculation.py").read_bytes()).hexdigest(),
+            "source_sha256": hashlib.sha256((ROOT / "settletable/calculation.py").read_bytes()).hexdigest(),
             "cases": results, "passed": sum(case["status"] == "PASS" for case in results),
             "failed": sum(case["status"] == "FAIL" for case in results)}
 

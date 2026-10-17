@@ -1,0 +1,17 @@
+{
+  "authorized_exact_replays": 10,
+  "old_snapshots_equal": 3,
+  "revoked_and_expired_denied": true,
+  "changed_payload_denied": true,
+  "history_schema_verifiers_unchanged": true,
+  "new_draft_command_revision": 3,
+  "tie_and_signed_vectors": "PASS",
+  "status": "PASS",
+  "baseline": "authority-v1-accepted",
+  "source_sha256": {
+    "calculation.py": "4e448475892293ec9f252e1c769ef8b4699c7874c7eeefe8d73d9e16e1ccab3a",
+    "authority.py": "1eef9e7959639de5407bc445e9344f3ef7e0bb9502bafcfb2026d2c794ed81f0"
+  },
+  "raw_credentials_in_disposable_files": false,
+  "credential_transport": "transient captured subprocess pipes only"
+}
