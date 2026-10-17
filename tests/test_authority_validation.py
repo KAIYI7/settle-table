@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tabwise.authority import (
+from settletable.authority import (
     Authority, AuthorityError, Participant, Receipt, ReceiptItem,
     ReceiptAdjustment, ReplaceReceipt, ReviewReceipt, Finalize,
 )

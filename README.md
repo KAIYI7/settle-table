@@ -4,7 +4,7 @@ A receipt-based dining bill splitter with live diner collaboration, local/self-h
 
 Start with [project status](PROJECT_STATUS.md), [agent operating rules](AGENTS.md) and the [research index](research/README.md). The main Codex agent manages evidence-based phase transitions under [governance](docs/agents/governance.md).
 
-Repository: [KAIYI7/settle-table](https://github.com/KAIYI7/settle-table). The local directory may have any name. The accepted calculator's Python namespace `tabwise` and versioned rounding domain remain unchanged to preserve its reviewed contract.
+Repository: [KAIYI7/settle-table](https://github.com/KAIYI7/settle-table). The local directory may have any name. Current Python imports use `settletable`. The historical versioned allocation domain `tabwise-apportion-v1` remains unchanged to preserve deterministic financial results; the package rename does not migrate persisted SQLite state or accepted replay contracts.
 
 The checkout contains sanitized research, aggregate results and source metadata. Receipt images/text, models, environments, local databases and private Notion locators are excluded. Read [publication and reproducibility notes](research/publishing/README.md) before reproducing experiments or restoring the locally installed Impeccable skill.
 

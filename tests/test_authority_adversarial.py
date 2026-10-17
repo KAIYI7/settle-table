@@ -10,9 +10,9 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from tabwise import authority as authority_module
+from settletable import authority as authority_module
 
-from tabwise.authority import (
+from settletable.authority import (
     Authority, AuthorityError, Participant, Receipt, ReceiptItem, ReplaceReceipt,
     SetOwnQuantity, ReviewReceipt, Finalize, RevokeSession, RevokeMembership,
 )
@@ -192,7 +192,7 @@ class AuthorityAdversarialTests(unittest.TestCase):
         self.assertEqual((saved.revision, self.snapshot().revision), (1, 1))
         source = """
 import json, sys
-from tabwise.authority import Authority, Receipt, ReceiptItem, ReplaceReceipt
+from settletable.authority import Authority, Receipt, ReceiptItem, ReplaceReceipt
 payload = json.load(sys.stdin)
 authority = Authority(payload['path'], clock=lambda: 1000)
 try:

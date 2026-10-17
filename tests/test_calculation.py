@@ -2,9 +2,9 @@
 import unittest
 from dataclasses import FrozenInstanceError, replace
 from fractions import Fraction
-import tabwise.calculation as financial
+import settletable.calculation as financial
 
-from tabwise.calculation import Meal, Item, Split, Share, calculate
+from settletable.calculation import Meal, Item, Split, Share, calculate
 
 
 class CalculationTests(unittest.TestCase):

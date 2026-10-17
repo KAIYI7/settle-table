@@ -1,6 +1,6 @@
 # Financial calculation interface
 
-`tabwise.calculation` is a pure Python standard-library module. It calculates **supplied facts**, not authority to finalize: it cannot prove human review, identity, access or current persisted revisions. No `reviewed=True` switch substitutes for that future authoritative operation. It performs no file/network/database operation and has no payer/settlement behavior.
+`settletable.calculation` is a pure Python standard-library module. It calculates **supplied facts**, not authority to finalize: it cannot prove human review, identity, access or current persisted revisions. No `reviewed=True` switch substitutes for that future authoritative operation. It performs no file/network/database operation and has no payer/settlement behavior.
 
 ## Public seams
 
@@ -10,7 +10,7 @@
 Frozen slotted dataclasses carry the input/output vocabulary. Constructors reject unknown fields; `calculate` validates field values and rejects mutable collections. Constructing a dataclass alone is not validation. Untrusted JSON/HTTP adapters must enforce their own body/schema limits before creating these Python facts.
 
 ```python
-from tabwise.calculation import Meal, Item, Split, Share, calculate
+from settletable.calculation import Meal, Item, Split, Share, calculate
 
 meal = Meal(
     participants=("A", "B"),

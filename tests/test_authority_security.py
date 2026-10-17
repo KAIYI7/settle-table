@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tabwise import authority as auth
+from settletable import authority as auth
 
 
 class AuthoritySecurityTests(unittest.TestCase):

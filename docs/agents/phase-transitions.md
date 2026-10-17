@@ -45,7 +45,7 @@ Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PR
 
 | Slice completion criterion | Disposition / evidence |
 |---|---|
-| Strict integer sen/exact rational modes, signed scoped components, hard reconciliation and immutable results | PASS — [source](../../tabwise/calculation.py), [interface](../calculation-interface.md), [specification](../../research/phase-2/mvp-specification.md) |
+| Strict integer sen/exact rational modes, signed scoped components, hard reconciliation and immutable results | PASS — [source](https://github.com/KAIYI7/settle-table/blob/af7ba147642b8b8e9a5aee973a95c59d46c38b9a/tabwise/calculation.py), [interface](../calculation-interface.md), [specification](../../research/phase-2/mvp-specification.md) |
 | Required literal/malformed-input tests and real execution | PASS — main independently ran `python -m unittest discover -s tests -v`:15 methods, zero failures/errors; [coordinator record](../../research/phase-3/coordinator-verification.json). Implementer also records Python3.12 compatibility and incremental red/green evidence. |
 | Independent financial/specification challenge | PASS — [spec review](../../research/phase-3/spec-review.md),66 public-interface checks including literal original-base/one-sen/ordering counterexamples |
 | Independent engineering/correctness review | PASS — [engineering review](../../research/phase-3/engineering-review.md),11 targeted check groups; zero material findings within the bounded scope |
