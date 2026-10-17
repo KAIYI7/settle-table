@@ -5,7 +5,8 @@ from dataclasses import replace
 from fractions import Fraction
 
 from tabwise.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
-                               ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize, ReceiptAdjustment)
+                               ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize, ReceiptAdjustment,
+                               RevokeSession, RevokeMembership)
 
 
 class AuthorityTests(unittest.TestCase):
@@ -168,6 +169,35 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(snapshot.revision, 4)
         self.assertFalse(snapshot.finalized)
         self.assertIsNone(snapshot.calculation)
+
+    def test_revocation_checks_current_authority_before_old_claim_replay(self):
+        for kind in (RevokeSession, RevokeMembership):
+            with self.subTest(kind=kind.__name__):
+                self.authority.close()
+                self.authority = Authority(Path(self.temp.name) / (kind.__name__ + '.sqlite'), clock=lambda: 1000)
+                credentials = self.bootstrap()
+                receipt = Receipt((ReceiptItem('dish', 'Rice', 1, 100),), 100, 100)
+                self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+                claim = SetOwnQuantity('claim', 'dish', 1, 1, 1)
+                self.authority.apply(credentials['B'], 'meal', claim)
+                revoke = kind('revoke', 2, 'B')
+                result = self.authority.apply(credentials['A'], 'meal', revoke)
+                self.assertEqual(result.revision, 3)
+                self.assertEqual(self.authority.apply(credentials['A'], 'meal', revoke), result)
+                for operation in (lambda: self.authority.snapshot(credentials['B'], 'meal'),
+                                  lambda: self.authority.apply(credentials['B'], 'meal', claim)):
+                    with self.assertRaises(AuthorityError) as rejected:
+                        operation()
+                    self.assertEqual(rejected.exception.code, 'invalid_session')
+                snapshot = self.authority.snapshot(credentials['A'], 'meal')
+                self.assertEqual(snapshot.claims[0].participant_id, 'B')
+                self.assertEqual(tuple(p.id for p in snapshot.participants), ('A', 'B'))
+                with self.assertRaises(AuthorityError) as noop:
+                    self.authority.apply(credentials['A'], 'meal', kind('again', 3, 'B'))
+                self.assertEqual(noop.exception.code, 'already_revoked')
+                with self.assertRaises(AuthorityError) as self_revoke:
+                    self.authority.apply(credentials['A'], 'meal', kind('self', 3, 'A'))
+                self.assertEqual(self_revoke.exception.code, 'forbidden')
 
 
 if __name__ == '__main__':

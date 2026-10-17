@@ -399,7 +399,8 @@ class Authority:
 
     def _storage_failure(self, error):
         self._rollback()
-        code = 'busy' if getattr(error, 'sqlite_errorcode', None) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) else 'storage_error'
+        sqlite_code = getattr(error, 'sqlite_errorcode', 0)
+        code = 'busy' if type(sqlite_code) is int and sqlite_code & 255 in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) else 'storage_error'
         raise AuthorityError(code) from None
 
     def bootstrap(self, meal_id, participants, *, session_ttl=3600):
@@ -419,6 +420,7 @@ class Authority:
                  'item_revisions': {}, 'claims': [], 'review': None,
                  'calculation': None, 'retired_ids': []}
         committed = False
+        commit_attempted = False
         try:
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN IMMEDIATE')
@@ -432,6 +434,7 @@ class Authority:
                                  (_verifier(grant.credential), meal_id, person.id, expires))
             self._hook('after_state')
             self._hook('before_commit')
+            commit_attempted = True
             self._db.execute('COMMIT')
             committed = True
             self._hook('after_commit')
@@ -442,6 +445,13 @@ class Authority:
                 raise AuthorityError('commit_uncertain') from None
             raise
         except sqlite3.Error as error:
+            try:
+                transaction_open = self._db is not None and self._db.in_transaction
+            except Exception:
+                transaction_open = None
+            if committed or (commit_attempted and transaction_open is not True):
+                self._rollback()
+                raise AuthorityError('commit_uncertain') from None
             self._storage_failure(error)
         except Exception:
             self._rollback()
@@ -603,6 +613,15 @@ class Authority:
             raise AuthorityError('calculation_rejected') from None
         state['calculation'] = _calculation_data(result)
 
+    def _revoke(self, meal_id, data):
+        if data['kind'] == 'RevokeSession':
+            updated = self._db.execute('UPDATE sessions SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0',
+                                       (meal_id, data['participant_id'])).rowcount
+        else:
+            updated = self._db.execute('UPDATE participants SET active=0 WHERE meal_id=? AND id=? AND active=1',
+                                       (meal_id, data['participant_id'])).rowcount
+        _require(updated == 1, 'already_revoked')
+
     def apply(self, credential, meal_id, command):
         verifier = _verifier(credential)
         _id(meal_id)
@@ -642,6 +661,9 @@ class Authority:
                 changed = ()
             elif data['kind'] == 'Finalize':
                 self._finalize(state, meal_id)
+                changed = ()
+            elif security:
+                self._revoke(meal_id, data)
                 changed = ()
             else:
                 raise AuthorityError('unsupported_command')
