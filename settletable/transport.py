@@ -407,7 +407,7 @@ class SettleTableApp:
             # Reject if any proxy forwarding headers are present.
             proxy_headers = ('HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED_HOST',
                              'HTTP_X_FORWARDED_PROTO', 'HTTP_FORWARDED', 'HTTP_X_REAL_IP')
-            if any(environ.get(h) for h in proxy_headers):
+            if any(h in environ for h in proxy_headers):
                 raise TransportError('forbidden', 403)
 
             remote_addr = environ.get('REMOTE_ADDR', '')
