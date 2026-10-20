@@ -191,4 +191,19 @@ The next local scope targets invitations and sessions for already declared diner
 | Dining Flow UX, Conflict Handling & Human Receipt Review | PASS — Mobile-responsive layout (touch targets $\ge 44\text{px}$, `viewport-fit=cover`); explicit human receipt verification step before finalization; concurrency conflicts (item revision collisions) return HTTP 409 Conflict with amber conflict banner, contested card highlight, and automatic refresh. |
 | Financial Invariants & Invariant Integrity | PASS — Deterministic calculation module (`settletable/calculation.py`) and cryptographic hash domains remain completely untouched; all 109 automated tests pass. |
 
-**Next scope:** Operational documentation, local demo instructions, and assessment of next milestone (OCR extraction pipeline and optional Notion integration).
+**Next scope:** Browser MVP end-to-end defect fixes, real browser journey automation with Headless Chrome, and local demonstration handover.
+
+## 2026-10-20 — PR #8 Merge: Browser MVP E2E Defects & Real Browser Validation Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `172d56f8f5337fc9a518fb1935c754dc9335e76a` merged autonomously under the orchestrator governance policy into `main` at `a8436fdcb8848fe5ce299c883a26a2b0c2e64dfc`. GitHub PR #8 closed upon direct merge to main. Post-implementation independent security and code review delivered unconditional GO (`research/phase-3/browser-e2e-fixes-review.md`); all 6 audit gates passed; 113/113 test suite methods passed in 60.448s; 8/8 automated real-browser CDP test stages passed in 3.2s via Headless Chrome (`tools/e2e_browser_test.mjs`); hosted GitHub Actions CI run `39442110445` succeeded on the exact reviewed head.
+
+| Gate | Disposition / Evidence |
+|---|---|
+| Receipt-Entry Contract & Human Verification | PASS — `ReplaceReceipt` command in `settletable/static/app.js` computes authoritative `subtotal_sen` and `total_sen` from line items and adjustments; resolves `missing_amount` review rejection without fabricating zero amounts; mandatory human review preserved before finalization. |
+| Authoritative Calculation Display | PASS — `renderFinalizedCalculation()` maps participant totals directly from `calculation.consumption` records (`participant_id -> sen`); renders explicit `Amount Missing` warning if data is absent rather than fabricating RM 0.00; grand total tied to `receipt.total_sen` and consumption sum. |
+| Mutation Refresh & Conflict Recovery | PASS — Polling (`fetchSnapshot(false)`) and mutation refresh (`fetchSnapshot(true)`) decoupled; `state.mutationActive` cleared before forcing refresh; monotonic sequence numbering (`state.pollSeq`) guards against out-of-order poll clobbering; 409 stale conflict handled cleanly with amber alert and UI reload. |
+| Strict MYR Input Parsing | PASS — `parseSen()` replaces permissive `parseFloat` with strict regex `/^[0-9]+(?:\.[0-9]{1,2})?$/` and pure integer sen arithmetic; rejects malformed characters, non-strings, negative amounts, and out-of-bounds values without floating-point drift. |
+| Real Browser E2E Test Verification | PASS — `tools/e2e_browser_test.mjs` executes an 8-stage automated CDP test across two isolated Headless Chrome instances with independent user profiles and cookie stores; validates end-to-end flow from room creation to reload persistence. |
+| Financial Invariants & Invariant Integrity | PASS — Deterministic calculation module (`settletable/calculation.py`) and cryptographic hash domains remain untouched; 113/113 full-suite tests pass. |
+
+**Next scope:** Provide local demo instructions with startup command and sample data, review operational boundaries, and design the next bounded milestone (OCR extraction pipeline and optional Notion integration).
