@@ -145,3 +145,21 @@ The next local scope targets invitations and sessions for already declared diner
 | Hosted CI Verification | PASS — GitHub Actions run `39404379865` on head `0f63ecd` passed full test suite on Python 3.14 / Linux. |
 
 **Next scope:** specify, challenge, and implement the bounded same-origin transport adapter (HTTP/transport boundary for meal requests) under orchestrator governance.
+
+## 2026-10-20 — PR #5 Merge: Bounded Same-Origin Transport Adapter Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `1f1fb789f5bc5cf93b04c0ec6063b5f63969a9b2` merged autonomously under the orchestrator governance policy into `main` at `43b827f80db4236a282914197363eb077cb50cb0`. Prior architectural challenge conducted (`research/phase-3/transport-adapter-challenge.md`); post-implementation independent security review delivered PASS / GO (`research/phase-3/transport-adapter-review.md`); all 6 review remediations (wire header limits, defensive payload parsing, secret logging redaction, SQLite WAL mode, case-insensitive auth headers, and Unicode NFC key deduplication) verified; 101/101 test suite methods passed in 66.240s; hosted GitHub Actions CI run `39408626484` succeeded on the exact reviewed head.
+
+| Gate | Disposition / Evidence |
+|---|---|
+| Wire Boundaries & Limits | PASS — Request header lines $\le$ 4 KB, total header block $\le$ 16 KB (431 `header_too_large`), body $\le$ 1 MB (413 `payload_too_large`), nesting depth $\le$ 10, integer digits $\le$ 19, duplicate keys (with Unicode NFC normalization) and floats strictly rejected. |
+| CSRF & Origin Protection | PASS — Mandatory `X-SettleTable-Action: 1` header on all POST requests; strict `Origin` matching against `server_origin` for cookie or unauthenticated browser contexts; `Origin: null` blocked; conflicting Bearer/cookie rejected with 400 `conflicting_credentials`. |
+| Unauthenticated Landing Separation | PASS — `GET /api/invitations/{token}` invokes read-only `Authority.inspect_invitation()`; non-mutating, zero token consumption, zero revision advance; tested over 5x sequential calls. |
+| Error Mapping & Suppression | PASS — Canonical envelope `{"ok": false, "error": "...", "detail": null}`; unhandled exceptions suppressed to 500 `internal_error`; 401 attaches `WWW-Authenticate: Bearer`; 503 attaches `Retry-After: 1`. |
+| Cookie Security | PASS — Host-only cookies with `HttpOnly; Secure; SameSite=Strict; Path=/` across bootstrap, redemption, and session rotation. |
+| Actor Isolation | PASS — `actor` and `organizer` injection strictly rejected at transport parsing boundary with 400 `invalid_input`; actor identity derived strictly from session credential. |
+| Secret Hygiene & Redaction | PASS — Zero tokens/credentials logged; `redact_log_string` masks URLs, Bearer credentials, and cookie values to `[REDACTED]`. |
+| Concurrency & Persistence | PASS — SQLite opened in WAL mode with `busy_timeout=1000`; per-thread `Authority` instances maintain thread affinity. |
+| Hosted CI Verification | PASS — GitHub Actions run `39408626484` on exact head `1f1fb78` passed all 101 tests on Python 3.14 / Linux. |
+
+**Next scope:** Frontend UI / web client integration for meal drafts, item claiming, and invitation landing under the bounded transport API.
