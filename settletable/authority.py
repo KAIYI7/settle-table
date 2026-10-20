@@ -383,7 +383,8 @@ def _claim_data(claim):
 class Authority:
     """One SQLite connection; each instance may be used by its owning thread."""
     def __init__(self, path, *, clock=time.time, failure_hook=None):
-        self._clock, self._failure_hook = clock, failure_hook
+        self._clock = clock if clock is not None else time.time
+        self._failure_hook = failure_hook
         self._db = None
         try:
             options = {'isolation_level': None, 'timeout': 1.0}

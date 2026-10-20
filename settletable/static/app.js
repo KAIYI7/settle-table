@@ -22,11 +22,26 @@ function formatSen(sen) {
   return `RM ${val.toFixed(2)}`;
 }
 
-function parseSen(str) {
-  const clean = String(str).replace(/[^0-9.]/g, '');
-  const num = parseFloat(clean);
-  if (isNaN(num)) return 0;
-  return Math.round(num * 100);
+function parseSen(input) {
+  if (typeof input !== 'string') {
+    throw new Error('Price must be a string');
+  }
+  let s = input.trim();
+  if (s.toUpperCase().startsWith('RM')) {
+    s = s.slice(2).trim();
+  }
+  if (!s || !/^[0-9]+(?:\.[0-9]{1,2})?$/.test(s)) {
+    throw new Error(`Invalid price '${input}'. Enter an amount like 12.50 or RM 12.50`);
+  }
+  const parts = s.split('.');
+  const whole = parseInt(parts[0], 10);
+  const fracStr = (parts[1] || '').padEnd(2, '0');
+  const frac = parseInt(fracStr, 10);
+  const totalSen = whole * 100 + frac;
+  if (totalSen < 0 || totalSen > 1_000_000_000) {
+    throw new Error('Price out of bounds: maximum RM 10,000,000.00');
+  }
+  return totalSen;
 }
 
 function escapeHtml(str) {
@@ -141,8 +156,9 @@ function stopPolling() {
   }
 }
 
-async function pollSnapshot() {
-  if (!state.mealId || state.mutationActive) return;
+async function fetchSnapshot(force = false) {
+  if (!state.mealId) return;
+  if (!force && state.mutationActive) return;
   const seq = ++state.pollSeq;
   try {
     const snap = await apiCall(`/api/meals/${state.mealId}/snapshot`);
@@ -158,6 +174,10 @@ async function pollSnapshot() {
       showAlert('Session expired. Please rejoin or request a new invite.', 'error');
     }
   }
+}
+
+function pollSnapshot() {
+  return fetchSnapshot(false);
 }
 
 // --- View 1: Welcome Screen ---
@@ -381,7 +401,7 @@ function updateMealUI() {
     <span style="font-weight: 600;">${escapeHtml(userName)}</span>
     <button id="manual-refresh-btn" class="btn btn-secondary btn-sm" title="Refresh Snapshot">⟳</button>
   `;
-  document.getElementById('manual-refresh-btn')?.addEventListener('click', pollSnapshot);
+  document.getElementById('manual-refresh-btn')?.addEventListener('click', () => fetchSnapshot(true));
 
   const app = document.getElementById('app');
   let html = '';
@@ -481,6 +501,22 @@ function renderOrganizerSection(snap) {
     </div>
   `).join('');
 
+  let totalsHtml = '';
+  if (items.length > 0 && receipt?.subtotal_sen !== null && receipt?.subtotal_sen !== undefined) {
+    totalsHtml = `
+      <div style="border-top: 1px solid var(--border-subtle); padding-top: 10px; margin-top: 10px;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 4px;">
+          <span>Items Subtotal</span>
+          <span>${formatSen(receipt.subtotal_sen)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.05rem;">
+          <span>Receipt Total</span>
+          <span style="color: #a7f3d0;">${formatSen(receipt.total_sen)}</span>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <div class="card">
       <div class="card-title">
@@ -490,6 +526,7 @@ function renderOrganizerSection(snap) {
 
       <div style="margin-bottom: 16px;">
         ${itemsRowsHtml || '<p style="color: var(--text-muted); font-size: 0.9rem;">No items added yet.</p>'}
+        ${totalsHtml}
       </div>
 
       <!-- Add Item Form -->
@@ -640,11 +677,37 @@ function renderClaimsSection(snap) {
 
 function renderFinalizedCalculation(snap) {
   const calc = snap.calculation;
-  if (!calc) return '';
+  if (!calc || !Array.isArray(calc.consumption)) {
+    return `
+      <div class="card">
+        <div class="card-title" style="color: var(--accent-rose);">Calculation Data Missing</div>
+        <p class="card-desc">Finalized calculation records could not be loaded.</p>
+      </div>
+    `;
+  }
+
+  const consumptionMap = new Map();
+  for (const entry of calc.consumption) {
+    if (entry && entry.participant_id !== undefined && entry.sen !== undefined) {
+      consumptionMap.set(entry.participant_id, entry.sen);
+    }
+  }
+
+  let grandTotalSen = snap.receipt?.total_sen;
+  if (grandTotalSen === null || grandTotalSen === undefined) {
+    grandTotalSen = calc.consumption.reduce((sum, c) => sum + (c.sen ?? 0), 0);
+  }
 
   const dinersRows = snap.participants?.map(p => {
-    const line = calc.lines?.find(l => l.participant_id === p.id);
-    const totalSen = line ? line.total_sen : 0;
+    if (!consumptionMap.has(p.id)) {
+      return `
+        <tr>
+          <td><strong>${escapeHtml(p.name)}</strong> ${p.organizer ? '(Organizer)' : ''}</td>
+          <td class="amount" style="color: var(--accent-rose);">Amount Missing</td>
+        </tr>
+      `;
+    }
+    const totalSen = consumptionMap.get(p.id);
     return `
       <tr>
         <td><strong>${escapeHtml(p.name)}</strong> ${p.organizer ? '(Organizer)' : ''}</td>
@@ -669,7 +732,7 @@ function renderFinalizedCalculation(snap) {
           ${dinersRows}
           <tr class="breakdown-total-row">
             <td>Grand Total</td>
-            <td class="amount">${formatSen(calc.total_sen)}</td>
+            <td class="amount">${formatSen(grandTotalSen)}</td>
           </tr>
         </tbody>
       </table>
@@ -685,8 +748,27 @@ function bindEvents(snap) {
     addItemForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const label = document.getElementById('new-item-label').value.trim();
-      const qty = parseInt(document.getElementById('new-item-qty').value, 10) || 1;
-      const priceSen = parseSen(document.getElementById('new-item-price').value);
+      const qty = parseInt(document.getElementById('new-item-qty').value, 10);
+      if (!label) {
+        showAlert('Item name is required', 'error');
+        return;
+      }
+      if (!qty || qty < 1) {
+        showAlert('Quantity must be at least 1', 'error');
+        return;
+      }
+
+      let priceSen;
+      try {
+        priceSen = parseSen(document.getElementById('new-item-price').value);
+        if (priceSen <= 0) {
+          showAlert('Price must be greater than RM 0.00', 'error');
+          return;
+        }
+      } catch (err) {
+        showAlert(err.message, 'error');
+        return;
+      }
 
       const currentItems = snap.receipt?.items ? [...snap.receipt.items] : [];
       const newItemId = `item-${currentItems.length + 1}`;
@@ -697,6 +779,10 @@ function bindEvents(snap) {
         line_sen: priceSen,
       });
 
+      const subtotalSen = currentItems.reduce((acc, it) => acc + (it.line_sen || 0), 0);
+      const adjTotal = (snap.receipt?.adjustments || []).reduce((acc, a) => acc + (a.amount_sen || 0), 0);
+      const totalSen = subtotalSen + adjTotal;
+
       state.mutationActive = true;
       try {
         await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
@@ -706,11 +792,17 @@ function bindEvents(snap) {
           expected_financial_revision: snap.financial_revision,
           receipt: {
             items: currentItems,
+            subtotal_sen: subtotalSen,
+            total_sen: totalSen,
             adjustments: snap.receipt?.adjustments || [],
+            included_tax_sen: snap.receipt?.included_tax_sen || 0,
           }
         });
-        await pollSnapshot();
+        state.mutationActive = false;
+        await fetchSnapshot(true);
+        showAlert(`Added "${label}" (${formatSen(priceSen)}) ✓`, 'success');
       } catch (err) {
+        state.mutationActive = false;
         handleApiError(err);
       } finally {
         state.mutationActive = false;
@@ -736,9 +828,11 @@ function bindEvents(snap) {
           expected_financial_revision: snap.financial_revision,
           receipt_digest: snap.receipt_digest,
         });
-        await pollSnapshot();
+        state.mutationActive = false;
+        await fetchSnapshot(true);
         showAlert('Receipt verified and sealed ✓', 'success');
       } catch (err) {
+        state.mutationActive = false;
         handleApiError(err);
       } finally {
         state.mutationActive = false;
@@ -762,7 +856,7 @@ function bindEvents(snap) {
           state.issuedTokens[partId] = inviteUrl;
           navigator.clipboard.writeText(inviteUrl).catch(() => {});
           showAlert(`Invite link created & copied for ${partId}!`, 'success');
-          await pollSnapshot();
+          await fetchSnapshot(true);
         }
       } catch (err) {
         handleApiError(err);
@@ -814,8 +908,10 @@ function bindEvents(snap) {
           expected_item_revision: rev,
           expected_financial_revision: snap.financial_revision,
         });
-        await pollSnapshot();
+        state.mutationActive = false;
+        await fetchSnapshot(true);
       } catch (err) {
+        state.mutationActive = false;
         handleApiError(err, itemId);
       } finally {
         state.mutationActive = false;
@@ -836,9 +932,11 @@ function bindEvents(snap) {
           expected_revision: snap.revision,
           expected_financial_revision: snap.financial_revision,
         });
-        await pollSnapshot();
+        state.mutationActive = false;
+        await fetchSnapshot(true);
         showAlert('Meal finalized successfully!', 'success');
       } catch (err) {
+        state.mutationActive = false;
         handleApiError(err);
       } finally {
         state.mutationActive = false;
@@ -849,13 +947,14 @@ function bindEvents(snap) {
 
 // --- Error & Conflict Handling ---
 function handleApiError(err, itemId = null) {
+  state.mutationActive = false;
   if (err.status === 409 || err.code === 'item_revision_conflict' || err.code === 'financial_revision_conflict' || err.code === 'revision_conflict') {
     showAlert('⚠️ Stale Claim Conflict: Another diner updated quantities. Refreshing latest data...', 'conflict');
     if (itemId) {
       const card = document.getElementById(`item-card-${itemId}`);
       if (card) card.classList.add('contested');
     }
-    pollSnapshot();
+    fetchSnapshot(true);
   } else if (err.status === 401) {
     showAlert('Session expired or unauthorized. Please re-open from invitation.', 'error');
   } else {

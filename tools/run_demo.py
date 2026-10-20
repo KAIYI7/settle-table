@@ -23,7 +23,8 @@ def main():
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     origin = f"http://{args.host}:{args.port}"
-    app = SettleTableApp(db_path, server_origin=origin)
+    allowed_hosts = {f"{args.host}:{args.port}", f"localhost:{args.port}", args.host, "localhost"}
+    app = SettleTableApp(db_path, server_origin=origin, allowed_hosts=allowed_hosts)
 
     print("=" * 60)
     print(" SettleTable - Local Browser MVP Demo Server")
