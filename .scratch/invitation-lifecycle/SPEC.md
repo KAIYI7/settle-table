@@ -133,8 +133,10 @@ class RevokeInvitation:
   - `issue_id`: if provided, passes `_id`; if omitted, generated via `_id` grammar.
 - **Authorization & State**:
   - `BEGIN IMMEDIATE`
+  - Token and `issue_id` generation occur inside protected error handling. CSPRNG entropy failure raises `AuthorityError('storage_error')`.
   - Caller must be the active organizer (`organizer == 1`, `active == 1`).
   - Target `participant_id` must be an active diner (`organizer == 0`, `active == 1`).
+  - Idempotency & Conflict Check: `SELECT 1 FROM invitations WHERE meal_id=? AND issue_id=?`. If found, raises `AuthorityError('command_conflict')`.
   - Target's lifecycle generation must be `< 64`.
   - Active invitation check: an invitation is active if and only if `revoked == 0 AND consumed == 0 AND expires > now`. If one exists for `(meal_id, participant_id)`, raise `AuthorityError('active_invitation_exists')`.
 - **Action**:
@@ -156,6 +158,7 @@ class RevokeInvitation:
   - `session_ttl` integer, `1 <= session_ttl <= 86400`.
 - **Authorization & State**:
   - `BEGIN IMMEDIATE`
+  - Credential generation occurs inside protected error handling. CSPRNG entropy failure raises `AuthorityError('storage_error')`.
   - Compute verifier with `settletable-invitation-v1`.
   - Lookup invitation by `verifier` and `meal_id`.
   - If not found, expired (`expires <= now`), consumed (`consumed == 1`), or revoked (`revoked == 1`): raise `AuthorityError('invalid_invitation')`.
@@ -180,7 +183,9 @@ class RevokeInvitation:
   - `session_ttl` integer, `1 <= session_ttl <= 86400`.
 - **Authorization & State**:
   - `BEGIN IMMEDIATE`
+  - Credential generation occurs inside protected error handling. CSPRNG entropy failure raises `AuthorityError('storage_error')`.
   - Authenticate caller via `_authenticate(verifier, meal_id)` (checks active, unrevoked, unexpired).
+  - Caller must be an active diner (`organizer == 0`). Calling with organizer credential raises `AuthorityError('forbidden')`, eliminating irreversible organizer credential loss/lockout on uncertain rotation.
   - Participant lifecycle generation must be `< 64`.
 - **Action**:
   - Increment participant generation in `participant_lifecycle`.
@@ -217,12 +222,23 @@ class RevokeInvitation:
 ### 6.5 Resource Limits and Security Reserve
 - Quota: Participant lifecycle operations (`issue_invitation`, `redeem_invitation`, `rotate_session`) are capped at generation `64`. Attempting to advance past 64 raises `AuthorityError('resource_limit')`.
 - Headroom: Ordinary financial commands are capped at 10,000 (`security == 0`).
-- Security commands (`RevokeSession`, `RevokeMembership`, `RevokeInvitation`) are NOT subject to the 10,000 limit and remain executable even if ordinary quota or participant generation quota is exhausted.
-- **Mathematical Bound on Security Commands**:
-  For at most 100 participants ($N \le 100$, 1 organizer and 99 diners) and generation ceiling $G = 64$:
-  Each diner can have at most $G$ invitations issued (and therefore at most $G$ `RevokeInvitation` calls), at most 1 `RevokeSession` (which revokes sessions and cascades to invitations), and at most 1 `RevokeMembership`.
-  $$\text{Max Security Commands} \le 99 \times (64 + 1 + 1) = 6,534 \text{ rows}$$
-  Because security commands store tiny JSON bodies and results ($\approx 150$ bytes each) and do not mutate claims or receipt items, the total storage remains strictly within SQLite limits and preserves the 148,576-byte headroom between the 900,000-byte ordinary state ceiling and 1,048,576-byte maximum.
+- Security commands (`RevokeSession`, `RevokeMembership`, `RevokeInvitation`) remain executable even if ordinary 10,000 quota or lifecycle quota is exhausted.
+- **Rigorously Justified Mathematical Bound on Security Commands**:
+  - Meal participant limit: $N \le 100$ (1 organizer and up to 99 diners).
+  - Lifecycle generation ceiling: $G \le 64$ per participant.
+  - Per diner:
+    - At most $64$ `RevokeInvitation` calls: each requires an active unconsumed invitation (`revoked == 0 AND consumed == 0 AND expires > now`), which required an `issue_invitation` advancing generation. Repeat revocations find `revoked == 1` and reject with `already_revoked`.
+    - At most $64$ `RevokeSession` calls: each requires an unrevoked active session or active invitation (`sess_up + inv_up > 0`), which required a lifecycle advancement (issuance, redemption, or rotation). Repeat revocations with no active session or invitation reject with `already_revoked`.
+    - At most $1$ `RevokeMembership` call: sets `participants.active = 0`. An inactive participant can never be re-activated, invited, or redeemed. Repeat revocations find `active == 0` and reject with `already_revoked`.
+    - Maximum security commands per diner: $64 + 64 + 1 = 129$.
+  - Organizer:
+    - Calling `RevokeSession`, `RevokeMembership`, or `RevokeInvitation` targeting the organizer is strictly forbidden (`_permission` requires `not target[0] and data['participant_id'] != actor`).
+    - Organizer session rotation is forbidden (`_require(not organizer, 'forbidden')`).
+    - Organizer security commands targeting self: 0.
+  - Theoretical maximum security commands across full meal lifecycle:
+    $$\text{Max Security Commands} \le 99 \times (64 + 64 + 1) = 99 \times 129 = 12,771 \text{ rows}$$
+  - Defensive code enforcement: `apply()` enforces `SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=1 < 15_000`, providing ample headroom above 12,771 while definitively preventing unbounded growth.
+  - Because security commands store tiny JSON bodies and results ($\approx 150$ bytes each) and do not mutate claims or receipt items, the total storage remains strictly within SQLite limits and preserves the 148,576-byte headroom between the 900,000-byte ordinary state ceiling and 1,048,576-byte maximum.
 - Repeat fresh-ID revocations for an already revoked resource reject with `already_revoked` without inserting rows, preventing unbounded growth of security history.
 
 ### 6.6 Lost Response and Idempotency

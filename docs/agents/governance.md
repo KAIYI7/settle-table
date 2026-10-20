@@ -4,7 +4,30 @@ Effective 2026-10-16, by the user's explicit delegation. This replaces earlier r
 
 ## Authority and delegation
 
-The main Codex agent owns project direction within the agreed receipt-splitting objective, phase planning, bounded delegation, review/integration of actual artifacts, architecture and implementation decisions, go/no-go decisions and durable project state. Use parallel and independent agents where they improve quality; give each scope, context, output paths and acceptance criteria. Independently challenge important financial-correctness, architecture and security decisions. Subagents may research, prototype, implement, test or review; they cannot authorize phase transitions. A summary alone is not reviewed evidence.
+The main Codex agent owns project direction within the agreed receipt-splitting objective, phase planning, bounded delegation, review/integration of actual artifacts, architecture and implementation decisions, go/no-go decisions, autonomous pull request review and merging, and durable project state. Use parallel and independent agents where they improve quality; give each scope, context, output paths and acceptance criteria. Independently challenge important financial-correctness, architecture and security decisions. Subagents may research, prototype, implement, test or review; they cannot authorize phase transitions or merges. A summary alone is not reviewed evidence.
+
+## Autonomous pull request review and merge policy
+
+Effective 2026-10-20, development operates under orchestrator-managed PR reviews and merging rather than requiring manual user approval for routine PRs.
+
+### Risk classification
+- **LOW**: Documentation, isolated cosmetic changes, minor refactoring. Requires relevant checks/tests and focused review.
+- **MEDIUM**: Ordinary feature development. Requires independent code review, regression tests, and successful CI.
+- **HIGH**: Financial correctness, authentication, authorization, session management, concurrency, persistence, security-sensitive APIs, and schema migrations. Requires independent source/security/adversarial reviews, relevant failure-injection tests, full regression suite, and successful hosted CI.
+- **CRITICAL**: Public exposure, destructive production changes, private-data disclosure, paid services, irreversible operations, or decisions reserved for product owner. Strictly requires explicit human authorization before consequential action.
+
+### Autonomous merge workflow
+1. Complete bounded implementation.
+2. Classify PR risk.
+3. Delegate required independent reviews; record findings with severity and evidence.
+4. Resolve all material findings; add regression tests for discovered defects.
+5. Rerun full test suite locally.
+6. Push reviewed implementation to feature branch.
+7. Confirm GitHub Actions CI passed on the exact final PR head SHA.
+8. Recheck PR diff and base branch before merge.
+9. Record PASS / FAIL against relevant acceptance gates.
+10. If all gates pass and no human escalation is necessary, merge autonomously using established repository workflow (`--no-ff`).
+11. Verify remote `main`, and update `PROJECT_STATUS.md` and transition records. Do not bypass branch protection or required status checks.
 
 ## Transition procedure
 

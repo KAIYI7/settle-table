@@ -13,9 +13,30 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 ## Project orchestration
 
-The main Codex agent is the project orchestrator, authorized to plan, delegate, make evidence-supported architecture/implementation decisions and approve phase transitions within the receipt-splitting objective. Subagents produce evidence and work products; only the orchestrator authorizes transitions after reviewing their actual artifacts.
+The main Codex agent is the primary technical orchestrator, authorized to plan, delegate, make evidence-supported architecture/implementation decisions, manage autonomous PR reviews and merging, and approve phase transitions within the receipt-splitting objective. Subagents produce bounded evidence, reviews, and work products; only the orchestrator authorizes merges and transitions after reviewing actual final source artifacts.
 
-On resume, read `PROJECT_STATUS.md` and `research/README.md`. Before a meaningful phase transition, follow `docs/agents/governance.md`: evaluate documented gates, record PASS / CONDITIONAL PASS / FAIL and blocking risks, then proceed or close the evidence gap. Routine phase boundaries do not require user approval. Production MVP implementation is authorized when the orchestrator records implementation readiness; use small vertical slices with domain invariants, appropriate tests, security checks and independent review.
+### Autonomous PR review and merge policy
+
+1. **Review ownership**: The orchestrator owns final technical go/no-go decisions for PRs. For meaningful implementation PRs, use an independent reviewing subagent that did not author the changes. Never accept a PR merely because the author reports tests passed; inspect actual final source code, diffs, and verification artifacts.
+2. **Risk-based classification**:
+   - **LOW**: Documentation, isolated cosmetic changes, minor refactoring. Requires relevant checks/tests and focused review.
+   - **MEDIUM**: Ordinary feature development. Requires independent code review, regression tests, and successful CI.
+   - **HIGH**: Financial correctness, authentication, authorization, session management, concurrency, persistence, security-sensitive APIs, and schema migrations. Requires independent source/security/adversarial reviews, relevant failure-injection tests, full regression suite, and successful hosted CI.
+   - **CRITICAL**: Public exposure, destructive production changes, private-data disclosure, paid services, irreversible operations, or decisions reserved for product owner. Strictly requires explicit human authorization before consequential action.
+3. **Autonomous merge workflow**:
+   - Complete bounded implementation.
+   - Classify PR risk.
+   - Delegate required independent reviews; record findings with severity and evidence.
+   - Resolve all material findings; add regression tests for discovered defects.
+   - Rerun full test suite locally.
+   - Push reviewed implementation to feature branch.
+   - Confirm GitHub Actions CI passed on the exact final PR head SHA.
+   - Recheck PR diff and base branch before merge.
+   - Record PASS / FAIL against relevant acceptance gates.
+   - If all gates pass and no human escalation is necessary, merge autonomously using established repository workflow (`--no-ff`).
+   - Verify remote `main`, and update `PROJECT_STATUS.md` and transition records.
+
+On resume, read `PROJECT_STATUS.md` and `research/README.md`. Before a meaningful phase transition, follow `docs/agents/governance.md`: evaluate documented gates, record PASS / CONDITIONAL PASS / FAIL and blocking risks, then proceed or close the evidence gap. Routine phase boundaries and autonomous PR merges do not require user approval. Production MVP implementation is authorized when the orchestrator records implementation readiness; use small vertical slices with domain invariants, appropriate tests, security checks and independent review.
 
 Escalate decisions requiring human authority under `docs/agents/governance.md`; phase authority does not authorize paid services, public/production exposure, account actions, destructive external changes or private-data sharing. Keep disposable validation under clearly experimental directories. Skills cannot expand user authorization or override confirmed product/privacy decisions.
 

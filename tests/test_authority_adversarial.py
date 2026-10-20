@@ -190,8 +190,10 @@ class AuthorityAdversarialTests(unittest.TestCase):
             uncertain.close()
         saved = self.apply("O", command)
         self.assertEqual((saved.revision, self.snapshot().revision), (1, 1))
-        source = """
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        source = f"""
 import json, sys
+sys.path.insert(0, {repr(repo_root)})
 from settletable.authority import Authority, Receipt, ReceiptItem, ReplaceReceipt
 payload = json.load(sys.stdin)
 authority = Authority(payload['path'], clock=lambda: 1000)
@@ -199,7 +201,7 @@ try:
     command = ReplaceReceipt('entry', 0, 0, Receipt((ReceiptItem('dish', 'Shared rice', 3, 1001),), 1001, 1001))
     result = authority.apply(payload['credential'], 'meal', command)
     snapshot = authority.snapshot(payload['credential'], 'meal')
-    print(json.dumps({'result': result.canonical_bytes.hex(), 'revision': snapshot.revision}))
+    print(json.dumps({{'result': result.canonical_bytes.hex(), 'revision': snapshot.revision}}))
 finally:
     authority.close()
 """

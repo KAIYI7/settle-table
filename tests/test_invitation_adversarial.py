@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from settletable.authority import (
     Authority, AuthorityError, Participant,
@@ -250,6 +251,42 @@ class InvitationAdversarialTests(unittest.TestCase):
         self.assertEqual(grant.participant_id, 'B')
         session_b = auth_v1.redeem_invitation(grant.token, 'v1-meal')
         self.assertEqual(session_b.participant_id, 'B')
+
+    def test_entropy_failure_in_lifecycle_methods_raises_storage_error(self):
+        # 1. Entropy failure during issue_invitation
+        with patch('secrets.token_urlsafe', side_effect=RuntimeError('simulated entropy failure')):
+            with self.assertRaises(AuthorityError) as err:
+                self.authority.issue_invitation(self.organizer_cred, 'meal-adv', 'B')
+            self.assertEqual(err.exception.code, 'storage_error')
+
+        # 2. Entropy failure during redeem_invitation
+        grant = self.authority.issue_invitation(self.organizer_cred, 'meal-adv', 'B')
+        with patch('secrets.token_urlsafe', side_effect=RuntimeError('simulated entropy failure')):
+            with self.assertRaises(AuthorityError) as err:
+                self.authority.redeem_invitation(grant.token, 'meal-adv')
+            self.assertEqual(err.exception.code, 'storage_error')
+
+        # 3. Entropy failure during rotate_session
+        with patch('secrets.token_urlsafe', side_effect=RuntimeError('simulated entropy failure')):
+            with self.assertRaises(AuthorityError) as err:
+                self.authority.rotate_session(self.bob_cred, 'meal-adv')
+            self.assertEqual(err.exception.code, 'storage_error')
+
+    def test_security_commands_upper_bound_enforced(self):
+        # Populate 15,000 security commands directly in commands table
+        with closing(sqlite3.connect(self.path)) as db:
+            rows = [
+                ('meal-adv', 'A', f'cmd-fake-{i}', b'{}', b'digest', b'{}', 1)
+                for i in range(15_000)
+            ]
+            db.executemany('INSERT INTO commands VALUES (?,?,?,?,?,?,?)', rows)
+            db.commit()
+
+        # Issuing another security command must be rejected with resource_limit
+        rev = self.authority.snapshot(self.organizer_cred, 'meal-adv').revision
+        with self.assertRaises(AuthorityError) as err:
+            self.authority.apply(self.organizer_cred, 'meal-adv', RevokeSession('overflow-rev', rev, 'B'))
+        self.assertEqual(err.exception.code, 'resource_limit')
 
 
 if __name__ == '__main__':

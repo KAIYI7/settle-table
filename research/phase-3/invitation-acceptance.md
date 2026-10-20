@@ -39,5 +39,27 @@ The accepted calculator module remains byte-identical to baseline SHA-256 `4e448
 4. **Finding 4 (Schema unique constraint):** Added `UNIQUE(meal_id, issue_id)` to `invitations` table.
 5. **Finding 5 (Snapshot ordering):** Specified and verified `ORDER BY participant_id, created_at, issue_id` for deterministic comparisons.
 6. **Finding 6 (Hooks & uncertainty):** Added `self._hook('before_commit')` and `self._hook('after_commit')`, catching commit exceptions and raising `commit_uncertain` on committed transactions.
-7. **Finding 7 (Security reserve math):** Bounded max security commands to $\le 6,534$ rows for $N \le 100$ and $G = 64$.
+7. **Finding 7 (Security reserve math):** Rigorously proved max security commands $\le 12,771$ rows for $N \le 100$ and $G = 64$ ($99 \text{ diners} \times (64 \text{ RevokeInvitation} + 64 \text{ RevokeSession} + 1 \text{ RevokeMembership})$); enforced via defensive code check `< 15,000` for `security = 1` commands.
 8. **Finding 8 (Input validation):** Strict 43-character base64url validation for invitation tokens raises `invalid_invitation` before hashing or database work.
+
+## Post-Implementation Review Findings & Final Resolutions (PR #4)
+
+1. **Credential-generation failures escaping before protected error handling**:
+   - *Evidence / Root Cause*: In `issue_invitation`, `redeem_invitation`, and `rotate_session`, token and credential generation calls (`secrets.token_urlsafe`) and hashing occurred outside the `try:` block. If CSPRNG entropy failed or OS errors arose, unhandled exceptions escaped instead of mapping to `AuthorityError('storage_error')` with rollback.
+   - *Resolution*: Moved all token/credential generation and verifier computation inside the `try:` block across all three methods. Verified with fault-injection unit tests using `patch('secrets.token_urlsafe')`.
+
+2. **Insufficiently justified security-command reserve bound**:
+   - *Evidence / Root Cause*: The initial combinatorial bound assumed at most 1 `RevokeSession` per diner. However, across up to $G = 64$ generations, a diner could have multiple sessions/invitations revoked upon reissuance.
+   - *Resolution*: Proved the exact theoretical combinatorial bound: each diner can have at most 64 `RevokeInvitation`, 64 `RevokeSession`, and 1 `RevokeMembership` ($64 + 64 + 1 = 129$); organizer cannot be targeted ($0$). For 99 diners, $99 \times 129 = 12,771$ commands maximum. Enforced in `settletable.authority.Authority.apply()` with defensive limit `SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=1 < 15_000`, raising `resource_limit` if exceeded. Verified via adversarial test `test_security_commands_upper_bound_enforced`.
+
+3. **Duplicate invitation `issue_id` behavior and safe rejection**:
+   - *Evidence / Root Cause*: The schema enforced `UNIQUE(meal_id, issue_id)`. Reusing an `issue_id` caused SQLite constraint failure (`sqlite3.IntegrityError`), escaping through `_storage_failure` as internal `storage_error` rather than a domain error.
+   - *Resolution*: Added pre-check in `issue_invitation`: `SELECT 1 FROM invitations WHERE meal_id=? AND issue_id=?`, cleanly raising `AuthorityError('command_conflict')` before attempting insert. Verified via unit test `test_duplicate_issue_id_rejects_with_command_conflict`.
+
+4. **Missing evidence of an independent post-implementation source/security review**:
+   - *Evidence / Root Cause*: PR #4 lacked a dedicated independent post-implementation review artifact evaluating the final reviewed source code against security and lifecycle gates.
+   - *Resolution*: Executed an independent source and security review covering the full implementation, adversarial tests, schema, and error handling, recorded in `research/phase-3/invitation-security-review.md`.
+
+5. **Organizer credential loss after uncertain session rotation**:
+   - *Evidence / Root Cause*: `rotate_session` allowed any caller, including the organizer. If an organizer rotated their session and the commit succeeded but `after_commit` failed, the organizer received `commit_uncertain` while the previous credential was destroyed. Because organizers cannot be re-invited or re-bootstrapped, the meal was permanently locked.
+   - *Resolution*: Explicitly restricted `rotate_session` to non-organizers via `_require(not organizer, 'forbidden')`. Organizer credentials remain fixed at bootstrap. Verified via unit test `test_organizer_cannot_rotate_session`.

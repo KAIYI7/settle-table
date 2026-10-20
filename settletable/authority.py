@@ -558,17 +558,20 @@ class Authority:
         _require(type(invite_ttl) is int and 1 <= invite_ttl <= 604800)
         if issue_id is not None:
             _id(issue_id)
-        else:
-            issue_id = f'inv-{secrets.token_urlsafe(16)}'
-        token = secrets.token_urlsafe(32)
-        inv_verifier = _invitation_verifier(token)
         committed = False
         commit_attempted = False
         try:
+            if issue_id is None:
+                issue_id = f'inv-{secrets.token_urlsafe(16)}'
+            token = secrets.token_urlsafe(32)
+            inv_verifier = _invitation_verifier(token)
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN IMMEDIATE')
             actor, organizer = self._authenticate(verifier, meal_id)
             _require(bool(organizer), 'forbidden')
+            existing_issue = self._db.execute('SELECT 1 FROM invitations WHERE meal_id=? AND issue_id=?',
+                                              (meal_id, issue_id)).fetchone()
+            _require(existing_issue is None, 'command_conflict')
             target = self._db.execute('SELECT organizer,active FROM participants WHERE meal_id=? AND id=?',
                                       (meal_id, participant_id)).fetchone()
             _require(target is not None and not target[0] and target[1] == 1, 'forbidden')
@@ -622,11 +625,11 @@ class Authority:
         inv_verifier = _invitation_verifier(invitation_token)
         _id(meal_id)
         _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
-        credential = secrets.token_urlsafe(32)
-        sess_verifier = _verifier(credential)
         committed = False
         commit_attempted = False
         try:
+            credential = secrets.token_urlsafe(32)
+            sess_verifier = _verifier(credential)
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN IMMEDIATE')
             now = self._now()
@@ -685,14 +688,15 @@ class Authority:
         verifier = _verifier(credential)
         _id(meal_id)
         _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
-        new_credential = secrets.token_urlsafe(32)
-        new_verifier = _verifier(new_credential)
         committed = False
         commit_attempted = False
         try:
+            new_credential = secrets.token_urlsafe(32)
+            new_verifier = _verifier(new_credential)
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN IMMEDIATE')
-            actor, _ = self._authenticate(verifier, meal_id)
+            actor, organizer = self._authenticate(verifier, meal_id)
+            _require(not organizer, 'forbidden')
             gen_row = self._db.execute('SELECT generation FROM participant_lifecycle WHERE meal_id=? AND participant_id=?',
                                        (meal_id, actor)).fetchone()
             current_gen = 1 if gen_row is None else gen_row[0]
@@ -896,6 +900,9 @@ class Authority:
             if not security:
                 _require(state['calculation'] is None, 'finalized')
                 _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=0', (meal_id,)).fetchone()[0] < 10_000,
+                         'resource_limit')
+            else:
+                _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=1', (meal_id,)).fetchone()[0] < 15_000,
                          'resource_limit')
             if 'expected_revision' in data:
                 _require(data['expected_revision'] == state['revision'], 'revision_conflict')

@@ -221,6 +221,24 @@ class InvitationLifecycleTests(unittest.TestCase):
             self.authority.issue_invitation(self.organizer_cred, 'meal-1', 'C')
         self.assertEqual(err.exception.code, 'forbidden')
 
+    def test_duplicate_issue_id_rejects_with_command_conflict(self):
+        grant = self.authority.issue_invitation(
+            self.organizer_cred, 'meal-1', 'B', invite_ttl=3600, issue_id='custom-issue-1'
+        )
+        self.assertEqual(grant.participant_id, 'B')
+        # Reissuing or issuing another invitation with the same issue_id raises command_conflict
+        with self.assertRaises(AuthorityError) as err:
+            self.authority.issue_invitation(
+                self.organizer_cred, 'meal-1', 'C', invite_ttl=3600, issue_id='custom-issue-1'
+            )
+        self.assertEqual(err.exception.code, 'command_conflict')
+
+    def test_organizer_cannot_rotate_session(self):
+        # Organizer session rotation is forbidden to protect against self-lockout/credential loss
+        with self.assertRaises(AuthorityError) as err:
+            self.authority.rotate_session(self.organizer_cred, 'meal-1', session_ttl=3600)
+        self.assertEqual(err.exception.code, 'forbidden')
+
 
 if __name__ == '__main__':
     unittest.main()
