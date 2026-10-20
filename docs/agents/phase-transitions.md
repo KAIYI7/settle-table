@@ -163,3 +163,17 @@ The next local scope targets invitations and sessions for already declared diner
 | Hosted CI Verification | PASS — GitHub Actions run `39408626484` on exact head `1f1fb78` passed all 101 tests on Python 3.14 / Linux. |
 
 **Next scope:** Frontend UI / web client integration for meal drafts, item claiming, and invitation landing under the bounded transport API.
+
+## 2026-10-20 — PR #6 Merge: Transport-Boundary Hardening Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `65ae4bd7987fc5208f8705b6197171ef0728c057` merged autonomously under the orchestrator governance policy into `main` at `e7a8a82918353d82188746c0d7b19fec499b2698`. GitHub PR #6 closed upon direct merge to main. Post-implementation independent security review delivered unconditional GO (`research/phase-3/transport-hardening-review.md`); all 5 audit gates passed; 104/104 test suite methods passed in 63.364s; hosted GitHub Actions CI run `39420125202` succeeded on the exact reviewed head.
+
+| Gate | Disposition / Evidence |
+|---|---|
+| Reverse Proxy Loopback Protection | PASS — `POST /api/meals/{meal_id}/bootstrap` rejects requests containing proxy headers (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Forwarded`, `X-Real-IP`) with 403 `forbidden`, preventing external proxy bypass of loopback checks. |
+| Credential Minimization at Provisioning | PASS — Bootstrap returns session credentials strictly for the organizer (`sessions: [{"participant_id": organizer_id, "credential": ...}]`); never returns pre-minted diner credentials over HTTP. |
+| Cookie-Context Credential Hygiene | PASS — `POST /api/meals/{meal_id}/session/rotate` omits raw bearer credentials from the JSON response body when the caller authenticated via cookie, delivering credentials exclusively via `Set-Cookie` (`HttpOnly; Secure; SameSite=Strict; Path=/`) to prevent XSS exfiltration. Programmatic Bearer callers retain credential in JSON. |
+| Ingress vs. WSGI Boundary Demarcation | PASS — `docs/deployment-boundary.md` explicitly documents the Tier 1 ingress boundary (TCP stream bounds in reverse proxy) vs. Tier 2 WSGI application defense-in-depth, including Nginx reference configuration. |
+| Test Coverage & Invariant Integrity | PASS — 104/104 tests pass; zero modification to `settletable.authority` or `settletable.calculation`; deterministic math and state machine invariants intact. |
+
+**Next scope:** Design, specify, and implement the same-origin browser MVP (organizer receipt entry/review, diner invitation landing, item claiming, and finalized allocation results) using local assets and responsive mobile-first UI.
