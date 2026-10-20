@@ -42,6 +42,15 @@ class InvitationGrant:
 
 
 @dataclass(frozen=True, slots=True)
+class InvitationInspection:
+    valid: bool
+    meal_id: str | None = None
+    participant_name: str | None = None
+    expires: float | int | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class InvitationRecord:
     participant_id: str
     created_at: float | int
@@ -620,6 +629,37 @@ class Authority:
         except Exception:
             self._rollback()
             raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
+
+    def inspect_invitation(self, token):
+        try:
+            inv_verifier = _invitation_verifier(token)
+        except AuthorityError:
+            return InvitationInspection(valid=False, reason='invalid_token')
+
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN')
+            now = self._now()
+            row = self._db.execute('''
+                SELECT i.meal_id, i.participant_id, i.expires, i.consumed, i.revoked, p.name, p.active
+                FROM invitations i
+                JOIN participants p ON p.meal_id = i.meal_id AND p.id = i.participant_id
+                WHERE i.verifier = ?
+            ''', (inv_verifier,)).fetchone()
+            self._db.execute('COMMIT')
+            if row is None:
+                return InvitationInspection(valid=False, reason='not_found')
+            meal_id, part_id, expires, consumed, revoked, name, active = row
+            if not active or revoked:
+                return InvitationInspection(valid=False, meal_id=meal_id, participant_name=name, expires=expires, reason='revoked')
+            if consumed:
+                return InvitationInspection(valid=False, meal_id=meal_id, participant_name=name, expires=expires, reason='consumed')
+            if expires <= now:
+                return InvitationInspection(valid=False, meal_id=meal_id, participant_name=name, expires=expires, reason='expired')
+            return InvitationInspection(valid=True, meal_id=meal_id, participant_name=name, expires=expires)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
 
     def redeem_invitation(self, invitation_token, meal_id, *, session_ttl=3600):
         inv_verifier = _invitation_verifier(invitation_token)

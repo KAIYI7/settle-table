@@ -9,7 +9,7 @@ import unittest
 
 from settletable.authority import (
     Authority, AuthorityError, Participant, SessionGrant,
-    InvitationGrant, InvitationRecord, RevokeInvitation,
+    InvitationGrant, InvitationInspection, InvitationRecord, RevokeInvitation,
     RevokeSession, RevokeMembership,
 )
 
@@ -238,6 +238,60 @@ class InvitationLifecycleTests(unittest.TestCase):
         with self.assertRaises(AuthorityError) as err:
             self.authority.rotate_session(self.organizer_cred, 'meal-1', session_ttl=3600)
         self.assertEqual(err.exception.code, 'forbidden')
+
+    def test_inspect_invitation_lifecycle(self):
+        # 1. Invalid token format
+        res = self.authority.inspect_invitation('too-short')
+        self.assertFalse(res.valid)
+        self.assertEqual(res.reason, 'invalid_token')
+
+        # 2. Unknown token (valid format, but not in db)
+        unknown_token = 'A' * 43
+        res = self.authority.inspect_invitation(unknown_token)
+        self.assertFalse(res.valid)
+        self.assertEqual(res.reason, 'not_found')
+
+        # 3. Valid invitation
+        grant = self.authority.issue_invitation(self.organizer_cred, 'meal-1', 'B', invite_ttl=3600)
+        rev_before = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
+
+        res = self.authority.inspect_invitation(grant.token)
+        self.assertTrue(res.valid)
+        self.assertEqual(res.meal_id, 'meal-1')
+        self.assertEqual(res.participant_name, 'Bob')
+        self.assertEqual(res.expires, self.current_time + 3600)
+        self.assertIsNone(res.reason)
+
+        # Non-mutating verification: multiple inspect calls do not advance revision
+        self.authority.inspect_invitation(grant.token)
+        self.assertEqual(self.authority.snapshot(self.organizer_cred, 'meal-1').revision, rev_before)
+
+        # 4. Expired invitation
+        self.current_time += 3601
+        res_expired = self.authority.inspect_invitation(grant.token)
+        self.assertFalse(res_expired.valid)
+        self.assertEqual(res_expired.reason, 'expired')
+
+        # Reset clock for subsequent tests
+        self.current_time = 1000.0
+
+        # 5. Revoked invitation
+        grant2 = self.authority.issue_invitation(self.organizer_cred, 'meal-1', 'C', invite_ttl=7200)
+        rev = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
+        self.authority.apply(self.organizer_cred, 'meal-1', RevokeInvitation('rev-c-1', rev, 'C'))
+        res_revoked = self.authority.inspect_invitation(grant2.token)
+        self.assertFalse(res_revoked.valid)
+        self.assertEqual(res_revoked.reason, 'revoked')
+
+        # 6. Consumed invitation
+        # Revoke the previous invitation so we can issue a fresh one for B
+        rev = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
+        self.authority.apply(self.organizer_cred, 'meal-1', RevokeInvitation('rev-b-old', rev, 'B'))
+        grant3 = self.authority.issue_invitation(self.organizer_cred, 'meal-1', 'B', invite_ttl=3600)
+        self.authority.redeem_invitation(grant3.token, 'meal-1')
+        res_consumed = self.authority.inspect_invitation(grant3.token)
+        self.assertFalse(res_consumed.valid)
+        self.assertEqual(res_consumed.reason, 'consumed')
 
 
 if __name__ == '__main__':
