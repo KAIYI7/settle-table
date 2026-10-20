@@ -237,3 +237,19 @@ The next local scope targets invitations and sessions for already declared diner
 
 **Next scope:** Optional asynchronous Notion reporting, maintaining strict decoupling from live meal collaboration.
 
+## 2026-10-21 — PR #11 Merge: Bounded Optional Asynchronous Notion Reporting Pipeline Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `8a83ba2287ad27764a51147bd594e4b4c4eba966` merged autonomously under the orchestrator governance policy into `main` at `d34ff75caf3047f5a8515d0b3503e3a3948871ae`. GitHub PR #11 closed upon direct merge to main. Post-implementation independent security and code review delivered unconditional GO (`research/phase-3/notion-implementation-review.md`); all 6 audit gates passed; 150/150 test suite methods passed in 62.383s; 9/9 automated real-browser CDP test stages passed in 3.4s via Headless Chrome (`tools/e2e_browser_test.mjs`); hosted GitHub Actions CI run `39515609945` succeeded on the exact reviewed head in `ubuntu-24.04`, validating all Python tests and the 9-stage real browser E2E test in CI.
+
+| Gate | Disposition / Evidence |
+|---|---|
+| Decoupling & Fault Isolation | PASS — Live meal collaboration, item claiming, receipt review, and finalization execute 100% offline or air-gapped without Notion. Notion export failures leave SQLite meal state, claims, and calculations completely intact with zero database rollbacks. Live dining never depends on Notion availability or credentials. |
+| Secret Hygiene & Token Redaction | PASS — Notion API tokens (`secret_...` and `ntn_...`) are strictly excluded from SQLite persistence. Wire logs (`transport.redact_log_string`), error strings, and exception handlers scrub integration tokens to prevent leakage in server output or HTTP error bodies. |
+| One-Way Invariance & Financial Integrity | PASS — Apportionment exported to Notion is mapped directly from authoritative `calculation.consumption` integer sen amounts. Notion formulas, rollups, or calculations are strictly zero; money formatting uses integer division without floating-point drift. |
+| Quota & Block Efficiency | PASS — Generates $\le 40$ blocks per meal (1 callout + 2 headings + 2 tables + rows + divider + audit paragraph), yielding $>70\%$ block savings over relational multi-page designs and protecting Free tier workspace lifetime block quotas (1,000 blocks). Page-parent export strictly limits properties to `title` (per Notion REST constraint for non-database parents) while placing financial metadata inside the top Callout block; table block dimensions strictly match row cell arrays. |
+| Concurrency & Idempotency State Machine | PASS — SQLite tracking table `notion_exports` maintains `(meal_id, finalized_revision)` through `in_progress` -> `completed` state machine, rejecting duplicate concurrent clicks with 409 `export_in_progress` or 409 `already_exported` while permitting clean recovery on failure (`clear_notion_export`). |
+| Deterministic CI Portability & Test Coverage | PASS — `MockNotionClient` validates exact REST constraints without opening outbound sockets, allowing all 150 Python unit tests and 9-stage Chrome CDP browser tests to execute at $0.00 spend. |
+| Financial Invariants & Invariant Integrity | PASS — Deterministic calculation module (`settletable/calculation.py`) and cryptographic hash domains (`settletable-receipt-v1`, `settletable-local-session-v1`, `settletable-invitation-v1`, `settletable-command-v1`) remain completely untouched. |
+
+**Next scope:** Phase 3 consolidation, operational review, and demonstration handover.
+
