@@ -177,3 +177,18 @@ The next local scope targets invitations and sessions for already declared diner
 | Test Coverage & Invariant Integrity | PASS — 104/104 tests pass; zero modification to `settletable.authority` or `settletable.calculation`; deterministic math and state machine invariants intact. |
 
 **Next scope:** Design, specify, and implement the same-origin browser MVP (organizer receipt entry/review, diner invitation landing, item claiming, and finalized allocation results) using local assets and responsive mobile-first UI.
+
+## 2026-10-20 — PR #7 Merge: Same-Origin Browser MVP Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `cd4973c1cd73dae8f6ebe8e97640e04604ae16f6` merged autonomously under the orchestrator governance policy into `main` at `67f7190638696f8592cd49fa489b5f12f64b49e1`. GitHub PR #7 closed upon direct merge to main. Architectural challenge conducted (`research/phase-3/browser-mvp-challenge.md`); post-implementation independent security review delivered CONDITIONAL PASS with 4 minor remediations (`research/phase-3/browser-mvp-review.md`), all of which were resolved in commit `cd4973c` (server-authoritative `snap.issues` evaluation for finalization, in-memory invite token caching for link re-copy, $44\text{px}$ touch targets on stepper buttons, and `escapeHtml()` error sanitization); 109/109 full-suite tests passed locally in 63.725s; hosted GitHub Actions CI run `39423753289` succeeded on the exact final reviewed head SHA.
+
+| Gate | Disposition / Evidence |
+|---|---|
+| Zero External Dependencies & Asset Isolation | PASS — Zero CDNs, zero web fonts, zero remote tracking/analytics scripts; 100% self-contained local assets (`settletable/static/`); system font stack utilized. |
+| Static Asset Serving & Path Traversal Security | PASS — Static files served strictly through an in-memory dictionary allowlist (`STATIC_FILES`) and regex matching (`/static/([A-Za-z0-9_.-]+)`); `X-Content-Type-Options: nosniff`; `Cache-Control: no-store` on HTML routes; path traversal attempts fail regex and return 404 `not_found`. |
+| Content Security Policy & DOM XSS Immunity | PASS — Strict Content Security Policy header attached to all HTML/static routes (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`); all dynamic server data and user inputs escaped via `escapeHtml()`. |
+| Authentication, Invitation Landing & Session Boundary | PASS — Host-only cookies with `HttpOnly; Secure; SameSite=Strict; Path=/`; unauthenticated landing `GET /invite/{token}` serves HTML shell without token consumption or state mutation; one-click redemption establishes cookie; caller identity and role context (`current_participant_id`, `is_organizer`) returned via `Authority.authenticate()`. |
+| Dining Flow UX, Conflict Handling & Human Receipt Review | PASS — Mobile-responsive layout (touch targets $\ge 44\text{px}$, `viewport-fit=cover`); explicit human receipt verification step before finalization; concurrency conflicts (item revision collisions) return HTTP 409 Conflict with amber conflict banner, contested card highlight, and automatic refresh. |
+| Financial Invariants & Invariant Integrity | PASS — Deterministic calculation module (`settletable/calculation.py`) and cryptographic hash domains remain completely untouched; all 109 automated tests pass. |
+
+**Next scope:** Operational documentation, local demo instructions, and assessment of next milestone (OCR extraction pipeline and optional Notion integration).

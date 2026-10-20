@@ -2,13 +2,13 @@
 
 Updated 2026-10-20. Project: **SettleTable**. Authority: [orchestrator governance](docs/agents/governance.md). Decisions: [transition ledger](docs/agents/phase-transitions.md).
 
-- **Current phase:** Phase 3 — incremental manual-first MVP implementation. The isolated calculator/parser, bounded local authoritative-draft, integrated invitation/session lifecycle, and bounded same-origin transport adapter slices are internally accepted and merged into `main`; the complete live application is not yet implemented.
-- **Completed:** Phase 0 research/skills; feasible Phase 1; revised Phase 2 independent challenge and browser/SQLite probes; Phase 3 calculator and local authority with tests and independent reviews; repository CI (PR #2), namespace refactor (PR #3), integrated invitation/session lifecycle (PR #4), bounded same-origin transport adapter (PR #5), and transport-boundary hardening (PR #6) merged.
-- **Active objective:** Minimal, mobile-friendly same-origin browser MVP supporting organizer receipt entry/review, diner invitation landing, item claiming, and finalized allocation results.
-- **Blocking gates:** live application use needs front-end client integration, renewal/recovery and operational validation. Local atomic access/calculation/persistence, invitation lifecycle, transport boundaries, and independent security gates pass within the bounded authority contract. Policy-dependent settlement/image/export features need unresolved human preferences before activation. Public release also needs backup/restore, device and operational validation.
+- **Current phase:** Phase 3 — incremental manual-first MVP implementation. The isolated calculator/parser, bounded local authoritative-draft, integrated invitation/session lifecycle, bounded same-origin transport adapter, transport hardening, and same-origin browser MVP slices are internally accepted and merged into `main`.
+- **Completed:** Phase 0 research/skills; feasible Phase 1; revised Phase 2 independent challenge and browser/SQLite probes; Phase 3 calculator and local authority with tests and independent reviews; repository CI (PR #2), namespace refactor (PR #3), integrated invitation/session lifecycle (PR #4), bounded same-origin transport adapter (PR #5), transport-boundary hardening (PR #6), and same-origin browser MVP (PR #7) merged.
+- **Active objective:** Local demonstration validation, operational run documentation, and milestone planning for OCR pipeline and Notion integration.
+- **Blocking gates:** live Internet production release needs operational backup/restore, external deployment infrastructure, device validation, and privacy boundary approval. Local atomic access/calculation/persistence, invitation lifecycle, transport boundaries, browser UI, and independent security gates pass within the bounded authority contract. Policy-dependent settlement/image/export features need unresolved human preferences before activation.
 - **Nonblocking risks for this phase:** modern held-out Malaysian OCR accuracy, real-phone camera/offline performance, original dataset rights, raw authenticated Notion REST/actual workspace limits, real hosting costs. These block relevant release/integration claims, not local manual-first validation.
-- **Architecture/stack:** Path C; Python standard-library `settletable` package with WSGI transport adapter (`SettleTableApp`) and single-host SQLite local authority in WAL mode. The source move preserves the historical `tabwise-apportion-v1` deterministic contract and all existing security/canonical domains. Web framework/hosting remain undecided; no external framework dependency.
-- **Next work:** design and implement front-end client interface for meal drafts, participant claims, and invitation landing against `/api/` endpoints.
+- **Architecture/stack:** Path C; Python standard-library `settletable` package with WSGI transport adapter (`SettleTableApp`), single-host SQLite local authority in WAL mode, and zero-dependency vanilla ES2022 / HTML / CSS browser frontend. The source move preserves the historical `tabwise-apportion-v1` deterministic contract and all existing security/canonical domains.
+- **Next work:** provide local demo instructions, review operational boundaries, and design the next bounded milestone (OCR extraction pipeline and optional Notion integration).
 
 ## Repository checkpoint
 
@@ -47,6 +47,13 @@ Updated 2026-10-20. Project: **SettleTable**. Authority: [orchestrator governanc
 - Merge commit: [`e7a8a82918353d82188746c0d7b19fec499b2698`](https://github.com/KAIYI7/settle-table/commit/e7a8a82918353d82188746c0d7b19fec499b2698). Merged autonomously under orchestrator governance policy (GitHub PR #6 closed upon direct merge to main).
 - Verified evidence: 104 full-suite methods pass locally in 63.364s; [independent security review](research/phase-3/transport-hardening-review.md) records unconditional PASS/GO across all 5 audit gates; hosted GitHub Actions run [39420125202](https://github.com/KAIYI7/settle-table/actions/runs/39420125202) completed successfully on the exact PR head SHA.
 - [Deployment boundary document](docs/deployment-boundary.md) establishes Tier 1 ingress stream limits vs Tier 2 WSGI defense-in-depth; loopback bootstrap rejects proxy headers (`X-Forwarded-*`); provisioning returns strictly organizer credentials; session rotation omits raw bearer tokens from JSON in cookie contexts.
+
+## Accepted same-origin browser MVP checkpoint (PR #7)
+
+- PR #7 reviewed head: `cd4973c1cd73dae8f6ebe8e97640e04604ae16f6`; premerge main: `b5900f892cb86fc50a1bb73507d9d7e50275525b`.
+- Merge commit: [`67f7190638696f8592cd49fa489b5f12f64b49e1`](https://github.com/KAIYI7/settle-table/commit/67f7190638696f8592cd49fa489b5f12f64b49e1). Merged autonomously under orchestrator governance policy (GitHub PR #7 closed upon direct merge to main).
+- Verified evidence: 109 full-suite methods pass locally in 63.725s; [independent architecture challenge](research/phase-3/browser-mvp-challenge.md) and [post-implementation review](research/phase-3/browser-mvp-review.md) record PASS/GO across all 6 audit gates with all 4 remediations verified; hosted GitHub Actions run [39423753289](https://github.com/KAIYI7/settle-table/actions/runs/39423753289) completed successfully on the exact final PR head SHA.
+- [Browser MVP specification](.scratch/browser-mvp/SPEC.md) and frontend implementation (`settletable/static/`). Zero external CDNs/fonts, strict Content-Security-Policy, DOM XSS immunity (`escapeHtml()`), $44\text{px}$ touch targets, human receipt confirmation digest binding, HTTP 409 Conflict handling, and deterministic cent-conserving calculation breakdown.
 
 ## Repository foundation
 
