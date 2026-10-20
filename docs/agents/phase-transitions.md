@@ -127,3 +127,21 @@ The next local scope targets invitations and sessions for already declared diner
 | Public exposure / spend escalation | PASS — no spend, no deployment, no network listener, no third-party services, no credential changes. | Strictly localhost/in-process Python standard library. |
 
 **Approved next action:** Implement the vertical slices via TDD (`issue_invitation`, `redeem_invitation`, `rotate_session`, `RevokeInvitation`, cascading revocation, snapshot metadata, resource quotas, and backward compatibility), verify passing test suite, and run adversarial lifecycle tests.
+
+## 2026-10-20 — PR #4 Merge: Integrated Invitation and Session Lifecycle Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `0f63ecd00ea71c5c667c70ef750012f594ae3add` merged autonomously under the orchestrator governance policy into `main` at `75a3511982091d6c49f97a29dbf7a9fcb6de0205`. All 5 external review findings resolved; independent security review subagent delivered unconditional GO (`research/phase-3/invitation-security-review.md`); 79/79 test suite methods passed in 149.391s; hosted GitHub Actions CI run `39404379865` succeeded.
+
+| Gate | Disposition / Evidence |
+|---|---|
+| Invariants & Financial Correctness | PASS — `settletable.calculation` byte-identical (`4e4484...`); 15 calculation tests pass; all 4 hash domains intact with null-terminator prefixes. |
+| Secret Hygiene | PASS — Zero token persistence; `repr=False` on all bearer material; SHA-256 verifiers only; SQL/dump/bytes scans verify zero leakage. |
+| Concurrency & Transactions | PASS — Exclusive `BEGIN IMMEDIATE` locks; dual-connection racing redemption and racing revocation serialize deterministically; cascading revocation verified across 3 pathways. |
+| Error Handling & Entropy Failures | PASS — `secrets.token_urlsafe` and verifiers inside `try:` with rollback in `issue_invitation`, `redeem_invitation`, `rotate_session`; tested via entropy-injection mock. |
+| Security Reserve Bound | PASS — Rigorously proved $\le 12,771$ commands ceiling for $N \le 100, G = 64$; enforced with defensive `< 15,000` limit on `security = 1` commands in `apply()`. |
+| Duplicate `issue_id` Safe Rejection | PASS — Explicit `SELECT 1 FROM invitations WHERE meal_id=? AND issue_id=?` cleanly raises `AuthorityError('command_conflict')` without database integrity crashes. |
+| Organizer Session Lockout Protection | PASS — `rotate_session` restricts callers to non-organizers (`_require(not organizer, 'forbidden')`), eliminating irreversible self-lockout from uncertain rotation. |
+| Additive Backward Compatibility | PASS — Reopening v1 databases works additively; historical commands/snapshots replay byte-identically. |
+| Hosted CI Verification | PASS — GitHub Actions run `39404379865` on head `0f63ecd` passed full test suite on Python 3.14 / Linux. |
+
+**Next scope:** specify, challenge, and implement the bounded same-origin transport adapter (HTTP/transport boundary for meal requests) under orchestrator governance.
