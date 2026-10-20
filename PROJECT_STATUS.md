@@ -1,14 +1,14 @@
 # Project status
 
-Updated 2026-10-17. Project: **SettleTable**. Authority: [orchestrator governance](docs/agents/governance.md). Decisions: [transition ledger](docs/agents/phase-transitions.md).
+Updated 2026-10-20. Project: **SettleTable**. Authority: [orchestrator governance](docs/agents/governance.md). Decisions: [transition ledger](docs/agents/phase-transitions.md).
 
 - **Current phase:** Phase 3 — incremental manual-first MVP implementation. The isolated calculator/parser and bounded local authoritative-draft slices are internally accepted; the complete live application is not yet implemented.
-- **Completed:** Phase 0 research/skills; feasible Phase 1; revised Phase 2 independent challenge and browser/SQLite probes; Phase 3 calculator and local authority with tests and independent reviews. Completion does not imply every production capability is validated.
-- **Active objective:** plan the [bounded invitation/session lifecycle, then transport](research/phase-3/next-slice-plan.md). Repository foundation is merged in separate [CI PR #2](https://github.com/KAIYI7/settle-table/pull/2) and [namespace PR #3](https://github.com/KAIYI7/settle-table/pull/3), with completed hosted full-suite checks and byte-identical production source. No next product capability has been implemented.
+- **Completed:** Phase 0 research/skills; feasible Phase 1; revised Phase 2 independent challenge and browser/SQLite probes; Phase 3 calculator and local authority with tests and independent reviews; repository CI (PR #2) and namespace refactor (PR #3) merged.
+- **Active objective:** implement the [bounded invitation/session lifecycle](.scratch/invitation-lifecycle/SPEC.md) on branch `feature/invitation-lifecycle`. Specification independently challenged and reviewed; all 8 review findings incorporated.
 - **Blocking gates:** live application use needs real Internet identity/invitations, renewal/recovery and transport-integrated access controls. Local atomic access/calculation/persistence and independent security gates pass only within the bounded authority contract. Policy-dependent settlement/image/export features need unresolved human preferences before activation. Public release also needs backup/restore, device and operational validation.
 - **Nonblocking risks for this phase:** modern held-out Malaysian OCR accuracy, real-phone camera/offline performance, original dataset rights, raw authenticated Notion REST/actual workspace limits, real hosting costs. These block relevant release/integration claims, not local manual-first validation.
 - **Architecture/stack:** Path C; Python standard-library `settletable` package and single-host SQLite local authority. The source move preserves the historical `tabwise-apportion-v1` deterministic contract and all existing security/canonical domains. Web framework/hosting remain undecided; no listener or frontend. Device/self-hosted extraction and optional downstream Notion remain directions; no framework-specific skill installed.
-- **Next work:** write/challenge exact lifecycle interfaces and replay/uncertainty, rotation, revocation-capacity and old-database compatibility rules. Keep invitation redemption/session issuance in the authority transaction; then specify and validate a same-origin transport. OCR, Notion and broader UI remain later. Human escalation still applies to spend, exposure, credentials, private data, destructive/irreversible actions, unclear licensing and genuine product-policy preferences.
+- **Next work:** test-driven implementation of invitation issuance, redemption, session rotation, cascading revocation, and snapshot status within `settletable.authority.Authority`; verify adversarial test suite; open PR against main.
 
 ## Repository checkpoint
 
