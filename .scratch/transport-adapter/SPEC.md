@@ -82,14 +82,15 @@ All API responses return `Content-Type: application/json; charset=utf-8` and hea
 
 ### 4.1 Provisioning & Session
 - `POST /api/meals/{meal_id}/bootstrap`
-  - Access: Local loopback only (`127.0.0.1` / `::1`).
+  - Access: Local loopback only (`127.0.0.1` / `::1`), strictly rejecting proxy forwarding headers (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Forwarded`, `X-Real-IP`).
   - Body: `{"participants": [{"id": "...", "name": "...", "organizer": true/false}, ...]}`
   - Action: Calls `Authority.bootstrap(meal_id, participants)`.
-  - Returns: `201 Created` with `BootstrapResult` metadata (participant IDs and session grants); sets `Set-Cookie: settletable_session=<organizer_cred>; HttpOnly; Secure; SameSite=Strict; Path=/`.
+  - Credential Hygiene: Returns credentials **strictly for the organizer** (`sessions: [{"participant_id": "...", "credential": "..."}]`); never returns diner credentials. Diners must be enrolled via `issue_invitation`. Sets `Set-Cookie: settletable_session=<organizer_cred>; HttpOnly; Secure; SameSite=Strict; Path=/`.
 - `POST /api/meals/{meal_id}/session/rotate`
   - Access: Authenticated diner session (via cookie or `Authorization: Bearer`).
   - Action: Calls `Authority.rotate_session(credential, meal_id)`.
-  - Returns: `200 OK` with rotated grant metadata and updated `Set-Cookie`. If caller is organizer, returns `403 Forbidden` (`forbidden`).
+  - Credential Hygiene: If authenticated via cookie, `credential` is omitted from the JSON response body and updated strictly via `Set-Cookie` (`HttpOnly`). If authenticated via `Authorization: Bearer`, `credential` is included in the JSON response body.
+  - Returns: `200 OK` with `{"ok": true, "participant_id": "..."}`. If caller is organizer, returns `403 Forbidden` (`forbidden`).
 
 ### 4.2 Snapshot & Commands
 - `GET /api/meals/{meal_id}/snapshot`

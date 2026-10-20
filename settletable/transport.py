@@ -402,6 +402,14 @@ class SettleTableApp:
         # Bootstrap POST /api/meals/{meal_id}/bootstrap
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/bootstrap', path)
         if m and method == 'POST':
+            # Ingress/Proxy header protection: a reverse proxy forwarding requests to loopback
+            # would make untrusted external calls appear to originate from 127.0.0.1.
+            # Reject if any proxy forwarding headers are present.
+            proxy_headers = ('HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED_HOST',
+                             'HTTP_X_FORWARDED_PROTO', 'HTTP_FORWARDED', 'HTTP_X_REAL_IP')
+            if any(environ.get(h) for h in proxy_headers):
+                raise TransportError('forbidden', 403)
+
             remote_addr = environ.get('REMOTE_ADDR', '')
             if remote_addr not in ('127.0.0.1', '::1', 'localhost', 'testclient'):
                 raise TransportError('forbidden', 403)
@@ -421,10 +429,14 @@ class SettleTableApp:
             organizer_session = next(s for s, p in zip(b_res.sessions, parts) if p.organizer)
             headers = self._default_headers()
             headers.append(('Set-Cookie', f'settletable_session={organizer_session.credential}; HttpOnly; Secure; SameSite=Strict; Path=/'))
+            # Defense against credential exposure: Never return all participant credentials
+            # to an untrusted client. Only the provisioned organizer session is returned.
+            # Diners must join via explicit invitations (issue_invitation -> redeem_invitation).
             out = {
                 'ok': True,
                 'meal_id': b_res.meal_id,
-                'sessions': [{'participant_id': s.participant_id, 'credential': s.credential} for s in b_res.sessions],
+                'organizer_id': organizer_session.participant_id,
+                'sessions': [{'participant_id': organizer_session.participant_id, 'credential': organizer_session.credential}],
             }
             return 201, headers, serialize_json(out)
 
@@ -451,8 +463,11 @@ class SettleTableApp:
             out = {
                 'ok': True,
                 'participant_id': new_grant.participant_id,
-                'credential': new_grant.credential,
             }
+            # Only return raw bearer credential if request was authenticated via Bearer token (programmatic client).
+            # Cookie-authenticated browser clients receive the credential strictly via HttpOnly cookie to prevent XSS exfiltration.
+            if bearer_cred and not used_cookie:
+                out['credential'] = new_grant.credential
             return 200, headers, serialize_json(out)
 
         # Issue Invitation POST /api/meals/{meal_id}/invitations
