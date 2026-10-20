@@ -206,4 +206,18 @@ The next local scope targets invitations and sessions for already declared diner
 | Real Browser E2E Test Verification | PASS — `tools/e2e_browser_test.mjs` executes an 8-stage automated CDP test across two isolated Headless Chrome instances with independent user profiles and cookie stores; validates end-to-end flow from room creation to reload persistence. |
 | Financial Invariants & Invariant Integrity | PASS — Deterministic calculation module (`settletable/calculation.py`) and cryptographic hash domains remain untouched; 113/113 full-suite tests pass. |
 
-**Next scope:** Provide local demo instructions with startup command and sample data, review operational boundaries, and design the next bounded milestone (OCR extraction pipeline and optional Notion integration).
+**Next scope:** Cross-platform browser test infrastructure improvements, bearer token log sanitization, and GitHub Actions CI browser journey automation.
+
+## 2026-10-21 — PR #9 Merge: Cross-Platform Browser Test Infrastructure & CI Automation Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `5a879c5ed5ef7c95939da0b4fd98e2516d086e1b` merged autonomously under the orchestrator governance policy into `main` at `1b693f56cb3cf3df0e7cb84727cccaf594d1e769`. GitHub PR #9 closed upon direct merge to main. Post-implementation independent security and code review delivered unconditional GO (`research/phase-3/test-infra-review.md`); all 5 audit gates passed; 113/113 test suite methods passed in 47.362s; 8/8 automated real-browser CDP test stages passed in 3.2s via Headless Chrome (`tools/e2e_browser_test.mjs`); hosted GitHub Actions CI run `39508712147` succeeded on the exact reviewed head in `ubuntu-24.04`, validating both the Python unit suite and the real browser E2E test in CI.
+
+| Gate | Disposition / Evidence |
+|---|---|
+| Dynamic Cross-Platform Discovery | PASS — `tools/e2e_browser_test.mjs` dynamically resolves Chrome/Chromium and Python binaries across Windows, Linux, and macOS without hardcoded paths; supports env vars (`CHROME_BIN`, `PYTHON_BIN`) and CLI flags (`--chrome`, `--python`, `--port`); resolves repository root via `import.meta.url`. |
+| Secret Log Hygiene | PASS — Invitation bearer URLs are sanitized via regex (`/invite/[REDACTED]`) before `console.log` output; unhashed bearer tokens never leak into test output or CI logs; unredacted URL is retained strictly in-memory for browser navigation. |
+| Container Headless Chrome Flags | PASS — Headless Chrome configured with `--headless=new`, `--no-sandbox`, `--disable-dev-shm-usage`, and `--disable-gpu` to guarantee crash-free execution in unprivileged Linux container and VM environments. |
+| CI Integration & Zero-Cost Conformance | PASS — `.github/workflows/python-tests.yml` executes `node tools/e2e_browser_test.mjs` natively on `ubuntu-24.04` runner with pre-installed Chrome and Node built-ins; zero added dependencies, zero SaaS subscriptions, <0.2% monthly quota usage ($0.00 cost). |
+| Test & Invariant Integrity | PASS — Deterministic calculation module and authority contracts untouched; 113/113 Python unit tests pass; real browser CDP harness passes all 8 stages. |
+
+**Next scope:** Bounded local/self-hosted receipt OCR pipeline, organizer verification gate, Malaysian SST/service-charge extraction, and optional asynchronous Notion reporting.
