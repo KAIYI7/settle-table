@@ -49,6 +49,7 @@ STATUS_MAP = {
     'calculation_rejected': 400,
     'unsupported_command': 400,
     'invalid_invitation': 400,
+    'invalid_image': 400,
     # 401 Unauthorized
     'invalid_session': 401,
     # 403 Forbidden
@@ -81,9 +82,11 @@ STATUS_MAP = {
     # 503 Service Unavailable
     'commit_uncertain': 503,
     'busy': 503,
+    'ocr_unavailable': 503,
 }
 
 MAX_BODY_BYTES = 1_048_576  # 1 MB
+MAX_IMAGE_BYTES = 5_242_880  # 5 MB
 MAX_HEADER_LINE_BYTES = 4_096  # 4 KB
 MAX_TOTAL_HEADERS_BYTES = 16_384  # 16 KB
 MAX_JSON_DEPTH = 10
@@ -210,13 +213,23 @@ def serialize_json(data):
 
 class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
-                 server_origin='http://localhost:8000', clock=None, logger=None):
+                 server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None):
         self.db_path = str(db_path)
         self.allowed_hosts = set(allowed_hosts)
         self.server_origin = server_origin.rstrip('/')
         self.clock = clock if clock is not None else time.time
         self.logger = logger
+        self.ocr_engine = ocr_engine
         self._local = threading.local()
+
+    def get_ocr_engine(self):
+        if self.ocr_engine is not None:
+            return self.ocr_engine
+        try:
+            from settletable.ocr import RapidOcrEngine
+            return RapidOcrEngine()
+        except Exception:
+            raise TransportError('ocr_unavailable', 503)
 
     def get_authority(self):
         if not hasattr(self._local, 'authority') or self._local.authority is None:
@@ -367,6 +380,8 @@ class SettleTableApp:
 
         # Read body for POST
         body_data = None
+        raw_image_body = None
+        is_ocr_extract = bool(method == 'POST' and re.fullmatch(r'/api/meals/[A-Za-z0-9_-]+/ocr/extract', path))
         if method == 'POST':
             cl = environ.get('CONTENT_LENGTH')
             if not cl:
@@ -375,14 +390,19 @@ class SettleTableApp:
                 length = int(cl)
             except ValueError:
                 raise TransportError('malformed_request', 400)
-            if length > MAX_BODY_BYTES:
+            max_limit = MAX_IMAGE_BYTES if is_ocr_extract else MAX_BODY_BYTES
+            if length > max_limit:
                 raise TransportError('payload_too_large', 413)
 
             wsgi_input = environ.get('wsgi.input')
             raw_body = wsgi_input.read(length) if wsgi_input else b''
             if len(raw_body) != length:
                 raise TransportError('malformed_request', 400)
-            body_data = parse_strict_json(raw_body) if raw_body else {}
+
+            if is_ocr_extract:
+                raw_image_body = raw_body
+            else:
+                body_data = parse_strict_json(raw_body) if raw_body else {}
 
         # 4. Route matching
         authority = self.get_authority()
@@ -560,6 +580,36 @@ class SettleTableApp:
             }
             return 200, self._default_headers(), serialize_json(out)
 
+        # Extract Receipt OCR POST /api/meals/{meal_id}/ocr/extract
+        m_ocr = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/ocr/extract', path)
+        if m_ocr and method == 'POST':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_ocr.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+
+            ct = environ.get('CONTENT_TYPE', '').split(';')[0].strip().lower()
+            if ct not in ('image/jpeg', 'image/png', 'image/webp', 'image/jpg'):
+                raise TransportError('invalid_image', 400)
+
+            engine = self.get_ocr_engine()
+            try:
+                from settletable.ocr import parse_malaysian_receipt, OcrUnavailableError, InvalidImageError, validate_image_payload
+                validate_image_payload(raw_image_body or b'', expected_mime=ct)
+                lines = engine.recognize(raw_image_body or b'')
+                candidate = parse_malaysian_receipt(lines)
+                out = {
+                    'ok': True,
+                    'candidate': candidate.to_dict(),
+                }
+                return 200, self._default_headers(), serialize_json(out)
+            except InvalidImageError:
+                raise TransportError('invalid_image', 400) from None
+            except OcrUnavailableError:
+                raise TransportError('ocr_unavailable', 503) from None
+
         raise TransportError('not_found', 404)
 
     def _default_headers(self):
@@ -602,7 +652,7 @@ class SettleTableApp:
                         label=adj['label'],
                         kind=adj['kind'],
                         amount_sen=adj.get('amount_sen'),
-                        eligible_item_ids=tuple(adj.get('eligible_item_ids', ())),
+                        eligible_item_ids=tuple(adj.get('eligible_item_ids') or ()),
                         rationale=adj.get('rationale', ''),
                     ))
                 receipt = Receipt(
