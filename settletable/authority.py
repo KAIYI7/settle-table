@@ -663,6 +663,22 @@ class Authority:
             self._rollback()
             raise AuthorityError('storage_error') from None
 
+    def authenticate(self, credential, meal_id):
+        verifier = _verifier(credential)
+        _id(meal_id)
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN')
+            row = self._authenticate(verifier, meal_id)
+            self._db.execute('COMMIT')
+            return row[0], bool(row[1])
+        except AuthorityError:
+            self._rollback()
+            raise
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
     def redeem_invitation(self, invitation_token, meal_id, *, session_ttl=3600):
         inv_verifier = _invitation_verifier(invitation_token)
         _id(meal_id)

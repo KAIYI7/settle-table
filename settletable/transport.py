@@ -7,6 +7,7 @@ from dataclasses import asdict, is_dataclass
 from fractions import Fraction
 import http.cookies
 import json
+from pathlib import Path
 import re
 import sqlite3
 import threading
@@ -87,6 +88,12 @@ MAX_TOTAL_HEADERS_BYTES = 16_384  # 16 KB
 MAX_JSON_DEPTH = 10
 MAX_INT_DIGITS = 19
 TOKEN_REDACT_REGEX = re.compile(r'(/api/(?:meals/[^/]+/)?invitations/)[A-Za-z0-9_-]{43}')
+STATIC_DIR = Path(__file__).parent / 'static'
+STATIC_FILES = {
+    'style.css': 'text/css; charset=utf-8',
+    'app.js': 'application/javascript; charset=utf-8',
+    'favicon.svg': 'image/svg+xml',
+}
 
 
 def redact_log_string(s: str) -> str:
@@ -271,6 +278,15 @@ class SettleTableApp:
         payload = {'ok': False, 'error': code, 'detail': None}
         return status_code, headers, serialize_json(payload)
 
+    def _static_headers(self, content_type, cache_control='no-cache'):
+        return [
+            ('Content-Type', content_type),
+            ('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+            ('X-Content-Type-Options', 'nosniff'),
+            ('Referrer-Policy', 'no-referrer'),
+            ('Cache-Control', cache_control),
+        ]
+
     def _dispatch(self, environ):
         method = environ.get('REQUEST_METHOD', 'GET').upper()
         raw_path = environ.get('PATH_INFO', '/')
@@ -370,6 +386,38 @@ class SettleTableApp:
         # 4. Route matching
         authority = self.get_authority()
 
+        # Static asset serving (HTML shell and static files)
+        if method == 'GET':
+            if path == '/':
+                index_path = STATIC_DIR / 'index.html'
+                if index_path.exists():
+                    return 200, self._static_headers('text/html; charset=utf-8', 'no-store, no-cache, must-revalidate'), index_path.read_bytes()
+                raise TransportError('not_found', 404)
+
+            # GET /invite/{token} serves HTML shell for invitation landing
+            m_inv_shell = re.fullmatch(r'/invite/([A-Za-z0-9_-]{43})', path)
+            if m_inv_shell:
+                index_path = STATIC_DIR / 'index.html'
+                if index_path.exists():
+                    return 200, self._static_headers('text/html; charset=utf-8', 'no-store, no-cache, must-revalidate'), index_path.read_bytes()
+                raise TransportError('not_found', 404)
+
+            # GET /static/{filename}
+            m_stat = re.fullmatch(r'/static/([A-Za-z0-9_.-]+)', path)
+            if m_stat:
+                filename = m_stat.group(1)
+                if filename in STATIC_FILES:
+                    fpath = STATIC_DIR / filename
+                    if fpath.exists():
+                        return 200, self._static_headers(STATIC_FILES[filename], 'no-cache'), fpath.read_bytes()
+                raise TransportError('not_found', 404)
+
+            if path == '/favicon.ico':
+                fav = STATIC_DIR / 'favicon.svg'
+                if fav.exists():
+                    return 200, self._static_headers('image/svg+xml', 'no-cache'), fav.read_bytes()
+                return 204, self._default_headers(), b''
+
         # Unauthenticated landing GET /api/invitations/{token}
         m = re.fullmatch(r'/api/invitations/([A-Za-z0-9_-]{43})', path)
         if m and method == 'GET':
@@ -446,9 +494,12 @@ class SettleTableApp:
             if not active_cred:
                 raise TransportError('invalid_session', 401)
             meal_id = m.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
             snapshot = authority.snapshot(active_cred, meal_id)
             out = asdict(snapshot)
             out['ok'] = True
+            out['current_participant_id'] = part_id
+            out['is_organizer'] = is_org
             return 200, self._default_headers(), serialize_json(out)
 
         # Rotate Session POST /api/meals/{meal_id}/session/rotate
