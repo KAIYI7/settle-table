@@ -391,6 +391,8 @@ class Authority:
                 options['autocommit'] = sqlite3.LEGACY_TRANSACTION_CONTROL
             self._db = sqlite3.connect(path, **options)
             self._db.execute('PRAGMA foreign_keys=ON')
+            self._db.execute('PRAGMA journal_mode=WAL')
+            self._db.execute('PRAGMA busy_timeout=1000')
             self._db.executescript('''
                 CREATE TABLE IF NOT EXISTS meals (
                     id TEXT PRIMARY KEY, state BLOB NOT NULL);

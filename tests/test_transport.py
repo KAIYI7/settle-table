@@ -3,9 +3,10 @@ from io import BytesIO
 import json
 from pathlib import Path
 import tempfile
+import unicodedata
 import unittest
 
-from settletable.transport import SettleTableApp
+from settletable.transport import SettleTableApp, redact_log_string
 
 
 class TransportTestClient:
@@ -304,6 +305,94 @@ class TransportTests(unittest.TestCase):
                                       headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
         self.assertEqual(org_rotate['status'], 403)
         self.assertEqual(org_rotate['json']['error'], 'forbidden')
+
+    def test_single_header_line_too_large(self):
+        huge_val = 'A' * 4097
+        res = self.client.get('/api/meals/m1/snapshot', headers={'HTTP_X_CUSTOM': huge_val})
+        self.assertEqual(res['status'], 431)
+        self.assertEqual(res['json']['error'], 'header_too_large')
+
+    def test_total_headers_block_too_large(self):
+        hdrs = {f'HTTP_X_HEADER_{i}': 'B' * 1000 for i in range(18)}
+        res = self.client.get('/api/meals/m1/snapshot', headers=hdrs)
+        self.assertEqual(res['status'], 431)
+        self.assertEqual(res['json']['error'], 'header_too_large')
+
+    def test_unhandled_key_error_returns_invalid_input(self):
+        # 1. Bootstrap with participant missing 'id'
+        res = self.client.post('/api/meals/m1/bootstrap', body={
+            'participants': [{'name': 'NoID', 'organizer': True}]
+        })
+        self.assertEqual(res['status'], 400)
+        self.assertEqual(res['json']['error'], 'invalid_input')
+
+        # 2. Bootstrap properly
+        boot = self.client.post('/api/meals/m1/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Org', 'organizer': True}]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # 3. ReplaceReceipt with item missing required field 'id'
+        res = self.client.post('/api/meals/m1/apply', body={
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-bad-item',
+            'receipt': {
+                'items': [{'label': 'NoID', 'line_sen': 1000}],
+            }
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(res['status'], 400)
+        self.assertEqual(res['json']['error'], 'invalid_input')
+
+    def test_logging_and_secret_redaction(self):
+        logs = []
+        app_with_logger = SettleTableApp(self.db_path, clock=lambda: self.clock_val, logger=logs.append)
+        self.addCleanup(app_with_logger.close)
+        client = TransportTestClient(app_with_logger)
+
+        # GET request with token in URL
+        token = 'A' * 43
+        res = client.get(f'/api/invitations/{token}')
+        self.assertEqual(res['status'], 200)
+        self.assertTrue(any('/api/invitations/[REDACTED]' in log for log in logs))
+        self.assertFalse(any(token in log for log in logs))
+
+        # Test redact_log_string directly
+        raw = f"GET /api/meals/m1/invitations/{token} Bearer secret123 settletable_session=secret456"
+        redacted = redact_log_string(raw)
+        self.assertNotIn('secret123', redacted)
+        self.assertNotIn('secret456', redacted)
+        self.assertNotIn(token, redacted)
+        self.assertIn('[REDACTED]', redacted)
+
+    def test_case_insensitive_bearer_header(self):
+        boot = self.client.post('/api/meals/m1/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Org', 'organizer': True}]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        res = self.client.get('/api/meals/m1/snapshot',
+                              headers={'HTTP_AUTHORIZATION': f'bearer {org_cred}'})
+        self.assertEqual(res['status'], 200)
+        self.assertEqual(res['json']['meal_id'], 'm1')
+
+    def test_unicode_nfc_duplicate_keys_rejected(self):
+        # 'e\u0301' (decomposed é) vs '\u00e9' (composed é)
+        decomposed = "e\u0301"
+        composed = "\u00e9"
+        self.assertNotEqual(decomposed, composed)
+        self.assertEqual(unicodedata.normalize('NFC', decomposed), unicodedata.normalize('NFC', composed))
+
+        body_str = f'{{"{decomposed}": 1, "{composed}": 2}}'
+        res = self.client.post('/api/meals/m1/bootstrap', body=body_str)
+        self.assertEqual(res['status'], 400)
+        self.assertEqual(res['json']['error'], 'duplicate_key')
+
+    def test_json_nesting_depth_limit(self):
+        # 11 levels of nesting
+        nested = {"a": {"b": {"c": {"d": {"e": {"f": {"g": {"h": {"i": {"j": {"k": 1}}}}}}}}}}}
+        res = self.client.post('/api/meals/m1/bootstrap', body=nested)
+        self.assertEqual(res['status'], 400)
+        self.assertEqual(res['json']['error'], 'malformed_json')
 
 
 if __name__ == '__main__':

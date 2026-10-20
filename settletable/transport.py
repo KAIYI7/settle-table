@@ -10,6 +10,7 @@ import json
 import re
 import sqlite3
 import threading
+import unicodedata
 from urllib.parse import urlparse
 
 from settletable.authority import (
@@ -81,9 +82,18 @@ STATUS_MAP = {
 }
 
 MAX_BODY_BYTES = 1_048_576  # 1 MB
+MAX_HEADER_LINE_BYTES = 4_096  # 4 KB
+MAX_TOTAL_HEADERS_BYTES = 16_384  # 16 KB
 MAX_JSON_DEPTH = 10
 MAX_INT_DIGITS = 19
 TOKEN_REDACT_REGEX = re.compile(r'(/api/(?:meals/[^/]+/)?invitations/)[A-Za-z0-9_-]{43}')
+
+
+def redact_log_string(s: str) -> str:
+    s = TOKEN_REDACT_REGEX.sub(r'\1[REDACTED]', s)
+    s = re.sub(r'(Bearer\s+)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
+    s = re.sub(r'(settletable_session=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s)
+    return s
 
 
 class TransportError(Exception):
@@ -97,9 +107,10 @@ def _reject_duplicates(pairs):
     seen = set()
     result = {}
     for key, val in pairs:
-        if key in seen:
+        norm_key = unicodedata.normalize('NFC', key)
+        if norm_key in seen:
             raise TransportError('duplicate_key', 400)
-        seen.add(key)
+        seen.add(norm_key)
         result[key] = val
     return result
 
@@ -191,11 +202,12 @@ def serialize_json(data):
 
 class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
-                 server_origin='http://localhost:8000', clock=None):
+                 server_origin='http://localhost:8000', clock=None, logger=None):
         self.db_path = str(db_path)
         self.allowed_hosts = set(allowed_hosts)
         self.server_origin = server_origin.rstrip('/')
         self.clock = clock
+        self.logger = logger
         self._local = threading.local()
 
     def get_authority(self):
@@ -221,6 +233,12 @@ class SettleTableApp:
             status_code, headers, body_bytes = self._format_error(e.code, status_code)
         except Exception:
             status_code, headers, body_bytes = self._format_error('internal_error', 500)
+
+        if self.logger:
+            raw_path = environ.get('PATH_INFO', '/')
+            method = environ.get('REQUEST_METHOD', 'GET').upper()
+            safe_path = redact_log_string(raw_path)
+            self.logger(f"{method} {safe_path} -> {status_code}")
 
         status_line = f"{status_code} {self._status_text(status_code)}"
         start_response(status_line, headers)
@@ -258,6 +276,17 @@ class SettleTableApp:
         raw_path = environ.get('PATH_INFO', '/')
         path = raw_path.rstrip('/') or '/'
 
+        # 0. Request Header boundaries (single line <= 4KB, total block <= 16KB)
+        total_header_bytes = 0
+        for k, v in environ.items():
+            if k.startswith('HTTP_') or k in ('CONTENT_TYPE', 'CONTENT_LENGTH'):
+                line_len = len(k) + len(str(v))
+                if line_len > MAX_HEADER_LINE_BYTES:
+                    raise TransportError('header_too_large', 431)
+                total_header_bytes += line_len
+        if total_header_bytes > MAX_TOTAL_HEADERS_BYTES:
+            raise TransportError('header_too_large', 431)
+
         # 1. Host header validation
         host = environ.get('HTTP_HOST', '')
         if self.allowed_hosts and host not in self.allowed_hosts:
@@ -266,7 +295,7 @@ class SettleTableApp:
         # 2. Extract credentials
         auth_header = environ.get('HTTP_AUTHORIZATION', '')
         bearer_cred = None
-        if auth_header.startswith('Bearer '):
+        if auth_header[:7].lower() == 'bearer ':
             bearer_cred = auth_header[7:].strip()
 
         cookie_header = environ.get('HTTP_COOKIE', '')
@@ -380,11 +409,14 @@ class SettleTableApp:
             raw_participants = body_data.get('participants')
             if not isinstance(raw_participants, list) or not raw_participants:
                 raise TransportError('invalid_input', 400)
-            parts = []
-            for p in raw_participants:
-                if not isinstance(p, dict):
-                    raise TransportError('invalid_input', 400)
-                parts.append(Participant(p['id'], p['name'], p.get('organizer', False)))
+            try:
+                parts = []
+                for p in raw_participants:
+                    if not isinstance(p, dict):
+                        raise TransportError('invalid_input', 400)
+                    parts.append(Participant(p['id'], p['name'], p.get('organizer', False)))
+            except (KeyError, TypeError):
+                raise TransportError('invalid_input', 400)
             b_res = authority.bootstrap(meal_id, tuple(parts))
             organizer_session = next(s for s, p in zip(b_res.sessions, parts) if p.organizer)
             headers = self._default_headers()
@@ -483,82 +515,85 @@ class SettleTableApp:
         if not kind or not cmd_id:
             raise TransportError('invalid_input', 400)
 
-        if kind == 'ReplaceReceipt':
-            rcpt_data = data.get('receipt')
-            if not isinstance(rcpt_data, dict):
-                raise TransportError('invalid_input', 400)
-            raw_items = rcpt_data.get('items', [])
-            raw_adjustments = rcpt_data.get('adjustments', [])
-            items = []
-            for item in raw_items:
-                qty = item.get('quantity', 1)
+        try:
+            if kind == 'ReplaceReceipt':
+                rcpt_data = data.get('receipt')
+                if not isinstance(rcpt_data, dict):
+                    raise TransportError('invalid_input', 400)
+                raw_items = rcpt_data.get('items', [])
+                raw_adjustments = rcpt_data.get('adjustments', [])
+                items = []
+                for item in raw_items:
+                    qty = item.get('quantity', 1)
+                    if isinstance(qty, list) and len(qty) == 2:
+                        qty = Fraction(qty[0], qty[1])
+                    items.append(ReceiptItem(item['id'], item['label'], qty, item.get('line_sen')))
+                adjustments = []
+                for adj in raw_adjustments:
+                    adjustments.append(ReceiptAdjustment(
+                        id=adj['id'],
+                        label=adj['label'],
+                        kind=adj['kind'],
+                        amount_sen=adj.get('amount_sen'),
+                        eligible_item_ids=tuple(adj.get('eligible_item_ids', ())),
+                        rationale=adj.get('rationale', ''),
+                    ))
+                receipt = Receipt(
+                    items=tuple(items),
+                    subtotal_sen=rcpt_data.get('subtotal_sen'),
+                    total_sen=rcpt_data.get('total_sen'),
+                    adjustments=tuple(adjustments),
+                    included_tax_sen=rcpt_data.get('included_tax_sen', 0),
+                )
+                return ReplaceReceipt(
+                    command_id=cmd_id,
+                    expected_revision=data.get('expected_revision', 0),
+                    expected_financial_revision=data.get('expected_financial_revision', 0),
+                    receipt=receipt,
+                )
+            elif kind == 'SetOwnQuantity':
+                qty = data.get('quantity')
                 if isinstance(qty, list) and len(qty) == 2:
                     qty = Fraction(qty[0], qty[1])
-                items.append(ReceiptItem(item['id'], item['label'], qty, item.get('line_sen')))
-            adjustments = []
-            for adj in raw_adjustments:
-                adjustments.append(ReceiptAdjustment(
-                    id=adj['id'],
-                    label=adj['label'],
-                    kind=adj['kind'],
-                    amount_sen=adj.get('amount_sen'),
-                    eligible_item_ids=tuple(adj.get('eligible_item_ids', ())),
-                    rationale=adj.get('rationale', ''),
-                ))
-            receipt = Receipt(
-                items=tuple(items),
-                subtotal_sen=rcpt_data.get('subtotal_sen'),
-                total_sen=rcpt_data.get('total_sen'),
-                adjustments=tuple(adjustments),
-                included_tax_sen=rcpt_data.get('included_tax_sen', 0),
-            )
-            return ReplaceReceipt(
-                command_id=cmd_id,
-                expected_revision=data.get('expected_revision', 0),
-                expected_financial_revision=data.get('expected_financial_revision', 0),
-                receipt=receipt,
-            )
-        elif kind == 'SetOwnQuantity':
-            qty = data.get('quantity')
-            if isinstance(qty, list) and len(qty) == 2:
-                qty = Fraction(qty[0], qty[1])
-            return SetOwnQuantity(
-                command_id=cmd_id,
-                item_id=data.get('item_id'),
-                quantity=qty,
-                expected_item_revision=data.get('expected_item_revision'),
-                expected_financial_revision=data.get('expected_financial_revision'),
-            )
-        elif kind == 'ReviewReceipt':
-            return ReviewReceipt(
-                command_id=cmd_id,
-                expected_revision=data.get('expected_revision'),
-                expected_financial_revision=data.get('expected_financial_revision'),
-                receipt_digest=data.get('receipt_digest'),
-            )
-        elif kind == 'Finalize':
-            return Finalize(
-                command_id=cmd_id,
-                expected_revision=data.get('expected_revision'),
-                expected_financial_revision=data.get('expected_financial_revision'),
-            )
-        elif kind == 'RevokeInvitation':
-            return RevokeInvitation(
-                command_id=cmd_id,
-                expected_revision=data.get('expected_revision'),
-                participant_id=data.get('participant_id'),
-            )
-        elif kind == 'RevokeSession':
-            return RevokeSession(
-                command_id=cmd_id,
-                expected_revision=data.get('expected_revision'),
-                participant_id=data.get('participant_id'),
-            )
-        elif kind == 'RevokeMembership':
-            return RevokeMembership(
-                command_id=cmd_id,
-                expected_revision=data.get('expected_revision'),
-                participant_id=data.get('participant_id'),
-            )
-        else:
-            raise TransportError('invalid_command_kind', 400)
+                return SetOwnQuantity(
+                    command_id=cmd_id,
+                    item_id=data.get('item_id'),
+                    quantity=qty,
+                    expected_item_revision=data.get('expected_item_revision'),
+                    expected_financial_revision=data.get('expected_financial_revision'),
+                )
+            elif kind == 'ReviewReceipt':
+                return ReviewReceipt(
+                    command_id=cmd_id,
+                    expected_revision=data.get('expected_revision'),
+                    expected_financial_revision=data.get('expected_financial_revision'),
+                    receipt_digest=data.get('receipt_digest'),
+                )
+            elif kind == 'Finalize':
+                return Finalize(
+                    command_id=cmd_id,
+                    expected_revision=data.get('expected_revision'),
+                    expected_financial_revision=data.get('expected_financial_revision'),
+                )
+            elif kind == 'RevokeInvitation':
+                return RevokeInvitation(
+                    command_id=cmd_id,
+                    expected_revision=data.get('expected_revision'),
+                    participant_id=data.get('participant_id'),
+                )
+            elif kind == 'RevokeSession':
+                return RevokeSession(
+                    command_id=cmd_id,
+                    expected_revision=data.get('expected_revision'),
+                    participant_id=data.get('participant_id'),
+                )
+            elif kind == 'RevokeMembership':
+                return RevokeMembership(
+                    command_id=cmd_id,
+                    expected_revision=data.get('expected_revision'),
+                    participant_id=data.get('participant_id'),
+                )
+            else:
+                raise TransportError('invalid_command_kind', 400)
+        except (KeyError, TypeError):
+            raise TransportError('invalid_input', 400)
