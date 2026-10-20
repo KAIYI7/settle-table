@@ -243,9 +243,9 @@ button:active, .btn:active {
 }
 
 .btn-sm {
-  min-height: 36px;
-  min-width: 36px;
-  padding: 6px 12px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 12px;
   font-size: 0.85rem;
 }
 
@@ -354,6 +354,18 @@ button:active, .btn:active {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.quantity-stepper button {
+  min-height: 44px;
+  min-width: 44px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.claim-all-btn {
+  min-height: 44px;
+  padding: 8px 14px;
 }
 
 .quantity-stepper .step-val {

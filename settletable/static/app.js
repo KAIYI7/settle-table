@@ -13,6 +13,7 @@ const state = {
   pollTimer: null,
   pollSeq: 0,
   mutationActive: false,
+  issuedTokens: {},
 };
 
 function formatSen(sen) {
@@ -315,7 +316,7 @@ async function renderInviteLanding(token) {
     app.innerHTML = `
       <div class="card">
         <h2 class="card-title" style="color: var(--accent-rose)">Network Error</h2>
-        <p class="card-desc">Could not connect to SettleTable server. ${err.message}</p>
+        <p class="card-desc">Could not connect to SettleTable server. ${escapeHtml(err.message)}</p>
         <a href="#/" class="btn btn-secondary btn-block">Go to Home</a>
       </div>
     `;
@@ -429,21 +430,31 @@ function updateMealUI() {
 
   // 5. Organizer Finalize Action
   if (state.isOrganizer && !finalized) {
-    const allClaimed = snap.items?.length > 0 && snap.items.every(item => {
-      const claims = snap.claims?.filter(c => c.item_id === item.item_id) || [];
-      const sum = claims.reduce((acc, c) => acc + (Array.isArray(c.quantity) ? c.quantity[0]/c.quantity[1] : c.quantity), 0);
-      return sum >= 1; // Simplified integer check
-    });
+    const issues = snap.issues || [];
+    const hasItems = Boolean(snap.receipt?.items?.length > 0);
+    const hasClaimIssues = issues.includes('incomplete_quantity') || issues.includes('pending_claim');
+    const canFinalize = hasItems && reviewConfirmed && issues.length === 0;
+
+    let warningHtml = '';
+    if (!reviewConfirmed) {
+      warningHtml += '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Receipt must be verified before finalization.</div>';
+    }
+    if (!hasItems) {
+      warningHtml += '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Add receipt items before finalization.</div>';
+    } else if (hasClaimIssues) {
+      warningHtml += '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ All items must be fully claimed before finalization.</div>';
+    } else if (issues.length > 0) {
+      warningHtml += `<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Issues detected: ${escapeHtml(issues.join(', '))}</div>`;
+    }
 
     html += `
-      <div class="card" style="border-color: ${allClaimed && reviewConfirmed ? 'var(--accent-emerald)' : 'var(--border-subtle)'};">
+      <div class="card" style="border-color: ${canFinalize ? 'var(--accent-emerald)' : 'var(--border-subtle)'};">
         <h3 class="card-title">Seal & Finalize Meal</h3>
         <p class="card-desc">Once all items are claimed and verified, finalize to lock claims and compute individual shares.</p>
         
-        ${!reviewConfirmed ? '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 10px;">⚠️ Receipt must be verified before finalization.</div>' : ''}
-        ${!allClaimed ? '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 10px;">⚠️ All items must be fully claimed before finalization.</div>' : ''}
+        ${warningHtml}
 
-        <button id="finalize-btn" class="btn btn-success btn-block" ${!(allClaimed && reviewConfirmed) ? 'disabled' : ''}>
+        <button id="finalize-btn" class="btn btn-success btn-block" ${!canFinalize ? 'disabled' : ''}>
           Finalize & Calculate Bill
         </button>
       </div>
@@ -536,10 +547,10 @@ function renderInvitationList(snap) {
     } else if (inv.consumed) {
       actionHtml = '<span class="badge badge-verified">Joined ✓</span>';
     } else {
-      const origin = window.location.origin;
+      const hasToken = Boolean(state.issuedTokens[d.id]);
       actionHtml = `
-        <button class="btn btn-primary btn-sm copy-invite-btn" data-part="${d.id}" title="Copy Invite Link">
-          📋 Link Active
+        <button class="btn ${hasToken ? 'btn-primary' : 'btn-secondary'} btn-sm copy-invite-btn" data-part="${d.id}" title="${hasToken ? 'Copy Invite Link' : 'Invite Active'}">
+          ${hasToken ? '📋 Copy Link' : '📋 Active Link'}
         </button>
       `;
     }
@@ -748,6 +759,7 @@ function bindEvents(snap) {
         });
         if (invRes?.token) {
           const inviteUrl = `${window.location.origin}/invite/${invRes.token}`;
+          state.issuedTokens[partId] = inviteUrl;
           navigator.clipboard.writeText(inviteUrl).catch(() => {});
           showAlert(`Invite link created & copied for ${partId}!`, 'success');
           await pollSnapshot();
@@ -762,9 +774,15 @@ function bindEvents(snap) {
   document.querySelectorAll('.copy-invite-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const partId = btn.getAttribute('data-part');
-      const inv = snap.invitations?.find(i => i.participant_id === partId && !i.revoked);
-      if (inv) {
-        showAlert(`Invite active for ${partId}. Copying...`, 'success');
+      const cachedUrl = state.issuedTokens[partId];
+      if (cachedUrl) {
+        navigator.clipboard.writeText(cachedUrl).then(() => {
+          showAlert(`Invite link copied to clipboard for ${partId}!`, 'success');
+        }).catch(() => {
+          showAlert(`Link: ${cachedUrl}`, 'info');
+        });
+      } else {
+        showAlert(`Invite is already active for ${partId}. Raw tokens are not stored across page reloads. If the link was lost, revoke it and create a new one.`, 'info');
       }
     });
   });
