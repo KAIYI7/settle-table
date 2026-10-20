@@ -239,6 +239,7 @@ async function main() {
     '--host', '127.0.0.1',
     '--port', String(serverPort),
     '--db', dbPath,
+    '--mock-notion',
   ], { cwd: REPO_ROOT });
 
   serverProc.stderr.on('data', d => console.error('[SERVER STDERR]:', d.toString()));
@@ -446,8 +447,28 @@ async function main() {
     }
     console.log('   ✓ State and amounts preserved after reload in both isolated sessions');
 
+    // 11. Test Optional Notion Export Flow (Organizer only)
+    console.log('[9/9] Testing Optional Notion Export UI flow (Organizer only)...');
+    // Verify Bob (Diner) does NOT see Notion export card
+    const bobHasNotion = await pageB.evaluate("Boolean(document.getElementById('notion-export-card'))");
+    if (bobHasNotion) throw new Error('Diner should NOT see Notion export controls');
+
+    // Alice enters Notion parent UUID and clicks export
+    await pageA.evaluate(`(() => {
+      document.getElementById('notion-parent-id').value = '11111111-2222-3333-4444-555555555555';
+      document.getElementById('notion-token').value = 'secret_test_mock_token_1234567890';
+      document.getElementById('notion-export-btn').click();
+    })()`);
+
+    // Await green success banner with Notion link
+    await pageA.waitFor("document.getElementById('notion-page-link') !== null");
+    const notionUrl = await pageA.evaluate("document.getElementById('notion-page-link').href");
+    if (!notionUrl.includes('notion.so/')) throw new Error(`Unexpected Notion URL: ${notionUrl}`);
+    console.log(`   ✓ Notion export succeeded with generated URL: ${notionUrl}`);
+    console.log('   ✓ Diner context verified free of export controls');
+
     console.log('\n===========================================================');
-    console.log(' ALL 8 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
+    console.log(' ALL 9 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
     console.log('===========================================================');
   } finally {
     if (orgChrome) {

@@ -64,6 +64,8 @@ STATUS_MAP = {
     'active_invitation_exists': 409,
     'already_revoked': 409,
     'finalized': 409,
+    'meal_not_finalized': 409,
+    'export_in_progress': 409,
     'claimed_item_deletion': 409,
     'retired_source': 409,
     'source_kind_conflict': 409,
@@ -74,15 +76,19 @@ STATUS_MAP = {
     'payload_too_large': 413,
     # 429 Too Many Requests
     'resource_limit': 429,
+    'notion_rate_limited': 429,
     # 431 Request Header Fields Too Large
     'header_too_large': 431,
     # 500 Internal Server Error
     'storage_error': 500,
     'internal_error': 500,
+    # 502 Bad Gateway
+    'notion_error': 502,
     # 503 Service Unavailable
     'commit_uncertain': 503,
     'busy': 503,
     'ocr_unavailable': 503,
+    'notion_auth_error': 400,
 }
 
 MAX_BODY_BYTES = 1_048_576  # 1 MB
@@ -104,6 +110,8 @@ def redact_log_string(s: str) -> str:
     s = TOKEN_REDACT_REGEX.sub(r'\1[REDACTED]', s)
     s = re.sub(r'(Bearer\s+)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
     s = re.sub(r'(settletable_session=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s)
+    s = re.sub(r'(secret_|ntn_)[A-Za-z0-9_-]{10,}', r'\1[REDACTED]', s)
+    s = re.sub(r'"token"\s*:\s*"[^"]+"', r'"token":"[REDACTED]"', s)
     return s
 
 
@@ -213,13 +221,15 @@ def serialize_json(data):
 
 class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
-                 server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None):
+                 server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None,
+                 notion_client=None):
         self.db_path = str(db_path)
         self.allowed_hosts = set(allowed_hosts)
         self.server_origin = server_origin.rstrip('/')
         self.clock = clock if clock is not None else time.time
         self.logger = logger
         self.ocr_engine = ocr_engine
+        self.notion_client = notion_client
         self._local = threading.local()
 
     def get_ocr_engine(self):
@@ -230,6 +240,12 @@ class SettleTableApp:
             return RapidOcrEngine()
         except Exception:
             raise TransportError('ocr_unavailable', 503)
+
+    def get_notion_client(self):
+        if self.notion_client is not None:
+            return self.notion_client
+        from settletable.notion import NotionHttpClient
+        return NotionHttpClient()
 
     def get_authority(self):
         if not hasattr(self._local, 'authority') or self._local.authority is None:
@@ -609,6 +625,100 @@ class SettleTableApp:
                 raise TransportError('invalid_image', 400) from None
             except OcrUnavailableError:
                 raise TransportError('ocr_unavailable', 503) from None
+
+        # Export Finalized Meal to Notion POST /api/meals/{meal_id}/export/notion
+        m_notion = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/export/notion', path)
+        if m_notion and method == 'POST':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_notion.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+
+            snap = asdict(authority.snapshot(active_cred, meal_id))
+            if not snap.get('finalized'):
+                raise TransportError('meal_not_finalized', 409)
+
+            import os
+            token = body_data.get('token') or os.environ.get('SETTLETABLE_NOTION_TOKEN')
+            parent_id = body_data.get('parent_id') or os.environ.get('SETTLETABLE_NOTION_PARENT_ID')
+            parent_type = body_data.get('parent_type', 'page_id')
+
+            if not isinstance(token, str) or not (token.startswith('secret_') or token.startswith('ntn_')) or len(token) < 20 or len(token) > 128:
+                raise TransportError('invalid_input', 400)
+            if not isinstance(parent_id, str):
+                raise TransportError('invalid_input', 400)
+            from settletable.notion.client import NOTION_ID_REGEX
+            if not NOTION_ID_REGEX.match(parent_id.strip()):
+                raise TransportError('invalid_input', 400)
+            if parent_type not in ('page_id', 'database_id'):
+                raise TransportError('invalid_input', 400)
+
+            rev = snap.get('revision', 0)
+            digest = snap.get('calculation_digest') or ''
+            rec = authority.get_notion_export(meal_id, rev)
+            if rec and rec.get('status') == 'completed':
+                out = {
+                    'ok': True,
+                    'export': {
+                        'ok': True,
+                        'status': 'already_exported',
+                        'page_id': rec['page_id'],
+                        'page_url': rec['page_url'],
+                        'blocks_created': 0,
+                    },
+                }
+                return 200, self._default_headers(), serialize_json(out)
+            if rec and rec.get('status') == 'in_progress':
+                elapsed = time.time() - rec.get('exported_at', 0)
+                if elapsed < 30.0:
+                    raise TransportError('export_in_progress', 409)
+
+            authority.record_notion_export_in_progress(meal_id, rev, digest)
+
+            try:
+                from settletable.notion import (
+                    NotionExportConfig,
+                    NotionRateLimitError,
+                    NotionAuthError,
+                    NotionNotFoundError,
+                    NotionValidationError,
+                    NotionError,
+                    export_finalized_meal,
+                )
+                config = NotionExportConfig(
+                    token=token,
+                    parent_id=parent_id.strip(),
+                    parent_type=parent_type,
+                    mode=body_data.get('mode', 'compact'),
+                )
+                client = self.get_notion_client()
+                result = export_finalized_meal(client, meal_id, snap, config)
+                if result.ok:
+                    authority.record_notion_export_completed(
+                        meal_id, rev, result.page_id or '', result.page_url or '', digest
+                    )
+                    out = {'ok': True, 'export': result.to_dict()}
+                    return 200, self._default_headers(), serialize_json(out)
+                else:
+                    authority.clear_notion_export(meal_id, rev)
+                    return 400, self._default_headers(), serialize_json({'ok': False, 'error': result.error or 'notion_error'})
+            except NotionRateLimitError:
+                authority.clear_notion_export(meal_id, rev)
+                raise TransportError('notion_rate_limited', 429) from None
+            except NotionAuthError:
+                authority.clear_notion_export(meal_id, rev)
+                raise TransportError('notion_auth_error', 400) from None
+            except (NotionValidationError, NotionNotFoundError):
+                authority.clear_notion_export(meal_id, rev)
+                raise TransportError('invalid_input', 400) from None
+            except NotionError:
+                authority.clear_notion_export(meal_id, rev)
+                raise TransportError('notion_error', 502) from None
+            except Exception:
+                authority.clear_notion_export(meal_id, rev)
+                raise TransportError('notion_error', 502) from None
 
         raise TransportError('not_found', 404)
 

@@ -437,6 +437,7 @@ function updateMealUI() {
   if (finalized && snap.calculation) {
     html += renderFinalizedCalculation(snap);
     app.innerHTML = html;
+    bindEvents(snap);
     return;
   }
 
@@ -760,6 +761,33 @@ function renderFinalizedCalculation(snap) {
           </tr>
         </tbody>
       </table>
+
+      ${snap.is_organizer ? `
+        <div class="card" id="notion-export-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
+          <div class="card-title" style="color: #818cf8;">📤 Notion Archive & Reporting</div>
+          <p class="card-desc">Export an immutable, structured summary to your Notion workspace in Compact Mode (&le; 40 blocks).</p>
+
+          <div id="notion-export-controls">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
+              <label style="font-size: 0.8rem; color: var(--text-muted);">Notion Parent Page UUID:</label>
+              <input type="text" id="notion-parent-id" placeholder="e.g. 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d" class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
+              <label style="font-size: 0.8rem; color: var(--text-muted);">Integration Token (optional if set on server):</label>
+              <input type="password" id="notion-token" placeholder="secret_..." class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+            </div>
+            <button id="notion-export-btn" class="btn btn-primary" style="width: 100%;">
+              Export Finalized Report to Notion
+            </button>
+          </div>
+
+          <div id="notion-export-spinner" style="display: none; text-align: center; padding: 1rem; color: var(--text-muted);">
+            ⏳ Creating structured Notion page...
+          </div>
+
+          <div id="notion-export-result" style="display: none; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px;"></div>
+        </div>
+      ` : ''}
     </div>
   `;
 }
@@ -1045,6 +1073,79 @@ function bindEvents(snap) {
         handleApiError(err);
       } finally {
         state.mutationActive = false;
+      }
+    });
+  }
+
+  // 7. Notion Export
+  const notionBtn = document.getElementById('notion-export-btn');
+  if (notionBtn) {
+    notionBtn.addEventListener('click', async () => {
+      const parentInput = document.getElementById('notion-parent-id');
+      const tokenInput = document.getElementById('notion-token');
+      const spinner = document.getElementById('notion-export-spinner');
+      const resultDiv = document.getElementById('notion-export-result');
+
+      const parentId = (parentInput?.value || '').trim();
+      const token = (tokenInput?.value || '').trim();
+
+      if (!parentId) {
+        showAlert('Please enter a valid Notion Parent Page or Database UUID.', 'error');
+        return;
+      }
+
+      notionBtn.disabled = true;
+      if (spinner) spinner.style.display = 'block';
+      if (resultDiv) resultDiv.style.display = 'none';
+
+      try {
+        const payload = {
+          parent_id: parentId,
+          parent_type: 'page_id',
+          mode: 'compact',
+        };
+        if (token) payload.token = token;
+
+        const res = await fetch(`/api/meals/${state.mealId}/export/notion`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-SettleTable-Action': '1',
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw { status: res.status, code: data.error, message: data.error };
+        }
+
+        const exp = data.export || {};
+        if (resultDiv) {
+          resultDiv.style.display = 'block';
+          resultDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';
+          resultDiv.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+          resultDiv.style.color = '#6ee7b7';
+          resultDiv.innerHTML = `
+            <strong>✓ Export Successful!</strong><br/>
+            Page ID: <code style="font-size: 0.8rem;">${escapeHtml(exp.page_id || '')}</code><br/>
+            <a href="${escapeHtml(exp.page_url || '#')}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 0.5rem;" id="notion-page-link">
+              Open Report in Notion ↗
+            </a>
+          `;
+        }
+        showAlert('Report exported to Notion successfully!', 'success');
+      } catch (err) {
+        if (resultDiv) {
+          resultDiv.style.display = 'block';
+          resultDiv.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+          resultDiv.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+          resultDiv.style.color = 'var(--accent-rose)';
+          resultDiv.textContent = `Export failed: ${err.code || err.message || 'unknown error'}`;
+        }
+        showAlert(`Notion export rejected: ${err.code || err.message}`, 'error');
+      } finally {
+        notionBtn.disabled = false;
+        if (spinner) spinner.style.display = 'none';
       }
     });
   }
