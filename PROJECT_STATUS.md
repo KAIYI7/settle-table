@@ -37,7 +37,7 @@ Updated 2026-10-20. Project: **SettleTable**. Authority: [orchestrator governanc
 ## Accepted same-origin transport adapter checkpoint (PR #5)
 
 - PR #5 reviewed head: `1f1fb789f5bc5cf93b04c0ec6063b5f63969a9b2`; premerge main: `52c6f731cbb2818610eb6793f0b2f15e81d773ee`.
-- Merge commit: [`43b827f80db4236a282914197363eb077cb50cb0`](https://github.com/KAIYI7/settle-table/commit/43b827f80db4236a282914197363eb077cb50cb0). Merged autonomously under orchestrator governance policy.
+- Merge commit: [`43b827f486ffa06d532c37d89826ccf2aa50051f`](https://github.com/KAIYI7/settle-table/commit/43b827f486ffa06d532c37d89826ccf2aa50051f). Merged autonomously under orchestrator governance policy (GitHub PR #5 closed upon direct merge to main).
 - Verified evidence: 101 full-suite methods pass locally in 66.240s; [independent architecture challenge](research/phase-3/transport-adapter-challenge.md) and [post-implementation security review](research/phase-3/transport-adapter-review.md) record PASS/GO across all gates and all 6 remediations; hosted GitHub Actions run [39408626484](https://github.com/KAIYI7/settle-table/actions/runs/39408626484) completed successfully on the exact PR head SHA.
 - [Transport specification](.scratch/transport-adapter/SPEC.md) and [transport implementation](settletable/transport.py). Wire limits (header 4 KB/16 KB, body 1 MB, depth 10, int 19 digits), CSRF defense (`X-SettleTable-Action: 1`, strict origin check), unauthenticated landing isolation (`Authority.inspect_invitation`), and host-only secure cookies enforced.
 
