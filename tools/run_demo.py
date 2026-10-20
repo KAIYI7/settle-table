@@ -17,14 +17,22 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
     parser.add_argument("--db", default=".local/demo.sqlite", help="SQLite database path")
+    parser.add_argument("--mock-notion", action="store_true", help="Use deterministic mock Notion client for testing/demo")
     args = parser.parse_args()
 
+    import os
     db_path = Path(args.db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     origin = f"http://{args.host}:{args.port}"
     allowed_hosts = {f"{args.host}:{args.port}", f"localhost:{args.port}", args.host, "localhost"}
-    app = SettleTableApp(db_path, server_origin=origin, allowed_hosts=allowed_hosts)
+
+    notion_client = None
+    if args.mock_notion or os.environ.get("SETTLETABLE_MOCK_NOTION") == "1":
+        from settletable.notion import MockNotionClient
+        notion_client = MockNotionClient()
+
+    app = SettleTableApp(db_path, server_origin=origin, allowed_hosts=allowed_hosts, notion_client=notion_client)
 
     print("=" * 60)
     print(" SettleTable - Local Browser MVP Demo Server")

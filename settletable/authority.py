@@ -425,6 +425,15 @@ class Authority:
                     generation INTEGER NOT NULL DEFAULT 1,
                     PRIMARY KEY(meal_id,participant_id),
                     FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id));
+                CREATE TABLE IF NOT EXISTS notion_exports (
+                    meal_id TEXT NOT NULL REFERENCES meals(id),
+                    finalized_revision INTEGER NOT NULL,
+                    page_id TEXT NOT NULL,
+                    page_url TEXT NOT NULL,
+                    exported_at REAL NOT NULL,
+                    export_digest TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'completed',
+                    PRIMARY KEY(meal_id, finalized_revision));
             ''')
         except sqlite3.Error:
             self.close()
@@ -1019,3 +1028,67 @@ class Authority:
         except Exception:
             self._rollback()
             raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
+
+    def get_notion_export(self, meal_id, finalized_revision):
+        try:
+            row = self._db.execute(
+                'SELECT page_id, page_url, exported_at, export_digest, status '
+                'FROM notion_exports WHERE meal_id = ? AND finalized_revision = ?',
+                (meal_id, finalized_revision),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                'page_id': row[0],
+                'page_url': row[1],
+                'exported_at': row[2],
+                'export_digest': row[3],
+                'status': row[4],
+            }
+        except sqlite3.Error as err:
+            self._storage_failure(err)
+
+    def record_notion_export_in_progress(self, meal_id, finalized_revision, export_digest):
+        try:
+            self._db.execute('BEGIN IMMEDIATE')
+            now = self._now()
+            self._db.execute(
+                'INSERT INTO notion_exports (meal_id, finalized_revision, page_id, page_url, exported_at, export_digest, status) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?) '
+                'ON CONFLICT(meal_id, finalized_revision) DO UPDATE SET '
+                'status = excluded.status, exported_at = excluded.exported_at, export_digest = excluded.export_digest',
+                (meal_id, finalized_revision, '', '', now, export_digest, 'in_progress'),
+            )
+            self._db.execute('COMMIT')
+        except sqlite3.Error as err:
+            self._rollback()
+            self._storage_failure(err)
+
+    def record_notion_export_completed(self, meal_id, finalized_revision, page_id, page_url, export_digest):
+        try:
+            self._db.execute('BEGIN IMMEDIATE')
+            now = self._now()
+            self._db.execute(
+                'INSERT INTO notion_exports (meal_id, finalized_revision, page_id, page_url, exported_at, export_digest, status) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?) '
+                'ON CONFLICT(meal_id, finalized_revision) DO UPDATE SET '
+                'page_id = excluded.page_id, page_url = excluded.page_url, '
+                'exported_at = excluded.exported_at, export_digest = excluded.export_digest, status = excluded.status',
+                (meal_id, finalized_revision, page_id, page_url, now, export_digest, 'completed'),
+            )
+            self._db.execute('COMMIT')
+        except sqlite3.Error as err:
+            self._rollback()
+            self._storage_failure(err)
+
+    def clear_notion_export(self, meal_id, finalized_revision):
+        try:
+            self._db.execute('BEGIN IMMEDIATE')
+            self._db.execute(
+                'DELETE FROM notion_exports WHERE meal_id = ? AND finalized_revision = ? AND status = ?',
+                (meal_id, finalized_revision, 'in_progress'),
+            )
+            self._db.execute('COMMIT')
+        except sqlite3.Error as err:
+            self._rollback()
+            self._storage_failure(err)
