@@ -25,7 +25,7 @@ def parse_sen(raw: str) -> int:
     if len(parts) != 2:
         raise ValueError(f"Ambiguous money string: {raw}")
     whole = int(parts[0])
-    frac = int(parts[1].padend(2, "0") if hasattr(parts[1], "padend") else parts[1].ljust(2, "0")[:2])
+    frac = int(parts[1].ljust(2, "0")[:2])
     return sign * (whole * 100 + frac)
 
 

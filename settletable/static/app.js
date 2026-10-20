@@ -847,11 +847,19 @@ function bindEvents(snap) {
       if (ocrSpinner) ocrSpinner.style.display = 'block';
       ocrBtn.disabled = true;
 
+      let mimeType = file.type;
+      if (!mimeType) {
+        const lowerName = (file.name || '').toLowerCase();
+        if (lowerName.endsWith('.png')) mimeType = 'image/png';
+        else if (lowerName.endsWith('.webp')) mimeType = 'image/webp';
+        else mimeType = 'image/jpeg';
+      }
+
       try {
         const res = await fetch(`/api/meals/${state.mealId}/ocr/extract`, {
           method: 'POST',
           headers: {
-            'Content-Type': file.type || 'image/jpeg',
+            'Content-Type': mimeType,
             'X-SettleTable-Action': '1',
           },
           body: file,

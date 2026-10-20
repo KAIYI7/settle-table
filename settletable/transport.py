@@ -596,7 +596,8 @@ class SettleTableApp:
 
             engine = self.get_ocr_engine()
             try:
-                from settletable.ocr import parse_malaysian_receipt, OcrUnavailableError, InvalidImageError
+                from settletable.ocr import parse_malaysian_receipt, OcrUnavailableError, InvalidImageError, validate_image_payload
+                validate_image_payload(raw_image_body or b'', expected_mime=ct)
                 lines = engine.recognize(raw_image_body or b'')
                 candidate = parse_malaysian_receipt(lines)
                 out = {
@@ -651,7 +652,7 @@ class SettleTableApp:
                         label=adj['label'],
                         kind=adj['kind'],
                         amount_sen=adj.get('amount_sen'),
-                        eligible_item_ids=tuple(adj.get('eligible_item_ids', ())),
+                        eligible_item_ids=tuple(adj.get('eligible_item_ids') or ()),
                         rationale=adj.get('rationale', ''),
                     ))
                 receipt = Receipt(

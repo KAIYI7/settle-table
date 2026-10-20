@@ -269,6 +269,18 @@ class TestOcrTransportIntegration(unittest.TestCase):
         self.assertEqual(cand['subtotal_sen'], 2900)
         self.assertTrue(cand['reconciled'])
 
+    def test_content_type_mismatch_rejected_400(self):
+        headers = {
+            'Authorization': f'Bearer {self.org_cred}',
+            'X-SettleTable-Action': '1',
+            'Content-Type': 'image/jpeg',
+        }
+        # Send PNG bytes with image/jpeg header
+        code, _, body = self._call('POST', '/api/meals/meal-ocr-test/ocr/extract', headers, self.valid_png_bytes)
+        self.assertEqual(code, 400)
+        data = json.loads(body.decode('utf-8'))
+        self.assertEqual(data['error'], 'invalid_image')
+
     def test_diner_extraction_forbidden_403(self):
         headers = {
             'Authorization': f'Bearer {self.diner_cred}',
