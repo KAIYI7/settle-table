@@ -34,6 +34,24 @@ class SessionGrant:
 
 
 @dataclass(frozen=True, slots=True)
+class InvitationGrant:
+    meal_id: str
+    participant_id: str
+    token: str = field(repr=False)
+    expires: float | int
+
+
+@dataclass(frozen=True, slots=True)
+class InvitationRecord:
+    participant_id: str
+    created_at: float | int
+    expires: float | int
+    consumed: bool
+    revoked: bool
+    issue_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class BootstrapResult:
     meal_id: str
     sessions: tuple[SessionGrant, ...] = field(repr=False)
@@ -113,6 +131,13 @@ class RevokeMembership:
 
 
 @dataclass(frozen=True, slots=True)
+class RevokeInvitation:
+    command_id: str
+    expected_revision: int
+    participant_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class Claim:
     item_id: str
     participant_id: str
@@ -161,6 +186,7 @@ class DraftSnapshot:
     issues: tuple[str, ...]
     participants: tuple[Participant, ...]
     inactive_participant_ids: tuple[str, ...]
+    invitations: tuple[InvitationRecord, ...] = ()
 
 
 def _require(condition, code='invalid_input'):
@@ -195,6 +221,13 @@ def _verifier(credential):
              and re.fullmatch(r'[A-Za-z0-9_-]{43}', credential) is not None,
              'invalid_session')
     return hashlib.sha256(b'settletable-local-session-v1\0' + credential.encode('ascii')).digest()
+
+
+def _invitation_verifier(token):
+    _require(type(token) is str and len(token) == 43
+             and re.fullmatch(r'[A-Za-z0-9_-]{43}', token) is not None,
+             'invalid_invitation')
+    return hashlib.sha256(b'settletable-invitation-v1\0' + token.encode('ascii')).digest()
 
 
 def _revision(value):
@@ -274,7 +307,7 @@ def _receipt_digest(receipt):
 
 def _command_data(command):
     _require(type(command) in (ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize,
-                               RevokeSession, RevokeMembership))
+                               RevokeSession, RevokeMembership, RevokeInvitation))
     _id(command.command_id)
     data = {'contract': 'settletable-command-v1', 'kind': type(command).__name__, 'command_id': command.command_id}
     if type(command) is SetOwnQuantity:
@@ -293,7 +326,7 @@ def _command_data(command):
     if type(command) is ReviewReceipt:
         _require(type(command.receipt_digest) is str and re.fullmatch(r'[0-9a-f]{64}', command.receipt_digest))
         data['receipt_digest'] = command.receipt_digest
-    if type(command) in (RevokeSession, RevokeMembership):
+    if type(command) in (RevokeSession, RevokeMembership, RevokeInvitation):
         _id(command.participant_id)
         data['participant_id'] = command.participant_id
     return data
@@ -366,6 +399,19 @@ class Authority:
                     body BLOB NOT NULL, digest BLOB NOT NULL, result BLOB NOT NULL,
                     security INTEGER NOT NULL,
                     PRIMARY KEY(meal_id,participant_id,command_id),
+                    FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id));
+                CREATE TABLE IF NOT EXISTS invitations (
+                    verifier BLOB PRIMARY KEY, meal_id TEXT NOT NULL, participant_id TEXT NOT NULL,
+                    issuer_id TEXT NOT NULL, issue_id TEXT NOT NULL, created_at REAL NOT NULL,
+                    expires REAL NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
+                    revoked INTEGER NOT NULL DEFAULT 0, generation INTEGER NOT NULL,
+                    UNIQUE(meal_id,issue_id),
+                    FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id),
+                    FOREIGN KEY(meal_id,issuer_id) REFERENCES participants(meal_id,id));
+                CREATE TABLE IF NOT EXISTS participant_lifecycle (
+                    meal_id TEXT NOT NULL, participant_id TEXT NOT NULL,
+                    generation INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY(meal_id,participant_id),
                     FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id));
             ''')
         except sqlite3.Error:
@@ -482,6 +528,9 @@ class Authority:
             self._authenticate(verifier, meal_id)
             state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
             people = self._db.execute('SELECT id,name,organizer,active FROM participants WHERE meal_id=? ORDER BY id', (meal_id,)).fetchall()
+            inv_rows = self._db.execute('''SELECT participant_id,created_at,expires,consumed,revoked,issue_id
+                FROM invitations WHERE meal_id=? ORDER BY participant_id,created_at,issue_id''', (meal_id,)).fetchall()
+            invitations = tuple(InvitationRecord(r[0], r[1], r[2], bool(r[3]), bool(r[4]), r[5]) for r in inv_rows)
             result = DraftSnapshot(meal_id, state['revision'], state['financial_revision'],
                                    _receipt_digest(state['receipt']), _decode_receipt(state['receipt']),
                                    tuple(ItemState(i, revision) for i, revision in sorted(state['item_revisions'].items())),
@@ -489,7 +538,8 @@ class Authority:
                                    _decode_calculation(state['calculation']), state['calculation'] is not None,
                                    self._issues(state),
                                    tuple(Participant(p[0], p[1], bool(p[2])) for p in people),
-                                   tuple(p[0] for p in people if not p[3]))
+                                   tuple(p[0] for p in people if not p[3]),
+                                   invitations)
             self._db.execute('COMMIT')
             return result
         except AuthorityError:
@@ -500,6 +550,185 @@ class Authority:
         except Exception:
             self._rollback()
             raise AuthorityError('storage_error') from None
+
+    def issue_invitation(self, organizer_credential, meal_id, participant_id, *, invite_ttl=86400, issue_id=None):
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        _id(participant_id)
+        _require(type(invite_ttl) is int and 1 <= invite_ttl <= 604800)
+        if issue_id is not None:
+            _id(issue_id)
+        else:
+            issue_id = f'inv-{secrets.token_urlsafe(16)}'
+        token = secrets.token_urlsafe(32)
+        inv_verifier = _invitation_verifier(token)
+        committed = False
+        commit_attempted = False
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            actor, organizer = self._authenticate(verifier, meal_id)
+            _require(bool(organizer), 'forbidden')
+            target = self._db.execute('SELECT organizer,active FROM participants WHERE meal_id=? AND id=?',
+                                      (meal_id, participant_id)).fetchone()
+            _require(target is not None and not target[0] and target[1] == 1, 'forbidden')
+            now = self._now()
+            expires = now + invite_ttl
+            gen_row = self._db.execute('SELECT generation FROM participant_lifecycle WHERE meal_id=? AND participant_id=?',
+                                       (meal_id, participant_id)).fetchone()
+            current_gen = 1 if gen_row is None else gen_row[0]
+            _require(current_gen < 64, 'resource_limit')
+            active_inv = self._db.execute('''SELECT 1 FROM invitations
+                WHERE meal_id=? AND participant_id=? AND revoked=0 AND consumed=0 AND expires>?''',
+                (meal_id, participant_id, now)).fetchone()
+            _require(active_inv is None, 'active_invitation_exists')
+            next_gen = current_gen + 1
+            self._db.execute('''INSERT INTO participant_lifecycle (meal_id,participant_id,generation)
+                VALUES (?,?,?) ON CONFLICT(meal_id,participant_id) DO UPDATE SET generation=?''',
+                (meal_id, participant_id, next_gen, next_gen))
+            self._db.execute('''INSERT INTO invitations (verifier,meal_id,participant_id,issuer_id,issue_id,created_at,expires,consumed,revoked,generation)
+                VALUES (?,?,?,?,?,?,?,0,0,?)''',
+                (inv_verifier, meal_id, participant_id, actor, issue_id, now, expires, next_gen))
+            state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
+            state['revision'] += 1
+            _revision(state['revision'])
+            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+            self._hook('before_commit')
+            commit_attempted = True
+            self._db.execute('COMMIT')
+            committed = True
+            self._hook('after_commit')
+            return InvitationGrant(meal_id, participant_id, token, expires)
+        except AuthorityError:
+            self._rollback()
+            if committed:
+                raise AuthorityError('commit_uncertain') from None
+            raise
+        except sqlite3.Error as error:
+            try:
+                transaction_open = self._db is not None and self._db.in_transaction
+            except Exception:
+                transaction_open = None
+            uncertain = committed or (commit_attempted and transaction_open is not True)
+            if uncertain:
+                self._rollback()
+                raise AuthorityError('commit_uncertain') from None
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
+
+    def redeem_invitation(self, invitation_token, meal_id, *, session_ttl=3600):
+        inv_verifier = _invitation_verifier(invitation_token)
+        _id(meal_id)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
+        credential = secrets.token_urlsafe(32)
+        sess_verifier = _verifier(credential)
+        committed = False
+        commit_attempted = False
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            now = self._now()
+            row = self._db.execute('''SELECT participant_id,expires,consumed,revoked
+                FROM invitations WHERE verifier=? AND meal_id=?''',
+                (inv_verifier, meal_id)).fetchone()
+            _require(row is not None and row[1] > now and row[2] == 0 and row[3] == 0, 'invalid_invitation')
+            participant_id = row[0]
+            target = self._db.execute('SELECT organizer,active FROM participants WHERE meal_id=? AND id=?',
+                                      (meal_id, participant_id)).fetchone()
+            _require(target is not None and not target[0] and target[1] == 1, 'invalid_invitation')
+            gen_row = self._db.execute('SELECT generation FROM participant_lifecycle WHERE meal_id=? AND participant_id=?',
+                                       (meal_id, participant_id)).fetchone()
+            current_gen = 1 if gen_row is None else gen_row[0]
+            _require(current_gen < 64, 'resource_limit')
+            next_gen = current_gen + 1
+            self._db.execute('''INSERT INTO participant_lifecycle (meal_id,participant_id,generation)
+                VALUES (?,?,?) ON CONFLICT(meal_id,participant_id) DO UPDATE SET generation=?''',
+                (meal_id, participant_id, next_gen, next_gen))
+            self._db.execute('UPDATE invitations SET consumed=1 WHERE verifier=?', (inv_verifier,))
+            sess_expires = now + session_ttl
+            self._db.execute('''INSERT INTO sessions (verifier,meal_id,participant_id,expires,revoked)
+                VALUES (?,?,?,?,0)
+                ON CONFLICT(meal_id,participant_id) DO UPDATE SET verifier=?,expires=?,revoked=0''',
+                (sess_verifier, meal_id, participant_id, sess_expires, sess_verifier, sess_expires))
+            state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
+            state['revision'] += 1
+            _revision(state['revision'])
+            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+            self._hook('before_commit')
+            commit_attempted = True
+            self._db.execute('COMMIT')
+            committed = True
+            self._hook('after_commit')
+            return SessionGrant(participant_id, credential)
+        except AuthorityError:
+            self._rollback()
+            if committed:
+                raise AuthorityError('commit_uncertain') from None
+            raise
+        except sqlite3.Error as error:
+            try:
+                transaction_open = self._db is not None and self._db.in_transaction
+            except Exception:
+                transaction_open = None
+            uncertain = committed or (commit_attempted and transaction_open is not True)
+            if uncertain:
+                self._rollback()
+                raise AuthorityError('commit_uncertain') from None
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
+
+    def rotate_session(self, credential, meal_id, *, session_ttl=3600):
+        verifier = _verifier(credential)
+        _id(meal_id)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
+        new_credential = secrets.token_urlsafe(32)
+        new_verifier = _verifier(new_credential)
+        committed = False
+        commit_attempted = False
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            actor, _ = self._authenticate(verifier, meal_id)
+            gen_row = self._db.execute('SELECT generation FROM participant_lifecycle WHERE meal_id=? AND participant_id=?',
+                                       (meal_id, actor)).fetchone()
+            current_gen = 1 if gen_row is None else gen_row[0]
+            _require(current_gen < 64, 'resource_limit')
+            next_gen = current_gen + 1
+            self._db.execute('''INSERT INTO participant_lifecycle (meal_id,participant_id,generation)
+                VALUES (?,?,?) ON CONFLICT(meal_id,participant_id) DO UPDATE SET generation=?''',
+                (meal_id, actor, next_gen, next_gen))
+            now = self._now()
+            sess_expires = now + session_ttl
+            self._db.execute('UPDATE sessions SET verifier=?,expires=?,revoked=0 WHERE meal_id=? AND participant_id=?',
+                             (new_verifier, sess_expires, meal_id, actor))
+            self._hook('before_commit')
+            commit_attempted = True
+            self._db.execute('COMMIT')
+            committed = True
+            self._hook('after_commit')
+            return SessionGrant(actor, new_credential)
+        except AuthorityError:
+            self._rollback()
+            if committed:
+                raise AuthorityError('commit_uncertain') from None
+            raise
+        except sqlite3.Error as error:
+            try:
+                transaction_open = self._db is not None and self._db.in_transaction
+            except Exception:
+                transaction_open = None
+            uncertain = committed or (commit_attempted and transaction_open is not True)
+            if uncertain:
+                self._rollback()
+                raise AuthorityError('commit_uncertain') from None
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
 
     @staticmethod
     def _receipt_issues(state):
@@ -541,7 +770,7 @@ class Authority:
     def _permission(self, actor, organizer, meal_id, data):
         if data['kind'] != 'SetOwnQuantity':
             _require(bool(organizer), 'forbidden')
-        if data['kind'] in ('RevokeSession', 'RevokeMembership'):
+        if data['kind'] in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation'):
             target = self._db.execute('SELECT organizer FROM participants WHERE meal_id=? AND id=?',
                                       (meal_id, data['participant_id'])).fetchone()
             _require(target is not None and not target[0] and data['participant_id'] != actor, 'forbidden')
@@ -622,13 +851,25 @@ class Authority:
         state['calculation'] = _calculation_data(result)
 
     def _revoke(self, meal_id, data):
+        now = self._now()
         if data['kind'] == 'RevokeSession':
-            updated = self._db.execute('UPDATE sessions SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0',
+            sess_up = self._db.execute('UPDATE sessions SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0',
                                        (meal_id, data['participant_id'])).rowcount
-        else:
-            updated = self._db.execute('UPDATE participants SET active=0 WHERE meal_id=? AND id=? AND active=1',
+            inv_up = self._db.execute('UPDATE invitations SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0 AND consumed=0 AND expires>?',
+                                      (meal_id, data['participant_id'], now)).rowcount
+            _require(sess_up + inv_up > 0, 'already_revoked')
+        elif data['kind'] == 'RevokeMembership':
+            part_up = self._db.execute('UPDATE participants SET active=0 WHERE meal_id=? AND id=? AND active=1',
                                        (meal_id, data['participant_id'])).rowcount
-        _require(updated == 1, 'already_revoked')
+            self._db.execute('UPDATE sessions SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0',
+                             (meal_id, data['participant_id']))
+            self._db.execute('UPDATE invitations SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0 AND consumed=0 AND expires>?',
+                             (meal_id, data['participant_id'], now))
+            _require(part_up == 1, 'already_revoked')
+        elif data['kind'] == 'RevokeInvitation':
+            inv_up = self._db.execute('UPDATE invitations SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0 AND consumed=0 AND expires>?',
+                                      (meal_id, data['participant_id'], now)).rowcount
+            _require(inv_up > 0, 'already_revoked')
 
     def apply(self, credential, meal_id, command):
         verifier = _verifier(credential)
@@ -651,7 +892,7 @@ class Authority:
                 self._db.execute('COMMIT')
                 return result
             state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
-            security = data['kind'] in ('RevokeSession', 'RevokeMembership')
+            security = data['kind'] in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation')
             if not security:
                 _require(state['calculation'] is None, 'finalized')
                 _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=0', (meal_id,)).fetchone()[0] < 10_000,

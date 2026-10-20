@@ -110,3 +110,20 @@ The user reports completed independent external review without a merge blocker a
 | Full browser/public service readiness | FAIL / outside current scope — real origin/CSRF/cookie/Host, identity recovery, abuse/backup/TLS and deployment evidence remain later gates. No public service, new framework or product feature added. |
 
 The next local scope targets invitations and sessions for already declared diner identities within the authority transaction. Follow with a separately tested same-origin transport. Preserve current financial replay contracts and no raw-bearer persistence; do not activate recovery/handover/member restoration policy by inference. No routine phase confirmation is needed; genuine spend/exposure/account/product-policy escalation remains effective.
+
+## 2026-10-20 — Invitation and session lifecycle specification acceptance; implementation authorized
+
+**Orchestrator decision: PASS to begin implementation of the integrated invitation and session lifecycle within Phase 3.** Evaluated against [next-slice-plan](../../research/phase-3/next-slice-plan.md), [independent challenge](../../research/phase-3/transport-identity-challenge.md), and [specification](../../.scratch/invitation-lifecycle/SPEC.md); reviewed actual report from independent research subagent. All 8 review findings are incorporated.
+
+| Material Gate | Disposition / Evidence | Restriction / Invariants |
+|---|---|---|
+| Single transaction owner | PASS — all lifecycle operations (`issue_invitation`, `redeem_invitation`, `rotate_session`, `RevokeInvitation`) reside strictly in `settletable.authority.Authority` on the single SQLite connection. | No separate store, sidecar DB, or check-then-apply framework. |
+| Zero credential persistence & domain separation | PASS — tokens and credentials suppressed in repr, absent from SQLite/snapshots/commands/results/exceptions; new domain `settletable-invitation-v1\0` strictly separated. | No raw secret in logs, DB dumps, or test failure messages. |
+| Single-use, expiry, and atomic rotation | PASS — tokens consumed atomically; rotation destroys prior session verifier; exclusive trusted-clock expiry enforced. | No unauthenticated participant creation, organizer handover, or account recovery. |
+| Cascading revocation correctness | PASS — `RevokeSession` and `RevokeMembership` invalidate outstanding active invitations; `already_revoked` requires both session and invitations to be inactive. | Precludes resurrecting access via pre-existing invitations. |
+| Resource limits and security reserve | PASS — 64 lifecycle generations per participant; ordinary quota capped at 10,000; security commands exempt with mathematical bound $\le 6,534$ rows. | Exhaustion of ordinary/lifecycle quota does not prevent revocation. |
+| Reversible additive schema & v1 compatibility | PASS — `invitations` and `participant_lifecycle` created with `CREATE TABLE IF NOT EXISTS`; existing tables untouched; historical replay and snapshots byte-identical. | Verified by reopening disposable v1 databases. |
+| Safe acknowledgment & retry policy | PASS — lost grant commits are explicitly uncertain; retry of consumed token or rotated session rejects; status visible in snapshot via `InvitationRecord`. | No recoverable secret storage. |
+| Public exposure / spend escalation | PASS — no spend, no deployment, no network listener, no third-party services, no credential changes. | Strictly localhost/in-process Python standard library. |
+
+**Approved next action:** Implement the vertical slices via TDD (`issue_invitation`, `redeem_invitation`, `rotate_session`, `RevokeInvitation`, cascading revocation, snapshot metadata, resource quotas, and backward compatibility), verify passing test suite, and run adversarial lifecycle tests.
