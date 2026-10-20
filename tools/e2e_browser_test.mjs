@@ -2,15 +2,104 @@
  * Real automated browser end-to-end test using Chrome DevTools Protocol (CDP).
  * Spawns two isolated Headless Chrome browser instances (Organizer and Diner)
  * with separate user-data directories (isolated cookies, session, and DOM).
+ * 
+ * Works across Windows, Linux, and macOS without hardcoded paths.
  */
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const SERVER_PORT = 8089;
-const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const options = {
+    port: 8089,
+    chrome: null,
+    python: null,
+  };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--port' && args[i + 1]) {
+      options.port = parseInt(args[++i], 10);
+    } else if (args[i] === '--chrome' && args[i + 1]) {
+      options.chrome = args[++i];
+    } else if (args[i] === '--python' && args[i + 1]) {
+      options.python = args[++i];
+    }
+  }
+  return options;
+}
+
+function resolveChromePath(explicitPath) {
+  if (explicitPath && existsSync(explicitPath)) return explicitPath;
+  const envPath = process.env.CHROME_BIN || process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (envPath && existsSync(envPath)) return envPath;
+
+  const platform = process.platform;
+  const candidates = [];
+
+  if (platform === 'win32') {
+    candidates.push(
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
+    );
+  } else if (platform === 'darwin') {
+    candidates.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'
+    );
+  } else {
+    // Linux and other Unix
+    candidates.push(
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/snap/bin/chromium'
+    );
+    // Also try `which` lookup
+    for (const bin of ['google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser']) {
+      try {
+        const found = execSync(`which ${bin} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+        if (found && existsSync(found)) return found;
+      } catch (e) {}
+    }
+  }
+
+  for (const p of candidates) {
+    if (p && existsSync(p)) return p;
+  }
+
+  throw new Error(
+    'Could not find a Google Chrome / Chromium executable. ' +
+    'Please set the CHROME_BIN environment variable or pass --chrome <path>.'
+  );
+}
+
+function resolvePythonPath(explicitPath) {
+  if (explicitPath) return explicitPath;
+  const envPath = process.env.PYTHON_BIN || process.env.PYTHON_PATH;
+  if (envPath && existsSync(envPath)) return envPath;
+
+  if (process.platform === 'win32') {
+    if (existsSync('C:\\Python314\\python.exe')) return 'C:\\Python314\\python.exe';
+    if (existsSync('C:\\Python312\\python.exe')) return 'C:\\Python312\\python.exe';
+    return 'python';
+  }
+  try {
+    execSync('python --version', { stdio: 'ignore' });
+    return 'python';
+  } catch (e) {
+    return 'python3';
+  }
+}
 
 class CDPPage {
   constructor(wsUrl) {
@@ -81,20 +170,23 @@ class CDPPage {
   }
 }
 
-async function startChrome(port, dataDir) {
-  const proc = spawn(CHROME_PATH, [
+async function startChrome(chromeBin, port, dataDir) {
+  const proc = spawn(chromeBin, [
     '--headless=new',
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${dataDir}`,
     '--no-first-run',
     '--no-default-browser-check',
+    '--disable-gpu',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
     'about:blank',
   ]);
 
   // Wait for DevTools HTTP endpoint
   const endpoint = `http://127.0.0.1:${port}/json/list`;
   let target = null;
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 60; i++) {
     try {
       const res = await fetch(endpoint);
       const list = await res.json();
@@ -116,7 +208,16 @@ async function startChrome(port, dataDir) {
 }
 
 async function main() {
+  const options = parseArgs();
+  const chromeBin = resolveChromePath(options.chrome);
+  const pythonBin = resolvePythonPath(options.python);
+  const serverPort = options.port;
+  const serverOrigin = `http://127.0.0.1:${serverPort}`;
+
   console.log('--- Starting SettleTable Real Browser End-to-End Test ---');
+  console.log(`[Config] Chrome: ${chromeBin}`);
+  console.log(`[Config] Python: ${pythonBin}`);
+  console.log(`[Config] Repo:   ${REPO_ROOT}`);
 
   // 1. Create temporary directory for databases and browser profiles
   const testDir = await mkdtemp(join(tmpdir(), 'settletable-e2e-'));
@@ -125,21 +226,21 @@ async function main() {
   const dirDiner = join(testDir, 'chrome-diner');
 
   // 2. Start SettleTable WSGI Demo Server
-  console.log(`[1/8] Starting local server on port ${SERVER_PORT}...`);
-  const serverProc = spawn('C:\\Python314\\python.exe', [
-    'tools\\run_demo.py',
+  console.log(`[1/8] Starting local server on port ${serverPort}...`);
+  const serverProc = spawn(pythonBin, [
+    join('tools', 'run_demo.py'),
     '--host', '127.0.0.1',
-    '--port', String(SERVER_PORT),
+    '--port', String(serverPort),
     '--db', dbPath,
-  ], { cwd: 'C:\\LKY_Project\\TabWise' });
+  ], { cwd: REPO_ROOT });
 
   serverProc.stderr.on('data', d => console.error('[SERVER STDERR]:', d.toString()));
   serverProc.stdout.on('data', d => console.log('[SERVER STDOUT]:', d.toString()));
 
   // Wait for server to respond
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 50; i++) {
     try {
-      const res = await fetch(`${SERVER_ORIGIN}/`);
+      const res = await fetch(`${serverOrigin}/`);
       if (res.ok) break;
     } catch (e) {}
     await new Promise(r => setTimeout(r, 100));
@@ -149,15 +250,15 @@ async function main() {
   try {
     // 3. Launch isolated Chrome instances
     console.log('[2/8] Launching isolated Organizer and Diner Chrome instances...');
-    orgChrome = await startChrome(9224, dirOrg);
-    dinerChrome = await startChrome(9225, dirDiner);
+    orgChrome = await startChrome(chromeBin, 9224, dirOrg);
+    dinerChrome = await startChrome(chromeBin, 9225, dirDiner);
 
     const pageA = orgChrome.page;
     const pageB = dinerChrome.page;
 
     // 4. Organizer Journey: Create meal room
     console.log('[3/8] Organizer Alice creating meal "dinner-e2e"...');
-    await pageA.navigate(`${SERVER_ORIGIN}/`);
+    await pageA.navigate(`${serverOrigin}/`);
     await pageA.waitFor("document.getElementById('create-meal-form') !== null");
 
     await pageA.evaluate(`
@@ -217,7 +318,8 @@ async function main() {
     `);
     await pageA.waitFor("state.issuedTokens['D1'] !== undefined");
     const inviteUrl = await pageA.evaluate("state.issuedTokens['D1']");
-    console.log(`   ✓ Invitation URL generated: ${inviteUrl}`);
+    const safeInviteUrl = inviteUrl.replace(/\/invite\/[a-zA-Z0-9_-]+/, '/invite/[REDACTED]');
+    console.log(`   ✓ Invitation URL generated: ${safeInviteUrl}`);
 
     // 7. Diner Bob opens invitation in separate isolated Chrome instance
     console.log('[6/8] Diner Bob navigating to invitation URL in isolated browser...');
