@@ -1,5 +1,6 @@
 """Comprehensive unit, boundary, security, and integration tests for settletable.transport."""
 from io import BytesIO
+import http.cookies
 import json
 from pathlib import Path
 import tempfile
@@ -281,11 +282,16 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(bob_claim_res['status'], 200)
         self.assertEqual(bob_claim_res['json']['revision'], 4)
 
-        # 7. Bob rotates session
+        # 7. Bob rotates session via cookie
         rotate_res = self.client.post('/api/meals/m1/session/rotate', body={},
                                       headers={'HTTP_COOKIE': f'settletable_session={bob_cred}'})
         self.assertEqual(rotate_res['status'], 200)
-        new_bob_cred = rotate_res['json']['credential']
+        # Defense: Cookie-authenticated browser rotation does NOT expose credential in JSON
+        self.assertNotIn('credential', rotate_res['json'])
+        self.assertEqual(rotate_res['json']['participant_id'], 'B')
+        self.assertIn('Set-Cookie', rotate_res['headers'])
+        cookie_parsed = http.cookies.SimpleCookie(rotate_res['headers']['Set-Cookie'])
+        new_bob_cred = cookie_parsed['settletable_session'].value
         self.assertNotEqual(bob_cred, new_bob_cred)
 
         # Old Bob credential returns 401
@@ -393,6 +399,63 @@ class TransportTests(unittest.TestCase):
         res = self.client.post('/api/meals/m1/bootstrap', body=nested)
         self.assertEqual(res['status'], 400)
         self.assertEqual(res['json']['error'], 'malformed_json')
+
+    def test_bootstrap_proxy_forwarding_headers_rejected(self):
+        # A reverse proxy forwarding remote traffic to 127.0.0.1 must NOT bypass loopback restriction
+        proxy_hdrs = [
+            {'HTTP_X_FORWARDED_FOR': '203.0.113.195'},
+            {'HTTP_X_REAL_IP': '203.0.113.195'},
+            {'HTTP_FORWARDED': 'for=203.0.113.195;proto=http'},
+            {'HTTP_X_FORWARDED_HOST': 'external-tunnel.example.com'},
+            {'HTTP_X_FORWARDED_PROTO': 'https'},
+        ]
+        for h in proxy_hdrs:
+            res = self.client.post('/api/meals/m1/bootstrap', body={
+                'participants': [{'id': 'O', 'name': 'Org', 'organizer': True}]
+            }, headers=h, remote_addr='127.0.0.1')
+            self.assertEqual(res['status'], 403)
+            self.assertEqual(res['json']['error'], 'forbidden')
+
+    def test_bootstrap_never_leaks_all_participant_credentials(self):
+        # Even if multiple participants are declared at bootstrap, only the organizer session is returned
+        boot = self.client.post('/api/meals/m1/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Organizer', 'organizer': True},
+                {'id': 'D1', 'name': 'Diner 1', 'organizer': False},
+                {'id': 'D2', 'name': 'Diner 2', 'organizer': False},
+            ]
+        })
+        self.assertEqual(boot['status'], 201)
+        sessions = boot['json']['sessions']
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]['participant_id'], 'O')
+        self.assertNotIn('D1', str(boot['json']))
+        self.assertNotIn('D2', str(boot['json']))
+
+    def test_session_rotation_bearer_returns_credential_in_json(self):
+        boot = self.client.post('/api/meals/m1/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Org', 'organizer': True},
+                {'id': 'D', 'name': 'Diner', 'organizer': False},
+            ]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # Issue and redeem invitation for D
+        inv = self.client.post('/api/meals/m1/invitations', body={'participant_id': 'D'},
+                               headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        token = inv['json']['token']
+        redeem = self.client.post(f'/api/meals/m1/invitations/{token}/redeem', body={})
+        cookie_header = redeem['headers']['Set-Cookie']
+        diner_cred = http.cookies.SimpleCookie(cookie_header)['settletable_session'].value
+
+        # Rotate using Bearer header (programmatic client context)
+        rotate_res = self.client.post('/api/meals/m1/session/rotate', body={},
+                                      headers={'HTTP_AUTHORIZATION': f'Bearer {diner_cred}'})
+        self.assertEqual(rotate_res['status'], 200)
+        self.assertIn('credential', rotate_res['json'])
+        self.assertEqual(rotate_res['json']['participant_id'], 'D')
+        self.assertNotEqual(rotate_res['json']['credential'], diner_cred)
 
 
 if __name__ == '__main__':
