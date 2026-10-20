@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import sqlite3
 import threading
+import time
 import unicodedata
 from urllib.parse import urlparse
 
@@ -213,7 +214,7 @@ class SettleTableApp:
         self.db_path = str(db_path)
         self.allowed_hosts = set(allowed_hosts)
         self.server_origin = server_origin.rstrip('/')
-        self.clock = clock
+        self.clock = clock if clock is not None else time.time
         self.logger = logger
         self._local = threading.local()
 

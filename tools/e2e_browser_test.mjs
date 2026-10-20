@@ -1,0 +1,360 @@
+/**
+ * Real automated browser end-to-end test using Chrome DevTools Protocol (CDP).
+ * Spawns two isolated Headless Chrome browser instances (Organizer and Diner)
+ * with separate user-data directories (isolated cookies, session, and DOM).
+ */
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+const SERVER_PORT = 8089;
+const SERVER_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
+
+class CDPPage {
+  constructor(wsUrl) {
+    this.ws = new WebSocket(wsUrl);
+    this.id = 0;
+    this.callbacks = new Map();
+    this.ready = new Promise((resolve, reject) => {
+      this.ws.onopen = resolve;
+      this.ws.onerror = reject;
+    });
+    this.ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.id && this.callbacks.has(msg.id)) {
+        const { resolve, reject } = this.callbacks.get(msg.id);
+        this.callbacks.delete(msg.id);
+        if (msg.error) reject(new Error(msg.error.message));
+        else resolve(msg.result);
+      }
+    };
+  }
+
+  async send(method, params = {}) {
+    await this.ready;
+    const id = ++this.id;
+    return new Promise((resolve, reject) => {
+      this.callbacks.set(id, { resolve, reject });
+      this.ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  async evaluate(expr) {
+    const exprStr = typeof expr === 'function' ? `(${expr.toString()})()` : expr;
+    const res = await this.send('Runtime.evaluate', {
+      expression: exprStr,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (res.exceptionDetails) {
+      throw new Error(`Evaluation failed in browser: ${JSON.stringify(res.exceptionDetails)}`);
+    }
+    return res.result?.value;
+  }
+
+  async navigate(url) {
+    await this.send('Page.navigate', { url });
+  }
+
+  async reload() {
+    await this.send('Page.reload');
+  }
+
+  async waitFor(expr, timeoutMs = 8000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const val = await this.evaluate(expr);
+        if (val) return val;
+      } catch (e) {}
+      await new Promise(r => setTimeout(r, 100));
+    }
+    throw new Error(`Timeout waiting for expression: ${expr}`);
+  }
+
+  close() {
+    try {
+      this.ws.close();
+    } catch (e) {}
+  }
+}
+
+async function startChrome(port, dataDir) {
+  const proc = spawn(CHROME_PATH, [
+    '--headless=new',
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${dataDir}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    'about:blank',
+  ]);
+
+  // Wait for DevTools HTTP endpoint
+  const endpoint = `http://127.0.0.1:${port}/json/list`;
+  let target = null;
+  for (let i = 0; i < 50; i++) {
+    try {
+      const res = await fetch(endpoint);
+      const list = await res.json();
+      target = list.find(t => t.type === 'page');
+      if (target && target.webSocketDebuggerUrl) break;
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  if (!target || !target.webSocketDebuggerUrl) {
+    proc.kill();
+    throw new Error(`Could not connect to Chrome on port ${port}`);
+  }
+
+  const page = new CDPPage(target.webSocketDebuggerUrl);
+  await page.send('Page.enable');
+  await page.send('Runtime.enable');
+  return { proc, page };
+}
+
+async function main() {
+  console.log('--- Starting SettleTable Real Browser End-to-End Test ---');
+
+  // 1. Create temporary directory for databases and browser profiles
+  const testDir = await mkdtemp(join(tmpdir(), 'settletable-e2e-'));
+  const dbPath = join(testDir, 'e2e.sqlite');
+  const dirOrg = join(testDir, 'chrome-org');
+  const dirDiner = join(testDir, 'chrome-diner');
+
+  // 2. Start SettleTable WSGI Demo Server
+  console.log(`[1/8] Starting local server on port ${SERVER_PORT}...`);
+  const serverProc = spawn('C:\\Python314\\python.exe', [
+    'tools\\run_demo.py',
+    '--host', '127.0.0.1',
+    '--port', String(SERVER_PORT),
+    '--db', dbPath,
+  ], { cwd: 'C:\\LKY_Project\\TabWise' });
+
+  serverProc.stderr.on('data', d => console.error('[SERVER STDERR]:', d.toString()));
+  serverProc.stdout.on('data', d => console.log('[SERVER STDOUT]:', d.toString()));
+
+  // Wait for server to respond
+  for (let i = 0; i < 40; i++) {
+    try {
+      const res = await fetch(`${SERVER_ORIGIN}/`);
+      if (res.ok) break;
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  let orgChrome, dinerChrome;
+  try {
+    // 3. Launch isolated Chrome instances
+    console.log('[2/8] Launching isolated Organizer and Diner Chrome instances...');
+    orgChrome = await startChrome(9224, dirOrg);
+    dinerChrome = await startChrome(9225, dirDiner);
+
+    const pageA = orgChrome.page;
+    const pageB = dinerChrome.page;
+
+    // 4. Organizer Journey: Create meal room
+    console.log('[3/8] Organizer Alice creating meal "dinner-e2e"...');
+    await pageA.navigate(`${SERVER_ORIGIN}/`);
+    await pageA.waitFor("document.getElementById('create-meal-form') !== null");
+
+    await pageA.evaluate(`
+      document.getElementById('create-meal-id').value = 'dinner-e2e';
+      document.getElementById('create-org-name').value = 'Alice';
+      document.getElementById('create-diners').value = 'Bob';
+      document.getElementById('create-meal-form').requestSubmit();
+    `);
+
+    // Wait until room loads
+    await pageA.waitFor("window.location.hash.includes('#/meal/dinner-e2e') && document.getElementById('add-item-form') !== null");
+    console.log('   ✓ Meal created and Alice loaded room as Organizer');
+
+    // 5. Organizer adds two receipt items
+    console.log('[4/8] Organizer Alice adding two receipt items with prices...');
+    // Item 1: Burger Set (Qty: 2, Price: RM 24.00)
+    await pageA.evaluate(`
+      document.getElementById('new-item-label').value = 'Burger Set';
+      document.getElementById('new-item-qty').value = '2';
+      document.getElementById('new-item-price').value = 'RM 24.00';
+      document.getElementById('add-item-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Burger Set')");
+
+    // Item 2: Iced Tea (Qty: 2, Price: 6.00)
+    await pageA.evaluate(`
+      document.getElementById('new-item-label').value = 'Iced Tea';
+      document.getElementById('new-item-qty').value = '2';
+      document.getElementById('new-item-price').value = '6.00';
+      document.getElementById('add-item-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Iced Tea')");
+    console.log('   ✓ Both items added; Receipt items visible in DOM');
+
+    // Verify totals displayed in Organizer card
+    const orgReceiptText = await pageA.evaluate("document.body.innerText");
+    if (!orgReceiptText.includes('RM 30.00')) {
+      throw new Error(`Receipt Total RM 30.00 not found in DOM: ${orgReceiptText.slice(0, 500)}`);
+    }
+    console.log('   ✓ Verified items subtotal & total match: RM 30.00');
+
+    // Organizer completes Human Receipt Review
+    await pageA.evaluate(`
+      const check = document.getElementById('review-confirm-check');
+      check.checked = true;
+      check.dispatchEvent(new Event('change'));
+      document.getElementById('review-submit-btn').click();
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Review Verified ✓')");
+    console.log('   ✓ Human Receipt Review submitted and verified');
+
+    // 6. Organizer creates invitation for Bob
+    console.log('[5/8] Organizer creating invitation for Bob...');
+    await pageA.evaluate(`
+      const btn = document.querySelector('.issue-invite-btn');
+      if (btn) btn.click();
+    `);
+    await pageA.waitFor("state.issuedTokens['D1'] !== undefined");
+    const inviteUrl = await pageA.evaluate("state.issuedTokens['D1']");
+    console.log(`   ✓ Invitation URL generated: ${inviteUrl}`);
+
+    // 7. Diner Bob opens invitation in separate isolated Chrome instance
+    console.log('[6/8] Diner Bob navigating to invitation URL in isolated browser...');
+    await pageB.navigate(inviteUrl);
+    await pageB.waitFor("document.getElementById('redeem-btn') !== null");
+    const dinerText = await pageB.evaluate("document.body.innerText");
+    if (!dinerText.includes('Bob')) {
+      throw new Error(`Expected Diner Bob invitation text, got: ${dinerText}`);
+    }
+    console.log('   ✓ Unauthenticated landing rendered valid invitation for Bob');
+
+    // Bob accepts invitation
+    await pageB.evaluate("document.getElementById('redeem-btn').click()");
+    await pageB.waitFor("window.location.hash.includes('#/meal/dinner-e2e') && document.body.innerText.includes('🍽️ Diner')");
+    console.log('   ✓ Bob redeemed invitation and joined room with Diner session cookie');
+
+    // 8. Claims & Concurrency Conflict Testing
+    console.log('[7/8] Testing claiming, realtime sync, and 409 stale conflict handling...');
+    // Bob claims 1 Burger Set
+    await pageB.evaluate(`
+      const incBtn = document.querySelector('.claim-inc-btn[data-id="item-1"]');
+      if (incBtn) incBtn.click();
+    `);
+    await pageB.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === 'item-1')");
+    console.log('   ✓ Bob claimed 1 Burger Set');
+
+    // Trigger manual refresh on Alice's page and confirm Alice sees Bob's claim
+    await pageA.evaluate("fetchSnapshot(true)");
+    await pageA.waitFor("document.body.innerText.includes('Bob: 1')");
+    console.log('   ✓ Alice sees Bob: 1 in realtime chip list');
+
+    // Test Stale Claim Conflict:
+    // Alice intentionally submits an outdated claim at item_revision 0
+    console.log('   Testing 409 Conflict rejection for stale item revision...');
+    const conflictResult = await pageA.evaluate(async () => {
+      try {
+        await apiCall('/api/meals/dinner-e2e/apply', 'POST', {
+          kind: 'SetOwnQuantity',
+          command_id: `stale-test-${Date.now()}`,
+          item_id: 'item-1',
+          quantity: 1,
+          expected_item_revision: 0, // Outdated revision
+          expected_financial_revision: state.snapshot.financial_revision,
+        });
+        return { ok: true };
+      } catch (err) {
+        handleApiError(err, 'item-1');
+        return { ok: false, status: err.status, code: err.code };
+      }
+    });
+    if (conflictResult.status !== 409) {
+      throw new Error(`Expected 409 conflict, got: ${JSON.stringify(conflictResult)}`);
+    }
+    await pageA.waitFor("document.body.innerText.includes('Stale Claim Conflict')");
+    console.log('   ✓ Stale claim cleanly rejected with 409 Conflict & amber banner displayed');
+
+    // Alice claims remaining portions: 1 Burger Set and 2 Iced Tea
+    await pageA.evaluate(`
+      const btnBurger = document.querySelector('.claim-inc-btn[data-id="item-1"]');
+      btnBurger.click();
+    `);
+    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-1')");
+
+    await pageA.evaluate(`
+      const btnAllTea = document.querySelector('.claim-all-btn[data-id="item-2"]');
+      btnAllTea.click();
+    `);
+    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-2')");
+    console.log('   ✓ All items fully claimed');
+
+    // 9. Finalization & Apportionment Check
+    console.log('[8/8] Alice finalizes meal and verifies calculations in both browsers...');
+    await pageA.waitFor("!document.getElementById('finalize-btn').disabled");
+    // Accept confirm dialog by overriding window.confirm in page
+    await pageA.evaluate(`
+      window.confirm = () => true;
+      document.getElementById('finalize-btn').click();
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Final Apportionment Summary')");
+
+    // Fetch snapshot on Bob's browser as well
+    await pageB.evaluate("fetchSnapshot(true)");
+    await pageB.waitFor("document.body.innerText.includes('Final Apportionment Summary')");
+
+    // Assert exact per-person amounts in both Alice and Bob DOM
+    const textAliceFinal = await pageA.evaluate("document.body.innerText");
+    const textBobFinal = await pageB.evaluate("document.body.innerText");
+
+    // Calculation breakdown:
+    // Burger Set (RM 24.00) split 1:1 between Alice and Bob = RM 12.00 each
+    // Iced Tea (RM 6.00) 100% to Alice = RM 6.00
+    // Alice total: RM 18.00
+    // Bob total: RM 12.00
+    // Grand Total: RM 30.00
+    for (const text of [textAliceFinal, textBobFinal]) {
+      if (!text.includes('RM 18.00')) throw new Error(`Missing Alice RM 18.00 total in DOM`);
+      if (!text.includes('RM 12.00')) throw new Error(`Missing Bob RM 12.00 total in DOM`);
+      if (!text.includes('RM 30.00')) throw new Error(`Missing Grand Total RM 30.00 in DOM`);
+    }
+    console.log('   ✓ Both browsers display exact authoritative breakdown:');
+    console.log('     - Alice (Organizer): RM 18.00');
+    console.log('     - Bob (Diner):       RM 12.00');
+    console.log('     - Grand Total:       RM 30.00');
+
+    // 10. Test Page Reload Persistence in both browsers
+    console.log('   Testing page reload persistence in both browsers...');
+    await pageA.reload();
+    await pageB.reload();
+
+    await pageA.waitFor("document.body.innerText.includes('Final Apportionment Summary')");
+    await pageB.waitFor("document.body.innerText.includes('Final Apportionment Summary')");
+
+    const reloadedAlice = await pageA.evaluate("document.body.innerText");
+    const reloadedBob = await pageB.evaluate("document.body.innerText");
+    if (!reloadedAlice.includes('RM 18.00') || !reloadedBob.includes('RM 12.00')) {
+      throw new Error('State was not preserved after reload!');
+    }
+    console.log('   ✓ State and amounts preserved after reload in both isolated sessions');
+
+    console.log('\n===========================================================');
+    console.log(' ALL 8 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
+    console.log('===========================================================');
+  } finally {
+    if (orgChrome) {
+      orgChrome.page.close();
+      orgChrome.proc.kill();
+    }
+    if (dinerChrome) {
+      dinerChrome.page.close();
+      dinerChrome.proc.kill();
+    }
+    serverProc.kill();
+    await rm(testDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+main().catch(err => {
+  console.error('\nE2E BROWSER TEST FAILED:', err);
+  process.exit(1);
+});
