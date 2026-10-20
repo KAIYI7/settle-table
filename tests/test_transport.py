@@ -428,9 +428,10 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(boot['status'], 201)
         sessions = boot['json']['sessions']
         self.assertEqual(len(sessions), 1)
-        self.assertEqual(sessions[0]['participant_id'], 'O')
-        self.assertNotIn('D1', str(boot['json']))
-        self.assertNotIn('D2', str(boot['json']))
+        session_participants = [s['participant_id'] for s in sessions]
+        self.assertEqual(session_participants, ['O'])
+        self.assertNotIn('D1', session_participants)
+        self.assertNotIn('D2', session_participants)
 
     def test_session_rotation_bearer_returns_credential_in_json(self):
         boot = self.client.post('/api/meals/m1/bootstrap', body={
@@ -456,6 +457,102 @@ class TransportTests(unittest.TestCase):
         self.assertIn('credential', rotate_res['json'])
         self.assertEqual(rotate_res['json']['participant_id'], 'D')
         self.assertNotEqual(rotate_res['json']['credential'], diner_cred)
+
+    def test_static_index_html_serving(self):
+        res = self.client.get('/')
+        self.assertEqual(res['status'], 200)
+        self.assertEqual(res['headers']['Content-Type'], 'text/html; charset=utf-8')
+        self.assertEqual(res['headers']['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(res['headers']['Referrer-Policy'], 'no-referrer')
+        self.assertEqual(res['headers']['Cache-Control'], 'no-store, no-cache, must-revalidate')
+        self.assertIn("default-src 'self'", res['headers']['Content-Security-Policy'])
+        self.assertIn(b'<!DOCTYPE html>', res['body'])
+        self.assertIn(b'SettleTable', res['body'])
+
+    def test_static_invite_shell_serving(self):
+        # 43-character invitation token path serves HTML shell for client-side routing
+        dummy_token = 'A' * 43
+        res = self.client.get(f'/invite/{dummy_token}')
+        self.assertEqual(res['status'], 200)
+        self.assertEqual(res['headers']['Content-Type'], 'text/html; charset=utf-8')
+        self.assertEqual(res['headers']['Cache-Control'], 'no-store, no-cache, must-revalidate')
+        self.assertIn(b'<!DOCTYPE html>', res['body'])
+
+        # Invalid token format returns 404
+        bad_res = self.client.get('/invite/short_token')
+        self.assertEqual(bad_res['status'], 404)
+
+    def test_static_asset_serving_and_mimes(self):
+        # style.css
+        res_css = self.client.get('/static/style.css')
+        self.assertEqual(res_css['status'], 200)
+        self.assertEqual(res_css['headers']['Content-Type'], 'text/css; charset=utf-8')
+        self.assertEqual(res_css['headers']['X-Content-Type-Options'], 'nosniff')
+        self.assertIn(b':root', res_css['body'])
+
+        # app.js
+        res_js = self.client.get('/static/app.js')
+        self.assertEqual(res_js['status'], 200)
+        self.assertEqual(res_js['headers']['Content-Type'], 'application/javascript; charset=utf-8')
+        self.assertEqual(res_js['headers']['X-Content-Type-Options'], 'nosniff')
+        self.assertIn(b'SettleTable', res_js['body'])
+
+        # favicon.svg & /favicon.ico
+        res_fav = self.client.get('/static/favicon.svg')
+        self.assertEqual(res_fav['status'], 200)
+        self.assertEqual(res_fav['headers']['Content-Type'], 'image/svg+xml')
+        self.assertIn(b'<svg', res_fav['body'])
+
+        res_ico = self.client.get('/favicon.ico')
+        self.assertEqual(res_ico['status'], 200)
+        self.assertEqual(res_ico['headers']['Content-Type'], 'image/svg+xml')
+
+    def test_static_path_traversal_and_unknown_file_rejected(self):
+        # Unknown file in static allowlist returns 404
+        res_unknown = self.client.get('/static/unknown.txt')
+        self.assertEqual(res_unknown['status'], 404)
+        self.assertEqual(res_unknown['json']['error'], 'not_found')
+
+        # Path traversal attempts fail regex matching and return 404
+        res_trav1 = self.client.get('/static/../transport.py')
+        self.assertEqual(res_trav1['status'], 404)
+
+        res_trav2 = self.client.get('/static/%2e%2e%2ftransport.py')
+        self.assertEqual(res_trav2['status'], 404)
+
+    def test_snapshot_returns_authenticated_participant_context(self):
+        boot = self.client.post('/api/meals/m1/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Organizer', 'organizer': True},
+                {'id': 'D', 'name': 'Diner', 'organizer': False},
+            ]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # Organizer snapshot
+        snap_org = self.client.get('/api/meals/m1/snapshot',
+                                   headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(snap_org['status'], 200)
+        self.assertTrue(snap_org['json']['ok'])
+        self.assertEqual(snap_org['json']['current_participant_id'], 'O')
+        self.assertTrue(snap_org['json']['is_organizer'])
+
+        # Invite and redeem for Diner
+        inv = self.client.post('/api/meals/m1/invitations', body={'participant_id': 'D'},
+                               headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        token = inv['json']['token']
+        redeem = self.client.post(f'/api/meals/m1/invitations/{token}/redeem', body={})
+        cookie_header = redeem['headers']['Set-Cookie']
+        cookie_val = http.cookies.SimpleCookie(cookie_header)['settletable_session'].value
+
+        # Diner snapshot via cookie
+        snap_diner = self.client.get('/api/meals/m1/snapshot',
+                                     headers={'HTTP_COOKIE': f'settletable_session={cookie_val}'})
+        self.assertEqual(snap_diner['status'], 200)
+        self.assertTrue(snap_diner['json']['ok'])
+        self.assertEqual(snap_diner['json']['current_participant_id'], 'D')
+        self.assertFalse(snap_diner['json']['is_organizer'])
+
 
 
 if __name__ == '__main__':
