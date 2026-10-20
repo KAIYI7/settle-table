@@ -503,13 +503,21 @@ function renderOrganizerSection(snap) {
 
   let totalsHtml = '';
   if (items.length > 0 && receipt?.subtotal_sen !== null && receipt?.subtotal_sen !== undefined) {
+    let adjRows = (receipt?.adjustments || []).map(a => `
+      <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 2px;">
+        <span>${escapeHtml(a.label || a.kind)}</span>
+        <span>${formatSen(a.amount_sen)}</span>
+      </div>
+    `).join('');
+
     totalsHtml = `
       <div style="border-top: 1px solid var(--border-subtle); padding-top: 10px; margin-top: 10px;">
         <div style="display: flex; justify-content: space-between; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 4px;">
           <span>Items Subtotal</span>
           <span>${formatSen(receipt.subtotal_sen)}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.05rem;">
+        ${adjRows}
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.05rem; margin-top: 4px;">
           <span>Receipt Total</span>
           <span style="color: #a7f3d0;">${formatSen(receipt.total_sen)}</span>
         </div>
@@ -527,6 +535,22 @@ function renderOrganizerSection(snap) {
       <div style="margin-bottom: 16px;">
         ${itemsRowsHtml || '<p style="color: var(--text-muted); font-size: 0.9rem;">No items added yet.</p>'}
         ${totalsHtml}
+      </div>
+
+      <!-- Local OCR Receipt Scanner -->
+      <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">LOCAL RECEIPT OCR SCANNER</span>
+          <span style="font-size: 0.75rem; color: #a7f3d0; font-weight: 600;">Self-Hosted / Local</span>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">
+          Upload a receipt photo (JPEG/PNG/WebP) to automatically extract items, taxes, and service charges. Requires physical verification before sealing.
+        </p>
+        <input type="file" id="ocr-file-input" accept="image/jpeg,image/png,image/webp" style="display: none;">
+        <button type="button" id="ocr-upload-btn" class="btn btn-secondary btn-sm btn-block">📷 Scan Receipt Image</button>
+        <div id="ocr-spinner" style="display: none; text-align: center; margin-top: 8px; font-size: 0.85rem; color: var(--accent-indigo);">
+          Analyzing receipt locally on device...
+        </div>
       </div>
 
       <!-- Add Item Form -->
@@ -806,6 +830,79 @@ function bindEvents(snap) {
         handleApiError(err);
       } finally {
         state.mutationActive = false;
+      }
+    });
+  }
+
+  // 1b. OCR Receipt Scanner Upload
+  const ocrBtn = document.getElementById('ocr-upload-btn');
+  const ocrInput = document.getElementById('ocr-file-input');
+  const ocrSpinner = document.getElementById('ocr-spinner');
+  if (ocrBtn && ocrInput) {
+    ocrBtn.addEventListener('click', () => ocrInput.click());
+    ocrInput.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (ocrSpinner) ocrSpinner.style.display = 'block';
+      ocrBtn.disabled = true;
+
+      try {
+        const res = await fetch(`/api/meals/${state.mealId}/ocr/extract`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type || 'image/jpeg',
+            'X-SettleTable-Action': '1',
+          },
+          body: file,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw { status: res.status, code: data.error, message: data.error };
+        }
+
+        const candidate = data.candidate;
+        if (!candidate.items || candidate.items.length === 0) {
+          showAlert('No receipt items recognized from photo. Please enter items manually.', 'error');
+          return;
+        }
+
+        // Apply extracted candidate items to draft receipt
+        state.mutationActive = true;
+        await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
+          kind: 'ReplaceReceipt',
+          command_id: `ocr-rcpt-${Date.now()}`,
+          expected_revision: snap.revision,
+          expected_financial_revision: snap.financial_revision,
+          receipt: {
+            items: candidate.items,
+            subtotal_sen: candidate.subtotal_sen,
+            total_sen: candidate.total_sen,
+            adjustments: candidate.adjustments || [],
+            included_tax_sen: candidate.included_tax_sen || 0,
+          }
+        });
+        state.mutationActive = false;
+        await fetchSnapshot(true);
+
+        if (candidate.route === 'manual_correction' || (candidate.issues && candidate.issues.length > 0)) {
+          showAlert(`Extracted ${candidate.items.length} items (${formatSen(candidate.total_sen)}). Please verify items and adjustments.`, 'conflict');
+        } else {
+          showAlert(`Extracted ${candidate.items.length} items from receipt (${formatSen(candidate.total_sen)}) ✓`, 'success');
+        }
+      } catch (err) {
+        state.mutationActive = false;
+        if (err.status === 503 || err.code === 'ocr_unavailable') {
+          showAlert('Local OCR engine unavailable. Please enter items manually.', 'error');
+        } else if (err.status === 413 || err.code === 'payload_too_large') {
+          showAlert('Receipt image exceeds 5MB limit. Please upload a smaller photo.', 'error');
+        } else {
+          handleApiError(err);
+        }
+      } finally {
+        if (ocrSpinner) ocrSpinner.style.display = 'none';
+        ocrBtn.disabled = false;
+        ocrInput.value = '';
       }
     });
   }
