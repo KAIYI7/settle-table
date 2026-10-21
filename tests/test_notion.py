@@ -24,8 +24,10 @@ from settletable.notion import (
     NotionNotFoundError,
     NotionRateLimitError,
     NotionValidationError,
+    count_notion_blocks,
     export_finalized_meal,
     format_compact_meal_blocks,
+    format_full_meal_blocks,
     format_meal_properties,
     format_sen,
     sanitize_notion_error_message,
@@ -102,6 +104,74 @@ class TestNotionModelsAndFormatting(unittest.TestCase):
 
         # 1 callout + 2 headings + 2 tables + (1 header + 6 diners) + (1 header + 10 items) + 1 divider + 1 audit <= 40 blocks
         self.assertLessEqual(total_block_count, 40)
+        self.assertEqual(total_block_count, count_notion_blocks(blocks))
+
+    def test_large_meal_compact_blocks_bounded_to_40(self):
+        """Verify that a very large meal (25 diners, 60 items) is strictly bounded to <= 40 blocks."""
+        participants = [
+            {"id": f"P{i}", "name": f"Diner {i}", "is_organizer": (i == 1)}
+            for i in range(1, 26)
+        ]
+        items = [
+            {"id": f"it_{i}", "label": f"Food Item {i}", "quantity": 1, "line_sen": 500}
+            for i in range(1, 61)
+        ]
+        snapshot = {
+            "finalized": True,
+            "revision": 10,
+            "receipt": {
+                "merchant": "Banquet Palace",
+                "subtotal_sen": 30000,
+                "total_sen": 31800,
+                "items": items,
+                "adjustments": [],
+            },
+            "calculation": {
+                "consumption": {
+                    f"P{i}": {"base_sen": 1200, "adjustments_sen": 72, "total_sen": 1272}
+                    for i in range(1, 26)
+                }
+            },
+            "participants": participants,
+            "claims": {},
+        }
+        blocks = format_compact_meal_blocks("meal-big", snapshot)
+        total = count_notion_blocks(blocks)
+        self.assertLessEqual(total, 40)
+
+    def test_full_meal_blocks_unconstrained(self):
+        """Verify that format_full_meal_blocks lists all participants and items without rollup."""
+        participants = [
+            {"id": f"P{i}", "name": f"Diner {i}", "is_organizer": (i == 1)}
+            for i in range(1, 6)
+        ]
+        items = [
+            {"id": f"it_{i}", "label": f"Food Item {i}", "quantity": 1, "line_sen": 500}
+            for i in range(1, 16)
+        ]
+        snapshot = {
+            "finalized": True,
+            "revision": 2,
+            "receipt": {
+                "merchant": "Cafe",
+                "subtotal_sen": 7500,
+                "total_sen": 7500,
+                "items": items,
+                "adjustments": [],
+            },
+            "calculation": {
+                "consumption": {
+                    f"P{i}": {"base_sen": 1500, "adjustments_sen": 0, "total_sen": 1500}
+                    for i in range(1, 6)
+                }
+            },
+            "participants": participants,
+            "claims": {},
+        }
+        blocks = format_full_meal_blocks("meal-full", snapshot)
+        total = count_notion_blocks(blocks)
+        # 9 fixed + 5 participants + 15 items = 29 blocks
+        self.assertEqual(total, 9 + 5 + 15)
 
 
 class TestMockNotionClient(unittest.TestCase):
@@ -147,6 +217,40 @@ class TestMockNotionClient(unittest.TestCase):
         }
         with self.assertRaises(NotionValidationError):
             self.client.create_page("secret_test", parent, props, children=[bad_table])
+
+    def test_reconciliation_detects_existing_page_and_avoids_duplicate(self):
+        """Pre-creation reconciliation checks parent children and prevents duplicate pages on lost response retry."""
+        parent_uuid = "11111111-2222-3333-4444-555555555555"
+        config = NotionExportConfig(
+            token="secret_test_12345678901234567890",
+            parent_id=parent_uuid,
+            parent_type="page_id",
+            mode="compact",
+        )
+        snapshot = {
+            "finalized": True,
+            "revision": 3,
+            "receipt": {"merchant": "Cafe Reconcile", "total_sen": 2500, "items": []},
+            "calculation": {"consumption": {"P1": 2500}},
+            "participants": [{"id": "P1", "name": "Alice"}],
+            "claims": {},
+        }
+        # First export creates page in Notion
+        res1 = export_finalized_meal(self.client, "meal-recon", snapshot, config)
+        self.assertTrue(res1.ok)
+        self.assertEqual(res1.status, "completed")
+        self.assertEqual(len(self.client.pages), 1)
+        created_id = res1.page_id
+
+        # Second export simulates retry after lost response
+        # It must detect the child page with identical title under parent_id,
+        # adopt the existing page_id, and NOT call create_page again!
+        res2 = export_finalized_meal(self.client, "meal-recon", snapshot, config)
+        self.assertTrue(res2.ok)
+        self.assertEqual(res2.status, "already_exported")
+        self.assertEqual(res2.page_id, created_id)
+        # Total pages in client remains 1, exactly 0 duplicate pages
+        self.assertEqual(len(self.client.pages), 1)
 
 
 class TestNotionTransportIntegration(unittest.TestCase):
@@ -232,9 +336,12 @@ class TestNotionTransportIntegration(unittest.TestCase):
 
     def _call(self, method, path, headers=None, body=None):
         headers = headers or {}
+        path_info = path.split("?")[0]
+        qs = path.split("?")[1] if "?" in path else ""
         env = {
             "REQUEST_METHOD": method,
-            "PATH_INFO": path,
+            "PATH_INFO": path_info,
+            "QUERY_STRING": qs,
             "SERVER_NAME": "localhost",
             "SERVER_PORT": "8000",
             "HTTP_HOST": "localhost:8000",
@@ -324,8 +431,8 @@ class TestNotionTransportIntegration(unittest.TestCase):
             "parent_id": "11111111-2222-3333-4444-555555555555",
             "token": "secret_12345678901234567890",
         }
-        # First export
-        code, _, res_body = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+        # First export via synchronous query parameter
+        code, _, res_body = self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", headers, body)
         self.assertEqual(code, 200)
         data = json.loads(res_body.decode("utf-8"))
         self.assertTrue(data["ok"])
@@ -335,7 +442,7 @@ class TestNotionTransportIntegration(unittest.TestCase):
         self.assertIn("notion.so", exp["page_url"])
 
         # Second export on the same finalized revision returns already_exported
-        code2, _, res_body2 = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+        code2, _, res_body2 = self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", headers, body)
         self.assertEqual(code2, 200)
         data2 = json.loads(res_body2.decode("utf-8"))
         self.assertTrue(data2["ok"])
@@ -343,6 +450,38 @@ class TestNotionTransportIntegration(unittest.TestCase):
         self.assertEqual(data2["export"]["page_id"], exp["page_id"])
         # Exactly 1 page was created in the mock client
         self.assertEqual(len(self.mock_client.pages), 1)
+
+    def test_async_export_and_status_polling(self):
+        """Default export executes asynchronously (202 Accepted) and status is pollable via GET."""
+        headers = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        body = {
+            "parent_id": "11111111-2222-3333-4444-555555555555",
+            "token": "secret_12345678901234567890",
+        }
+        # Initial POST returns 202 Accepted with status in_progress
+        code, _, res_body = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+        self.assertEqual(code, 202)
+        data = json.loads(res_body.decode("utf-8"))
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["export"]["status"], "in_progress")
+
+        # Poll GET /api/meals/meal-notion-test/export/notion until completed
+        import time
+        completed_rec = None
+        for _ in range(20):
+            time.sleep(0.05)
+            get_code, _, get_body = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers)
+            self.assertEqual(get_code, 200)
+            get_data = json.loads(get_body.decode("utf-8"))
+            if get_data.get("export", {}).get("status") == "completed":
+                completed_rec = get_data["export"]
+                break
+        self.assertIsNotNone(completed_rec, "Background export failed to complete within timeout")
+        self.assertTrue(completed_rec["page_id"])
+        self.assertIn("notion.so", completed_rec["page_url"])
 
     def test_unfinalized_meal_export_conflict_409(self):
         """Exporting an unfinalized meal returns 409 meal_not_finalized."""
@@ -384,7 +523,7 @@ class TestNotionTransportIntegration(unittest.TestCase):
 
         socket.socket.connect = guarded_connect
         try:
-            code, _, res_body = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+            code, _, res_body = self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", headers, body)
             self.assertEqual(code, 200)
         finally:
             socket.socket.connect = orig_connect

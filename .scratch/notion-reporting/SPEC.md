@@ -8,16 +8,18 @@ Notion serves as a downstream, read-only report and receipt archive layer. Live 
 ### Architectural Tenets
 1. **Downstream & Completely Decoupled**: Live dining sessions operate 100% offline or air-gapped without Notion. Finalization succeeds regardless of whether Notion is configured, reachable, or experiencing outages.
 2. **One-Way Canonical Projection**: SettleTable's SQLite authority and `settletable.calculation` engine are the sole source of truth. External edits in Notion can never alter balances, claims, or financial liabilities. No authoritative calculations or formulas are delegated to Notion.
-3. **Block-Quota Efficiency (Compact Default)**: In Notion's block tree, every `table_row` counts as an individual block. Multi-member Free workspaces have a strict 1,000 lifetime block limit. In **Compact Mode**, an export generates $\le 40$ blocks per meal (1 callout + 2 headings + 2 tables + rows + divider + audit paragraph), yielding a $>70\%$ block savings over relational multi-page database designs (which require 60–100 page blocks per meal).
-4. **Secret & Credential Hygiene**: Notion API tokens (`secret_...` or `ntn_...`) are strictly protected:
+3. **Block-Quota Efficiency (Enforced Compact Default)**: In Notion's block tree, every `table_row` counts as an individual block. Multi-member Free workspaces have a strict 1,000 lifetime block limit. In **Compact Mode**, an export is mathematically bounded to $\le 40$ blocks per meal for any meal size via intelligent participant and item rollup rows, shielding Free workspaces from exhaustion. For unconstrained exports listing every single item regardless of block count, `mode='full'` is available.
+4. **Asynchronous Execution & Worker Starvation Defense**: To prevent single-threaded or thread-constrained WSGI worker starvation for concurrent live diners during Notion API latency or 429 backoff sleeps, `POST /api/meals/{meal_id}/export/notion` executes in a background thread and returns HTTP 202 Accepted immediately. Status is pollable via `GET /api/meals/{meal_id}/export/notion`. Synchronous execution remains available via `?sync=1` for testing and deterministic scripts.
+5. **At-Least-Once Delivery & Pre-Creation Title Reconciliation**: SettleTable provides at-least-once delivery with pre-flight reconciliation; it does not claim exactly-once delivery across non-transactional REST APIs. When exporting under a page parent, the exporter inspects parent children via `query_block_children(parent_id)` prior to creation. If a page with the deterministic title `🍽️ SettleTable: {merchant} ({meal_id})` already exists, it adopts the existing `page_id` and avoids creating duplicate pages on lost responses or network retries.
+6. **Secret & Credential Hygiene**: Notion API tokens (`secret_...` or `ntn_...`) are strictly protected:
    - Never logged to stdout, stderr, or debug logs (enforced via expanded regex redaction in `settletable.transport.redact_log_string`).
    - Never persisted to SQLite database disk.
    - Never exposed to non-organizer diners or returned in client API responses.
    - In HTTP error messages and exceptions, `Authorization: Bearer [REDACTED]` is enforced.
-5. **Deterministic Portability (Zero Paid Services / Zero External Sockets in CI)**:
+7. **Deterministic Portability (Zero Paid Services / Zero External Sockets in CI)**:
    - Pure Python standard library implementation (`urllib.request`) — zero external SDK dependencies.
    - In-memory `MockNotionClient` enforces exact Notion REST API structural constraints and allows 100% of the test suite and GitHub Actions CI to pass deterministically in an air-gapped environment without external network calls or paid API subscriptions.
-6. **SQLite-Backed Deduplication & Concurrency State**:
+8. **SQLite-Backed Deduplication & Concurrency State**:
    - Because Notion's REST API does not provide native idempotency keys on `POST /v1/pages`, deduplication and double-click prevention are enforced locally in SQLite via an atomic `notion_exports` state machine (`in_progress` -> `completed`).
 
 ---
