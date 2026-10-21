@@ -8,7 +8,7 @@ import sqlite3
 import time
 
 from settletable.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
-                               ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize, ReceiptAdjustment,
+                               ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize, ReceiptAdjustment,
                                RevokeSession, RevokeMembership)
 
 
@@ -303,6 +303,76 @@ class AuthorityTests(unittest.TestCase):
         self.authority.close()
         self.authority = Authority(self.path, clock=lambda: 1000)
         self.assertEqual(self.authority.snapshot(credentials['A'], 'meal').revision, 0)
+
+    def test_organizer_assign_participant_quantity_collaborative_and_managed(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('burger', 'Burger', 2, 2000), ReceiptItem('drink', 'Tea', 1, 500)), 2500, 2500)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        # Collaborative: Diner B claims their own portion using SetOwnQuantity
+        res_b = self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('b-claim', 'burger', 1, 1, 1))
+        self.assertEqual(res_b.changed_claims[0].participant_id, 'B')
+        self.assertIsNone(res_b.changed_claims[0].assigned_by)
+
+        # Organizer A assists and assigns the 2nd burger portion to B using AssignParticipantQuantity
+        # Revision for burger is now 2
+        res_a_b = self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('a-assign-b', 'B', 'burger', 2, 2, 1))
+        self.assertEqual(res_a_b.changed_claims[0].participant_id, 'B')
+        self.assertEqual(res_a_b.changed_claims[0].assigned_by, 'A')
+        self.assertEqual(res_a_b.changed_claims[0].quantity, 2)
+
+        # Organizer A assigns drink to A (self-assignment via AssignParticipantQuantity)
+        res_a_self = self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('a-assign-self', 'A', 'drink', 1, 1, 1))
+        self.assertEqual(res_a_self.changed_claims[0].participant_id, 'A')
+        self.assertEqual(res_a_self.changed_claims[0].assigned_by, 'A')
+
+        # Snapshot audit: verify claims distinguish diner-entered claims from organizer-entered assignments
+        snap = self.authority.snapshot(credentials['A'], 'meal')
+        claim_burger = next(c for c in snap.claims if c.item_id == 'burger')
+        self.assertEqual(claim_burger.assigned_by, 'A')
+        self.assertEqual(claim_burger.participant_id, 'B')
+
+        # Entire receipt allocated: issues empty, finalize succeeds and computes authoritative breakdown
+        self.assertEqual(snap.issues, ())
+        digest = snap.receipt_digest
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('rev', 4, 1, digest))
+        fin = self.authority.apply(credentials['A'], 'meal', Finalize('fin', 5, 1))
+        self.assertTrue(fin.calculation is not None)
+        consumption = {p.participant_id: p.sen for p in fin.calculation.consumption}
+        self.assertEqual(consumption, {'A': 500, 'B': 2000})
+
+    def test_organizer_assign_security_and_capacity_constraints(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 2, 1000),), 1000, 1000)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        # Diner B is forbidden from calling AssignParticipantQuantity
+        with self.assertRaises(AuthorityError) as forbidden:
+            self.authority.apply(credentials['B'], 'meal', AssignParticipantQuantity('hacker', 'A', 'dish', 1, 1, 1))
+        self.assertEqual(forbidden.exception.code, 'forbidden')
+
+        # Target non-existent participant is rejected
+        with self.assertRaises(AuthorityError) as invalid_part:
+            self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('bad-target', 'nonexistent', 'dish', 1, 1, 1))
+        self.assertEqual(invalid_part.exception.code, 'forbidden')
+
+        # Capacity overflow is rejected
+        with self.assertRaises(AuthorityError) as over_cap:
+            self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('too-much', 'B', 'dish', 3, 1, 1))
+        self.assertEqual(over_cap.exception.code, 'quantity_capacity')
+
+        # Stale item revision is rejected
+        with self.assertRaises(AuthorityError) as stale_rev:
+            self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('stale', 'B', 'dish', 1, 99, 1))
+        self.assertEqual(stale_rev.exception.code, 'item_revision_conflict')
+
+        # Assign then remove (quantity=None)
+        self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('assign-1', 'B', 'dish', 1, 1, 1))
+        snap = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(len(snap.claims), 1)
+        self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('remove-1', 'B', 'dish', None, 2, 1))
+        snap2 = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(len(snap2.claims), 0)
 
 
 if __name__ == '__main__':

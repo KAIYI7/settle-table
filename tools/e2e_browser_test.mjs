@@ -550,7 +550,31 @@ async function main() {
     await pageA.waitFor("document.body.innerText.includes('Stale Claim Conflict')");
     console.log('   ✓ Stale claim cleanly rejected with 409 Conflict & amber banner displayed');
 
-    // Alice claims remaining portions: 1 Burger Set and 2 Iced Tea
+    // Test Organizer Allocation: Alice selects Bob in Allocation Target Selector and assists Bob with 1 Iced Tea
+    console.log('   Testing organizer-assisted allocation (Alice assigns portion to Bob)...');
+    await pageA.evaluate(`(() => {
+      const select = document.getElementById('allocation-target-select');
+      select.value = 'D1';
+      select.dispatchEvent(new Event('change'));
+    })()`);
+    await pageA.waitFor("document.body.innerText.includes('Portion for Bob:')");
+    // Alice assigns 1 Iced Tea to Bob via AssignParticipantQuantity
+    await pageA.evaluate(`(() => {
+      const incBtn = document.querySelector('.claim-inc-btn[data-id="item-2"]');
+      incBtn.click();
+    })()`);
+    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === 'item-2' && c.assigned_by === 'O')");
+    console.log('   ✓ Organizer Alice allocated 1 Iced Tea to Bob (assigned_by: O verified in snapshot)');
+
+    // Alice switches allocation target back to herself (Alice)
+    await pageA.evaluate(`(() => {
+      const select = document.getElementById('allocation-target-select');
+      select.value = 'O';
+      select.dispatchEvent(new Event('change'));
+    })()`);
+    await pageA.waitFor("document.body.innerText.includes('Portion for Alice:')");
+
+    // Alice claims remaining portions: 1 Burger Set and 1 Iced Tea
     await pageA.evaluate(`
       const btnBurger = document.querySelector('.claim-inc-btn[data-id="item-1"]');
       btnBurger.click();
@@ -558,11 +582,11 @@ async function main() {
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-1')");
 
     await pageA.evaluate(`
-      const btnAllTea = document.querySelector('.claim-all-btn[data-id="item-2"]');
-      btnAllTea.click();
+      const btnTea = document.querySelector('.claim-inc-btn[data-id="item-2"]');
+      btnTea.click();
     `);
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-2')");
-    console.log('   ✓ All items fully claimed');
+    console.log('   ✓ All items fully allocated across Alice and Bob');
 
     // 9. Finalization & Apportionment Check
     console.log('[8/8] Alice finalizes meal and verifies calculations in both browsers...');
@@ -584,18 +608,17 @@ async function main() {
 
     // Calculation breakdown:
     // Burger Set (RM 24.00) split 1:1 between Alice and Bob = RM 12.00 each
-    // Iced Tea (RM 6.00) 100% to Alice = RM 6.00
-    // Alice total: RM 18.00
-    // Bob total: RM 12.00
+    // Iced Tea (RM 6.00) split 1:1 between Alice and Bob = RM 3.00 each
+    // Alice total: RM 15.00
+    // Bob total: RM 15.00
     // Grand Total: RM 30.00
     for (const text of [textAliceFinal, textBobFinal]) {
-      if (!text.includes('RM 18.00')) throw new Error(`Missing Alice RM 18.00 total in DOM`);
-      if (!text.includes('RM 12.00')) throw new Error(`Missing Bob RM 12.00 total in DOM`);
+      if (!text.includes('RM 15.00')) throw new Error(`Missing RM 15.00 total in DOM: ${text.slice(0, 500)}`);
       if (!text.includes('RM 30.00')) throw new Error(`Missing Grand Total RM 30.00 in DOM`);
     }
     console.log('   ✓ Both browsers display exact authoritative breakdown:');
-    console.log('     - Alice (Organizer): RM 18.00');
-    console.log('     - Bob (Diner):       RM 12.00');
+    console.log('     - Alice (Organizer): RM 15.00');
+    console.log('     - Bob (Diner):       RM 15.00');
     console.log('     - Grand Total:       RM 30.00');
 
     // 10. Test Page Reload Persistence in both browsers
@@ -608,7 +631,7 @@ async function main() {
 
     const reloadedAlice = await pageA.evaluate("document.body.innerText");
     const reloadedBob = await pageB.evaluate("document.body.innerText");
-    if (!reloadedAlice.includes('RM 18.00') || !reloadedBob.includes('RM 12.00')) {
+    if (!reloadedAlice.includes('RM 15.00') || !reloadedBob.includes('RM 15.00')) {
       throw new Error('State was not preserved after reload!');
     }
     console.log('   ✓ State and amounts preserved after reload in both isolated sessions');
@@ -649,8 +672,80 @@ async function main() {
     console.log(`   ✓ Notion export succeeded with generated URL: ${notionUrl}`);
     console.log('   ✓ Diner context verified free of export controls');
 
+    // [10/10] Testing Organizer-Managed Allocation without Diner Sessions
+    console.log('[10/10] Testing Organizer-Managed Allocation without diner sessions...');
+    await pageA.navigate(`${serverOrigin}/#/`);
+    await pageA.waitFor("document.getElementById('create-meal-form') !== null");
+    await pageA.evaluate(`
+      document.getElementById('create-meal-id').value = 'managed-e2e';
+      document.getElementById('create-org-name').value = 'Alice';
+      document.getElementById('create-diners').value = 'Carol, Dan';
+      document.getElementById('create-meal-form').requestSubmit();
+    `);
+    await pageA.waitFor("window.location.hash.includes('#/meal/managed-e2e') && document.body.innerText.includes('👑 Organizer')");
+
+    // Alice adds receipt item
+    await pageA.evaluate(`
+      document.getElementById('new-item-label').value = 'Satay Platter';
+      document.getElementById('new-item-qty').value = '2';
+      document.getElementById('new-item-price').value = '20.00';
+      document.getElementById('add-item-form').requestSubmit();
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Satay Platter')");
+
+    // Alice assigns 1 Satay to Carol (who has never logged in)
+    await pageA.evaluate(`(() => {
+      const select = document.getElementById('allocation-target-select');
+      select.value = 'D1';
+      select.dispatchEvent(new Event('change'));
+    })()`);
+    await pageA.waitFor("document.body.innerText.includes('Portion for Carol:')");
+    await pageA.evaluate(`document.querySelector('.claim-inc-btn[data-id="item-1"]').click()`);
+    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === 'item-1')");
+
+    // Alice assigns 1 Satay to Dan (who has never logged in)
+    await pageA.evaluate(`(() => {
+      const select = document.getElementById('allocation-target-select');
+      select.value = 'D2';
+      select.dispatchEvent(new Event('change'));
+    })()`);
+    await pageA.waitFor("document.body.innerText.includes('Portion for Dan:')");
+    await pageA.evaluate(`document.querySelector('.claim-inc-btn[data-id="item-1"]').click()`);
+    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D2' && c.item_id === 'item-1')");
+    await pageA.waitFor("document.body.innerText.includes('✓ Fully Allocated')");
+    console.log('   ✓ Alice allocated entire receipt to Carol and Dan without diner sessions');
+
+    // Review & Finalize
+    await pageA.evaluate(`
+      const check = document.getElementById('review-confirm-check');
+      check.checked = true;
+      check.dispatchEvent(new Event('change'));
+      document.getElementById('review-submit-btn').click();
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Review Verified ✓')");
+
+    await pageA.evaluate(`
+      window.confirm = () => true;
+      document.getElementById('finalize-btn').click();
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Final Apportionment Summary')");
+
+    // Verify calculation totals for Carol and Dan
+    const managedFinalText = await pageA.evaluate("document.body.innerText");
+    if (!managedFinalText.includes('RM 10.00')) throw new Error('Missing Carol/Dan RM 10.00 amount');
+    if (!managedFinalText.includes('RM 20.00')) throw new Error('Missing Grand Total RM 20.00 amount');
+    console.log('   ✓ Organizer-managed calculation verified: Carol RM 10.00, Dan RM 10.00, Total RM 20.00');
+
+    // Export to Notion
+    await pageA.evaluate(`
+      document.getElementById('notion-parent-id').value = '3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d';
+      document.getElementById('notion-export-btn').click();
+    `);
+    await pageA.waitFor("document.getElementById('notion-page-link') !== null");
+    console.log('   ✓ Organizer-managed Notion report exported successfully');
+
     console.log('\n===========================================================');
-    console.log(' ALL 9 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
+    console.log(' ALL 10 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
     console.log('===========================================================');
   } finally {
     if (orgChrome) {

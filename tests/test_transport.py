@@ -632,6 +632,70 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(snap_diner['json']['current_participant_id'], 'D')
         self.assertFalse(snap_diner['json']['is_organizer'])
 
+    def test_assign_participant_quantity_endpoint(self):
+        boot = self.client.post('/api/meals/m1/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Organizer', 'organizer': True},
+                {'id': 'D', 'name': 'Diner', 'organizer': False},
+            ]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # Organizer sets receipt
+        rcpt_cmd = {
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-rcpt',
+            'expected_revision': 0,
+            'expected_financial_revision': 0,
+            'receipt': {
+                'items': [{'id': 'item-1', 'label': 'Noodles', 'quantity': 2, 'line_sen': 1200}],
+                'subtotal_sen': 1200,
+                'total_sen': 1200,
+            }
+        }
+        self.client.post('/api/meals/m1/apply', body=rcpt_cmd,
+                         headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+
+        # Diner obtains session via invite
+        inv = self.client.post('/api/meals/m1/invitations', body={'participant_id': 'D'},
+                               headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        token = inv['json']['token']
+        redeem = self.client.post(f'/api/meals/m1/invitations/{token}/redeem', body={})
+        diner_cookie = http.cookies.SimpleCookie(redeem['headers']['Set-Cookie'])['settletable_session'].value
+
+        # 1. Diner attempting AssignParticipantQuantity is rejected with 403
+        bad_assign = self.client.post('/api/meals/m1/apply', body={
+            'kind': 'AssignParticipantQuantity',
+            'command_id': 'cmd-bad',
+            'participant_id': 'O',
+            'item_id': 'item-1',
+            'quantity': 1,
+            'expected_item_revision': 1,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_COOKIE': f'settletable_session={diner_cookie}'})
+        self.assertEqual(bad_assign['status'], 403)
+
+        # 2. Organizer assigns quantity 1 to Diner D
+        assign_d = self.client.post('/api/meals/m1/apply', body={
+            'kind': 'AssignParticipantQuantity',
+            'command_id': 'cmd-assign-d',
+            'participant_id': 'D',
+            'item_id': 'item-1',
+            'quantity': 1,
+            'expected_item_revision': 1,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(assign_d['status'], 200)
+        self.assertEqual(assign_d['json']['changed_claims'][0]['participant_id'], 'D')
+        self.assertEqual(assign_d['json']['changed_claims'][0]['assigned_by'], 'O')
+
+        # 3. Check snapshot reflects auditability
+        snap = self.client.get('/api/meals/m1/snapshot',
+                               headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        claim = snap['json']['claims'][0]
+        self.assertEqual(claim['participant_id'], 'D')
+        self.assertEqual(claim['assigned_by'], 'O')
+
 
 
 if __name__ == '__main__':

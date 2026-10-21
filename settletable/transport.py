@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from settletable.authority import (
     Authority, AuthorityError, Participant,
-    ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize,
+    ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize,
     RevokeInvitation, RevokeSession, RevokeMembership,
     Receipt, ReceiptItem, ReceiptAdjustment,
 )
@@ -885,6 +885,21 @@ class SettleTableApp:
                     qty = Fraction(qty[0], qty[1])
                 return SetOwnQuantity(
                     command_id=cmd_id,
+                    item_id=data.get('item_id'),
+                    quantity=qty,
+                    expected_item_revision=data.get('expected_item_revision'),
+                    expected_financial_revision=data.get('expected_financial_revision'),
+                )
+            elif kind == 'AssignParticipantQuantity':
+                qty = data.get('quantity')
+                if isinstance(qty, list) and len(qty) == 2:
+                    qty = Fraction(qty[0], qty[1])
+                part_id = data.get('participant_id')
+                if not part_id or not isinstance(part_id, str):
+                    raise TransportError('invalid_input', 400)
+                return AssignParticipantQuantity(
+                    command_id=cmd_id,
+                    participant_id=part_id,
                     item_id=data.get('item_id'),
                     quantity=qty,
                     expected_item_revision=data.get('expected_item_revision'),
