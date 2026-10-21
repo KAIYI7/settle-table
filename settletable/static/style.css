@@ -788,6 +788,9 @@ button:active, .btn:active {
     grid-area: price;
     width: 100%;
   }
+  .ocr-cand-item-row td.cell-amount input {
+    max-width: 100%;
+  }
   .ocr-cand-item-row td.cell-unit {
     display: none !important;
   }

@@ -770,17 +770,17 @@ function renderOrganizerSection(snap) {
                   <tr class="ocr-cand-item-row" data-idx="${idx}">
                     <td class="cell-label">
                       <div class="ocr-mobile-only ocr-field-label">Item Name</div>
-                      <input type="text" class="ocr-edit-item-label form-input" data-idx="${idx}" value="${escapeHtml(it.label)}" placeholder="Item name" />
+                      <input type="text" id="ocr-item-label-${idx}" class="ocr-edit-item-label form-input" data-idx="${idx}" value="${escapeHtml(it.label)}" placeholder="Item name" />
                     </td>
 
                     <td class="cell-qty">
                       <div class="ocr-mobile-only ocr-field-label">Qty</div>
-                      <input type="number" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${qtyVal}" />
+                      <input type="number" id="ocr-item-qty-${idx}" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${qtyVal}" />
                     </td>
 
                     <td class="cell-amount">
                       <div class="ocr-mobile-only ocr-field-label">Line Total (RM)</div>
-                      <input type="text" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" />
+                      <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" />
                       <div class="ocr-mobile-only ocr-cand-item-unit-mobile ocr-cand-item-unit" data-idx="${idx}">@ RM ${(unitSen / 100).toFixed(2)} ea</div>
                     </td>
 
@@ -810,22 +810,22 @@ function renderOrganizerSection(snap) {
             <div id="ocr-cand-adjustments-list">
               ${(state.ocrCandidate.adjustments || []).map((adj, idx) => `
                 <div class="ocr-cand-adj-row" data-adj-idx="${idx}">
-                  <input type="text" class="ocr-edit-adj-label form-input" data-adj-idx="${idx}" value="${escapeHtml(adj.label || '')}" placeholder="Label (e.g. Service Charge)" style="flex: 2; min-height: 42px;" />
+                  <input type="text" id="ocr-adj-label-${idx}" class="ocr-edit-adj-label form-input" data-adj-idx="${idx}" value="${escapeHtml(adj.label || '')}" placeholder="Label (e.g. Service Charge)" style="flex: 2; min-height: 44px;" />
                   <div class="ocr-adj-controls-mobile">
-                    <select class="ocr-edit-adj-kind form-input" data-adj-idx="${idx}" style="min-height: 42px;">
+                    <select id="ocr-adj-kind-${idx}" class="ocr-edit-adj-kind form-input" data-adj-idx="${idx}" style="min-height: 44px;">
                       <option value="service" ${adj.kind === 'service' ? 'selected' : ''}>Service Charge</option>
                       <option value="tax" ${adj.kind === 'tax' ? 'selected' : ''}>SST / Tax</option>
                       <option value="discount" ${adj.kind === 'discount' ? 'selected' : ''}>Discount</option>
                       <option value="rounding" ${adj.kind === 'rounding' ? 'selected' : ''}>BNM Rounding</option>
                     </select>
-                    <input type="text" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 100px; text-align: right; font-family: monospace; min-height: 42px;" />
+                    <input type="text" id="ocr-adj-amount-${idx}" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 100px; text-align: right; font-family: monospace; min-height: 44px;" />
                     <button type="button" class="ocr-del-btn ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove charge" aria-label="Remove adjustment">✕</button>
                   </div>
                 </div>
               `).join('')}
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-              <button type="button" id="ocr-add-adj-btn" class="btn btn-secondary btn-sm">+ Add Fee / Tax / Rounding</button>
+              <button type="button" id="ocr-add-adj-btn" class="btn btn-secondary btn-sm" style="min-height: 44px;">+ Add Fee / Tax / Rounding</button>
             </div>
 
             <!-- Tax-inclusive Included SST -->
@@ -833,7 +833,7 @@ function renderOrganizerSection(snap) {
               <span>Included SST (tax-inclusive, informational):</span>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <span>RM</span>
-                <input type="text" id="ocr-edit-included-tax" class="form-input" value="${((state.ocrCandidate.included_tax_sen || 0) / 100).toFixed(2)}" style="width: 80px; text-align: right; min-height: 38px; font-family: monospace;" />
+                <input type="text" id="ocr-edit-included-tax" class="form-input" value="${((state.ocrCandidate.included_tax_sen || 0) / 100).toFixed(2)}" style="width: 80px; text-align: right; min-height: 44px; font-family: monospace;" />
               </div>
             </div>
 
