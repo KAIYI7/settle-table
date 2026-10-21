@@ -502,6 +502,41 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(rotate_res['json']['participant_id'], 'D')
         self.assertNotEqual(rotate_res['json']['credential'], diner_cred)
 
+    def test_session_clear_endpoint_clears_cookie_safely(self):
+        # 1. Bootstrap to get a valid session
+        boot = self.client.post('/api/meals/m-clear/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Org', 'organizer': True}]
+        })
+        self.assertEqual(boot['status'], 201)
+        cookie_header = boot['headers']['Set-Cookie']
+        self.assertIn('settletable_session=', cookie_header)
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # 2. Verify snapshot works with cookie
+        snap = self.client.get('/api/meals/m-clear/snapshot', headers={'HTTP_COOKIE': f'settletable_session={org_cred}'})
+        self.assertEqual(snap['status'], 200)
+        self.assertEqual(snap['json']['current_participant_id'], 'O')
+
+        # 3. Call POST /api/session/clear
+        clear_res = self.client.post('/api/session/clear', body={}, headers={'HTTP_COOKIE': f'settletable_session={org_cred}'})
+        self.assertEqual(clear_res['status'], 200)
+        self.assertEqual(clear_res['json'], {'ok': True, 'cleared': True})
+        set_cookie = clear_res['headers']['Set-Cookie']
+        self.assertIn('settletable_session=', set_cookie)
+        self.assertIn('Max-Age=0', set_cookie)
+        self.assertIn('HttpOnly', set_cookie)
+        self.assertIn('SameSite=Strict', set_cookie)
+
+        # 4. Also test POST /api/meals/{meal_id}/session/exit
+        exit_res = self.client.post('/api/meals/m-clear/session/exit', body={}, headers={'HTTP_COOKIE': f'settletable_session={org_cred}'})
+        self.assertEqual(exit_res['status'], 200)
+        self.assertEqual(exit_res['json'], {'ok': True, 'cleared': True})
+        self.assertIn('Max-Age=0', exit_res['headers']['Set-Cookie'])
+
+        # 5. Snapshot without cookie fails with 401
+        unauth_snap = self.client.get('/api/meals/m-clear/snapshot')
+        self.assertEqual(unauth_snap['status'], 401)
+
     def test_static_index_html_serving(self):
         res = self.client.get('/')
         self.assertEqual(res['status'], 200)

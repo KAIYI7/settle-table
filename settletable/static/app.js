@@ -194,11 +194,39 @@ function pollSnapshot() {
 }
 
 // --- View 1: Welcome Screen ---
+async function handleLeaveRoom() {
+  const mealId = state.mealId || 'the room';
+  try {
+    await apiCall('/api/session/clear', 'POST', {});
+  } catch (err) {
+    console.warn('Session clear error:', err);
+  }
+  stopPolling();
+  state.mealId = null;
+  state.snapshot = null;
+  state.currentUserId = null;
+  state.isOrganizer = false;
+  state.ocrCandidate = null;
+  const headerStatus = document.getElementById('header-user-status');
+  if (headerStatus) headerStatus.innerHTML = '';
+  if (window.location.hash === '#/') {
+    renderWelcome();
+  } else {
+    window.location.hash = '#/';
+  }
+  setTimeout(() => {
+    showAlert(`You have left ${mealId} and exited your session. Session cookie cleared.`, 'info');
+  }, 50);
+}
+
 function renderWelcome() {
   stopPolling();
   state.mealId = null;
   state.snapshot = null;
-  document.getElementById('header-user-status').innerHTML = '';
+  state.currentUserId = null;
+  state.isOrganizer = false;
+  const headerStatus = document.getElementById('header-user-status');
+  if (headerStatus) headerStatus.innerHTML = '';
 
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -236,7 +264,15 @@ function renderWelcome() {
         <button type="submit" class="btn btn-secondary btn-block">Enter Meal Room</button>
       </form>
     </div>
+
+    <div style="text-align: center; margin-top: 16px;">
+      <button id="welcome-clear-session-btn" class="btn btn-secondary btn-sm" style="font-size: 0.85rem; color: var(--text-muted);" title="Clear current session cookie">
+        Exit / Clear Active Session Cookie
+      </button>
+    </div>
   `;
+
+  document.getElementById('welcome-clear-session-btn')?.addEventListener('click', handleLeaveRoom);
 
   document.getElementById('create-meal-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -315,14 +351,27 @@ async function renderInviteLanding(token) {
         <h2 class="card-title">You're Invited to Dine!</h2>
         <p class="card-desc">Join meal <strong>${escapeHtml(inspection.meal_id)}</strong> to view the bill and claim your portion.</p>
         
-        <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 20px;">
+        <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
           <div style="font-size: 0.85rem; color: var(--text-muted);">Joining as:</div>
           <div style="font-size: 1.25rem; font-weight: 700; color: #a7f3d0;">${escapeHtml(inspection.participant_name)}</div>
         </div>
 
-        <button id="redeem-btn" class="btn btn-success btn-block" style="font-size: 1.05rem;">
+        <div class="alert alert-conflict" style="margin-bottom: 20px; font-size: 0.85rem; line-height: 1.45;">
+          <div>
+            <strong>⚠️ Same-Browser Profile Notice:</strong><br>
+            Accepting this invitation will assign this browser window to <strong>${escapeHtml(inspection.participant_name)} (Diner)</strong>.
+            If you are the Organizer testing this meal in the same browser, this will <strong>replace your Organizer session</strong>.
+            <div style="margin-top: 6px; color: #fef08a;">
+              💡 <em>To test diner claiming while keeping your Organizer view open, copy this link and open it in a <strong>Private / Incognito window</strong> or a separate browser profile.</em>
+            </div>
+          </div>
+        </div>
+
+        <button id="redeem-btn" class="btn btn-success btn-block" style="font-size: 1.05rem; margin-bottom: 10px;">
           Accept & Join Meal
         </button>
+
+        <a href="#/" class="btn btn-secondary btn-block">Cancel & Return to Home</a>
       </div>
     `;
 
@@ -384,8 +433,10 @@ async function loadMeal(mealId) {
           <p class="card-desc">You are not authenticated for meal <strong>${escapeHtml(mealId)}</strong>.</p>
           <p class="card-desc">If you are a diner, open the invitation link sent by the organizer.</p>
           <a href="#/" class="btn btn-secondary btn-block">Back to Home</a>
+          <button id="clear-invalid-session-btn" class="btn btn-secondary btn-block" style="margin-top: 10px;">Clear Active Session Cookie</button>
         </div>
       `;
+      document.getElementById('clear-invalid-session-btn')?.addEventListener('click', handleLeaveRoom);
     } else {
       app.innerHTML = `
         <div class="card">
@@ -411,14 +462,32 @@ function updateMealUI() {
     : '<span class="badge badge-diner">🍽️ Diner</span>';
   
   document.getElementById('header-user-status').innerHTML = `
-    ${roleBadge}
-    <span style="font-weight: 600;">${escapeHtml(userName)}</span>
+    <div class="header-participant-info">
+      ${roleBadge}
+      <span class="header-username" title="Participant: ${escapeHtml(userName)}">${escapeHtml(userName)}</span>
+    </div>
     <button id="manual-refresh-btn" class="btn btn-secondary btn-sm" title="Refresh Snapshot">⟳</button>
+    <button id="header-leave-btn" class="btn btn-secondary btn-sm btn-leave" title="Exit room and clear session cookie">Leave Room</button>
   `;
   document.getElementById('manual-refresh-btn')?.addEventListener('click', () => fetchSnapshot(true));
+  document.getElementById('header-leave-btn')?.addEventListener('click', handleLeaveRoom);
 
   const app = document.getElementById('app');
   let html = '';
+
+  // Room Navigation Bar
+  html += `
+    <div class="room-nav-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.85rem;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <a href="#/" class="btn btn-secondary btn-sm" style="min-height: 36px; padding: 4px 10px; font-size: 0.85rem;" title="Return to Home screen">← Home</a>
+        <span style="color: var(--text-dim);">Room:</span>
+        <strong style="color: var(--text-main); font-size: 0.95rem;">${escapeHtml(snap.meal_id)}</strong>
+      </div>
+      <button id="room-leave-btn" class="btn btn-secondary btn-sm btn-leave" style="min-height: 36px; padding: 4px 10px; font-size: 0.85rem;" title="Exit room and clear session cookie">
+        Leave Room
+      </button>
+    </div>
+  `;
 
   // 1. Status Bar Card
   const finalized = snap.finalized;
@@ -921,6 +990,12 @@ function renderFinalizedCalculation(snap) {
 
 // --- Event Binding ---
 function bindEvents(snap) {
+  // Navigation: Leave Room button
+  const roomLeaveBtn = document.getElementById('room-leave-btn');
+  if (roomLeaveBtn) {
+    roomLeaveBtn.addEventListener('click', handleLeaveRoom);
+  }
+
   // 1. Add Item Form
   const addItemForm = document.getElementById('add-item-form');
   if (addItemForm) {

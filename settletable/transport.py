@@ -475,6 +475,12 @@ class SettleTableApp:
             }
             return 200, self._default_headers(), serialize_json(out)
 
+        # Clear / Exit Session POST /api/session/clear or POST /api/meals/{meal_id}/session/exit
+        if method == 'POST' and (path in ('/api/session/clear', '/api/session/exit') or re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/session/exit', path)):
+            headers = self._default_headers()
+            headers.append(('Set-Cookie', 'settletable_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT'))
+            return 200, headers, serialize_json({'ok': True, 'cleared': True})
+
         # Redeem invitation POST /api/meals/{meal_id}/invitations/{token}/redeem
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/invitations/([A-Za-z0-9_-]{43})/redeem', path)
         if m and method == 'POST':

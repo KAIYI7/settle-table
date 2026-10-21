@@ -60,6 +60,12 @@ body {
   align-items: center;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .brand-link {
   display: flex;
   align-items: center;
@@ -68,6 +74,21 @@ body {
   color: var(--text-main);
   font-weight: 700;
   font-size: 1.15rem;
+}
+
+.nav-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.nav-link:hover {
+  color: var(--text-main);
+  background-color: rgba(255, 255, 255, 0.06);
 }
 
 .brand-icon {
@@ -80,6 +101,35 @@ body {
   align-items: center;
   gap: 8px;
   font-size: 0.85rem;
+}
+
+.header-participant-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--bg-main);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.header-username {
+  font-weight: 600;
+  color: var(--text-main);
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-leave {
+  color: #fecdd3;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+}
+
+.btn-leave:hover {
+  background-color: rgba(244, 63, 94, 0.15);
+  border-color: var(--accent-rose);
 }
 
 /* Alert Container */

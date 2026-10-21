@@ -342,6 +342,64 @@ async function main() {
     }
     console.log('   ✓ "Accept & Apply to Receipt" succeeded without error: items, service charge, and -RM 0.02 rounding applied to SQLite draft');
 
+    // 3b. Test Navigation: Participant Identification & Home Link
+    console.log('   Testing participant identification & Home navigation...');
+    await pageA.waitFor("document.getElementById('header-user-status').innerText.includes('Organizer')");
+    await pageA.waitFor("document.getElementById('header-user-status').innerText.includes('Alice')");
+    await pageA.waitFor("document.querySelector('.room-nav-bar') !== null");
+    console.log('   ✓ Header and room bar clearly identify current participant (Organizer: Alice) and room');
+
+    // Click Home link
+    await pageA.evaluate("document.getElementById('nav-home-btn').click()");
+    await pageA.waitFor("window.location.hash.includes('#/') && document.getElementById('create-meal-form') !== null");
+    console.log('   ✓ Home navigation button returns cleanly to Welcome screen');
+
+    // Return to room
+    await pageA.navigate(`${serverOrigin}/#/meal/ocr-e2e-room`);
+    await pageA.waitFor("document.getElementById('add-item-form') !== null");
+
+    // 3c. Test Accidental Same-Profile Invitation Redemption & Warning
+    console.log('   Testing accidental same-profile invitation redemption & warning...');
+    // Alice issues an invitation for Bob in ocr-e2e-room
+    await pageA.evaluate(`
+      const btn = document.querySelector('.issue-invite-btn');
+      if (btn) btn.click();
+    `);
+    await pageA.waitFor("state.issuedTokens['D1'] !== undefined");
+    const ocrInviteUrl = await pageA.evaluate("state.issuedTokens['D1']");
+
+    // Alice opens this invitation in the SAME browser window
+    await pageA.navigate(ocrInviteUrl);
+    await pageA.waitFor("document.getElementById('redeem-btn') !== null");
+    const inviteLandingText = await pageA.evaluate("document.body.innerText");
+    if (!inviteLandingText.includes('Same-Browser Profile Notice')) {
+      throw new Error(`Expected Same-Browser Profile Notice on invite landing`);
+    }
+    if (!inviteLandingText.includes('replace your Organizer session')) {
+      throw new Error(`Expected warning explaining session replacement on invite landing`);
+    }
+    console.log('   ✓ Same-browser profile warning clearly rendered on invitation landing');
+
+    // Alice redeems invitation in the same browser (reproducing user scenario)
+    await pageA.evaluate("document.getElementById('redeem-btn').click()");
+    await pageA.waitFor("window.location.hash.includes('#/meal/ocr-e2e-room') && document.body.innerText.includes('🍽️ Diner')");
+    const dinerTextSameProfile = await pageA.evaluate("document.body.innerText");
+    if (!dinerTextSameProfile.includes('Bob') || dinerTextSameProfile.includes('👑 Organizer')) {
+      throw new Error(`Expected diner identity (Bob) after same-profile redeem, got: ${dinerTextSameProfile.slice(0, 300)}`);
+    }
+    console.log('   ✓ Reproduced: Same-profile redemption assigns Diner session (Bob) in this browser profile');
+
+    // 3d. Test Safe Session Exit (Leave Room)
+    console.log('   Testing safe session-exit mechanism (Leave Room)...');
+    await pageA.evaluate("document.getElementById('header-leave-btn').click()");
+    await pageA.waitFor("window.location.hash.includes('#/') && document.getElementById('create-meal-form') !== null");
+    console.log('   ✓ Leave Room cleanly cleared session cookie and returned to Home');
+
+    // Verify session cookie is deleted: trying to open ocr-e2e-room directly now fails with Session Required
+    await pageA.navigate(`${serverOrigin}/#/meal/ocr-e2e-room`);
+    await pageA.waitFor("document.body.innerText.includes('Session Required')");
+    console.log('   ✓ Verified session cookie wiped: room access without session correctly rejected');
+
     // 4. Organizer Journey: Create meal room "dinner-e2e" for multi-user flow
     console.log('[4/8] Organizer Alice creating main meal "dinner-e2e"...');
     await pageA.navigate(`${serverOrigin}/`);

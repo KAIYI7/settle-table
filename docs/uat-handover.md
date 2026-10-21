@@ -154,13 +154,17 @@ Under the conserved integer-sen calculation engine (`settletable.calculation`):
 1. Under **Diner Invitations**, locate `Bob`.
 2. Click **Create Link**. The button changes to **📋 Copy Link**.
 3. Click **📋 Copy Link** (copies URL like `http://127.0.0.1:8000/invite/<43-char-token>`).
-4. Open a **separate browser window** (e.g. Incognito or Chrome/Firefox) to simulate Bob's mobile phone.
+4. Open a **separate browser window** (e.g. Incognito or Chrome/Firefox) to simulate Bob's mobile phone:
+   > ⚠️ **Important Multi-User Testing Notice**:  
+   > SettleTable sessions are stored in host-only HTTP cookies (`settletable_session`). Always open diner invitation links in a **separate browser profile** (or Private/Incognito window). If you open and accept a diner invitation in the *same* browser profile, the browser cookie will be overwritten with the diner's session.
 5. Paste and navigate to the invitation URL:
    - The unauthenticated landing page confirms: `Joining as: Bob`.
    - Token inspection is read-only and non-mutating.
+   - Prominently displays the Same-Browser Profile notice warning against accidental session replacement.
 6. Click **Accept & Join Meal**:
    - The single-use token is atomically consumed.
    - Bob's browser receives a diner session cookie and redirects to `/#/meal/dinner-friday` with the `🍽️ Diner` badge.
+   - Header and room nav bar clearly display participant identification: `🍽️ Diner: Bob` and provide a **Leave Room** button.
 
 ### Step 5: Portion Claiming & Real-Time Sync
 1. In Bob's window, click **+1** under **Ice Lemon Tea**:
@@ -212,6 +216,16 @@ Under the conserved integer-sen calculation engine (`settletable.calculation`):
 - **Action**: A diner attempts to open an invitation link that was already redeemed or revoked.
 - **System Behavior**: The unauthenticated landing page checks the verifier in SQLite.
 - **UI Recovery**: Displays a friendly error (*"This invitation was already used"* or *"This invitation was revoked by the organizer"*) with a button to return Home, without leaking session state.
+
+### Scenario F: Accidental Same-Browser Profile Invitation Redemption & Safe Exit
+- **Action**: An evaluator testing both roles accidentally opens a diner invitation link in the organizer's browser window and clicks **Accept & Join Meal**.
+- **System Behavior**: The browser overwrites the host-only `settletable_session` cookie with the diner's credentials. The UI now displays the user as `🍽️ Diner: <Name>` with diner permissions.
+- **Security & Authorization Invariant**: SettleTable strictly upholds the zero-backdoor and secret hygiene invariants. The system **does not** provide an insecure "Switch to Organizer" backdoor, does not store organizer credentials in localStorage, and never exposes credentials in client-side storage.
+- **UI Recovery & Exit**:
+  1. **Pre-Redemption Warning**: The invitation landing screen prominently displays a `⚠️ Same-Browser Profile Notice` explaining that accepting will replace the active session, with a `Cancel & Return to Home` button.
+  2. **Participant Identification**: The header and room navigation bar clearly state the active user identity (e.g. `🍽️ Diner: WKX`).
+  3. **Safe Session Exit**: The header and room navigation bar both provide a **Leave Room** button. Clicking it issues a `POST /api/session/clear` call, instructing the browser to delete the cookie via `Max-Age=0` and cleanly routing back to the Home screen (`#/`).
+  4. **Resuming Organizer Testing**: Once the cookie is wiped, the evaluator can bootstrap a new meal room or access meals where they hold session grants.
 
 ---
 
