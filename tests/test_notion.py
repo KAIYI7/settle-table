@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import socket
 import tempfile
+import time
 import unittest
 
 from settletable.authority import (
@@ -643,6 +644,63 @@ class TestNotionTransportIntegration(unittest.TestCase):
         self.assertEqual(len(blocks), 3)
         self.assertEqual([b["id"] for b in blocks], ["b1", "b2", "b3"])
         self.assertEqual(len(calls), 2)
+
+    def test_reconciliation_bubbles_rate_limit_and_auth_errors(self):
+        """Verify that export_finalized_meal re-raises NotionRateLimitError and NotionAuthError during title reconciliation."""
+        from settletable.notion import export_finalized_meal, NotionExportConfig, NotionRateLimitError, NotionAuthError
+        from settletable.authority import Authority
+        from dataclasses import asdict
+
+        authority = Authority(self.db_path)
+        try:
+            snap = authority.snapshot(self.org_cred, "meal-notion-test")
+            snap_dict = asdict(snap)
+
+            # Test rate limit error bubbling
+            self.mock_client._forced_error = (NotionRateLimitError, "rate limit exceeded")
+            config = NotionExportConfig(token="secret_test", parent_id="11111111-2222-3333-4444-555555555555")
+            with self.assertRaises(NotionRateLimitError):
+                export_finalized_meal(self.mock_client, "meal-notion-test", snap_dict, config)
+
+            # Test auth error bubbling
+            self.mock_client._forced_error = (NotionAuthError, "invalid token")
+            with self.assertRaises(NotionAuthError):
+                export_finalized_meal(self.mock_client, "meal-notion-test", snap_dict, config)
+        finally:
+            authority.close()
+
+    def test_async_export_granular_error_codes(self):
+        """Verify that async background export records specific error codes (notion_rate_limited, notion_auth_error)."""
+        authority = Authority(self.db_path)
+        try:
+            # Force rate limit error
+            self.mock_client._forced_error = (NotionRateLimitError, "rate limited")
+            headers = {
+                "Authorization": f"Bearer {self.org_cred}",
+                "X-SettleTable-Action": "1",
+            }
+            body = {
+                "parent_id": "11111111-2222-3333-4444-555555555555",
+                "token": "secret_12345678901234567890",
+            }
+            code, _, res_body = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+            self.assertEqual(code, 202)
+
+            # Poll for background thread completion
+            deadline = time.time() + 5.0
+            status_data = None
+            while time.time() < deadline:
+                _, _, get_res = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers, None)
+                status_data = json.loads(get_res.decode("utf-8"))
+                if status_data.get("export", {}).get("status") == "failed":
+                    break
+                time.sleep(0.05)
+
+            self.assertIsNotNone(status_data)
+            self.assertEqual(status_data["export"]["status"], "failed")
+            self.assertEqual(status_data["export"]["export_digest"], "notion_rate_limited")
+        finally:
+            authority.close()
 
 
 if __name__ == "__main__":

@@ -323,6 +323,23 @@ async function main() {
     await pageA.waitFor("document.getElementById('ocr-cand-total-val').innerText === 'RM 22.00'");
     console.log('   ✓ Inline adjustment addition recalculates candidate total: RM 22.00');
 
+    // Test negative cash rounding adjustment (-RM 0.02)
+    await pageA.evaluate("document.getElementById('ocr-add-adj-btn').click()");
+    await pageA.waitFor("document.querySelectorAll('.ocr-cand-adj-row').length === 2");
+    await pageA.evaluate(`(() => {
+      const rows = document.querySelectorAll('.ocr-cand-adj-row');
+      const row2 = rows[1];
+      const kindSelect = row2.querySelector('.ocr-edit-adj-kind');
+      const labelInput = row2.querySelector('.ocr-edit-adj-label');
+      const amountInput = row2.querySelector('.ocr-edit-adj-amount');
+      kindSelect.value = 'rounding';
+      labelInput.value = 'Rounding';
+      amountInput.value = '-0.02';
+      amountInput.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await pageA.waitFor("document.getElementById('ocr-cand-total-val').innerText === 'RM 21.98'");
+    console.log('   ✓ Negative BNM cash rounding (-RM 0.02) preserves sign and recalculates candidate total: RM 21.98');
+
     // Discard candidate: clears candidate card without modifying authoritative draft
     await pageA.evaluate("document.getElementById('ocr-discard-btn').click()");
     await pageA.waitFor("document.getElementById('ocr-candidate-card') === null");

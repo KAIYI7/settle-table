@@ -23,16 +23,28 @@ function formatSen(sen) {
   return `RM ${val.toFixed(2)}`;
 }
 
-function parseSen(input) {
+function parseSen(input, allowNegative = false) {
   if (typeof input !== 'string') {
     throw new Error('Price must be a string');
   }
   let s = input.trim();
+  let isNegative = false;
+  if (s.startsWith('-')) {
+    isNegative = true;
+    s = s.slice(1).trim();
+  }
   if (s.toUpperCase().startsWith('RM')) {
     s = s.slice(2).trim();
   }
+  if (s.startsWith('-')) {
+    isNegative = true;
+    s = s.slice(1).trim();
+  }
   if (!s || !/^[0-9]+(?:\.[0-9]{1,2})?$/.test(s)) {
     throw new Error(`Invalid price '${input}'. Enter an amount like 12.50 or RM 12.50`);
+  }
+  if (isNegative && !allowNegative) {
+    throw new Error(`Negative amount not allowed for '${input}'`);
   }
   const parts = s.split('.');
   const whole = parseInt(parts[0], 10);
@@ -42,7 +54,7 @@ function parseSen(input) {
   if (totalSen < 0 || totalSen > 1_000_000_000) {
     throw new Error('Price out of bounds: maximum RM 10,000,000.00');
   }
-  return totalSen;
+  return isNegative ? -totalSen : totalSen;
 }
 
 function escapeHtml(str) {
@@ -626,7 +638,7 @@ function renderOrganizerSection(snap) {
                     <option value="discount" ${adj.kind === 'discount' ? 'selected' : ''}>Discount</option>
                     <option value="rounding" ${adj.kind === 'rounding' ? 'selected' : ''}>Rounding</option>
                   </select>
-                  <input type="text" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${(Math.abs(adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 75px; text-align: right; font-size: 0.8rem; padding: 3px 4px; font-family: monospace;" />
+                  <input type="text" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 75px; text-align: right; font-size: 0.8rem; padding: 3px 4px; font-family: monospace;" />
                   <button type="button" class="btn btn-secondary btn-sm ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove charge" style="padding: 2px 6px; font-size: 0.75rem; color: var(--accent-rose);">✕</button>
                 </div>
               `).join('')}
@@ -1082,7 +1094,7 @@ function bindEvents(snap) {
       let rawSen = 0;
       if (amountInput) {
         try {
-          rawSen = parseSen(amountInput.value);
+          rawSen = parseSen(amountInput.value, true);
         } catch {
           rawSen = 0;
         }
@@ -1092,6 +1104,12 @@ function bindEvents(snap) {
         amountSen = -Math.abs(rawSen);
       } else if (kind === 'service' || kind === 'tax') {
         amountSen = Math.abs(rawSen);
+      } else if (kind === 'rounding') {
+        if (amountInput && amountInput.value.trim().startsWith('-')) {
+          amountSen = -Math.abs(rawSen);
+        } else {
+          amountSen = Math.abs(rawSen);
+        }
       }
       const existingId = (cand.adjustments && cand.adjustments[j]) ? cand.adjustments[j].id : `adj-${j + 1}`;
       const eligible = (cand.adjustments && cand.adjustments[j] && cand.adjustments[j].eligible_item_ids)

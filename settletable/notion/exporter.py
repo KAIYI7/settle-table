@@ -2,7 +2,15 @@
 import re
 from typing import Any
 
-from .client import NOTION_ID_REGEX, NotionClientProtocol, NotionValidationError
+from .client import (
+    NOTION_ID_REGEX,
+    NotionClientProtocol,
+    NotionValidationError,
+    NotionAuthError,
+    NotionNotFoundError,
+    NotionRateLimitError,
+    NotionError,
+)
 from .models import NotionExportConfig, NotionExportResult
 
 
@@ -696,7 +704,7 @@ def export_finalized_meal(
                             page_url=existing_url,
                             blocks_created=0,
                         )
-        except (NotionAuthError, NotionValidationError, NotionNotFoundError):
+        except (NotionAuthError, NotionValidationError, NotionNotFoundError, NotionRateLimitError):
             raise
         except Exception:
             pass

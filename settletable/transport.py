@@ -770,6 +770,14 @@ class SettleTableApp:
                             )
                         else:
                             bg_auth.record_notion_export_failed(meal_id, rev, result.error or 'notion_error')
+                    except NotionRateLimitError:
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'notion_rate_limited')
+                    except NotionAuthError:
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'notion_auth_error')
+                    except (NotionValidationError, NotionNotFoundError):
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'invalid_input')
+                    except NotionError:
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'notion_error')
                     except Exception:
                         bg_auth.record_notion_export_failed(meal_id, rev, 'unexpected_error')
                     finally:
