@@ -75,6 +75,14 @@ When executed, the runner initializes the WSGI application and displays:
   - Pre-creation title reconciliation prevents duplicate pages on lost network responses.
 - **Delivery Semantics**: Documented as **at-least-once with pre-creation title reconciliation**. SettleTable does not falsely claim exactly-once delivery across non-transactional external REST APIs.
 
+### 3.3 Verification Methodologies: Distinction of OCR Testing Layers
+
+To prevent ambiguity during evaluation, SettleTable explicitly distinguishes three separate OCR testing layers:
+
+1. **Genuine Image-Upload OCR Testing**: The client browser sends a binary image payload (PNG, JPEG, WebP up to 5 MB) via `fetch('/api/meals/{meal_id}/ocr/extract', { method: 'POST', body: file, headers: { 'Content-Type': mimeType, 'X-SettleTable-Action': '1' } })`. The server WSGI transport decodes headers, verifies magic bytes and image dimensions ($\le 4096 \times 4096$, $\le 16\text{MP}$), executes server-side inference, parses Malaysian receipt layout, and returns structured candidate JSON. This tests the complete network, header validation, CSRF, and binary ingress stack. (Automated in `tools/e2e_browser_test.mjs` and `tests/test_ocr.py`).
+2. **Mock-Token Extraction (`MockOcrEngine`)**: When running with `--mock-ocr`, the server bypasses heavy native ONNX/C++ model execution and replaces inference by looking up the image SHA-256 against token fixtures (`tests/fixtures/ocr/tokens.json`) or falling back to pre-configured `default_lines`. This tests the entire WSGI transport, layout parser, tax rules, and receipt modeling at $0.00 spend and zero native binary dependencies.
+3. **Direct JavaScript Candidate Injection (`window.settletable.state.ocrCandidate`)**: Staging proposal objects directly in browser memory to test UI rendering, real-time input recalculation, error badges, and DOM interactions in isolated testing harnesses without incurring HTTP network roundtrips.
+
 ---
 
 ## 4. Realistic Test Meal & Expected Totals
@@ -84,34 +92,34 @@ When executed, the runner initializes the WSGI application and displays:
 | Slip Line Item | Quantity | Line Amount (RM) | Notes |
 |:---|:---:|:---:|:---|
 | 1 CHICKEN RICE | 1 | RM 12.00 | Claimed by Alice (Organizer) |
-| 1 ICE LEMON TEA | 1 | RM 3.50 | Claimed by Bob (Diner) |
-| **Items Subtotal** | **2** | **RM 15.50** | $12.00 + 3.50$ |
-| Service Charge (10%) | 1 | RM 1.55 | Proportional allocation |
-| BNM Cash Rounding | 1 | -RM 0.05 | Rounding to nearest 5 sen ($17.05 \to 17.00$) |
-| **Receipt Total** | | **RM 17.00** | Strict cash slip grand total |
+| 1 ICE LEMON TEA | 1 | RM 3.20 | Claimed by Bob (Diner) |
+| **Items Subtotal** | **2** | **RM 15.20** | $12.00 + 3.20$ |
+| Service Charge (10%) | 1 | RM 1.52 | Proportional allocation ($15.20 \times 10\%$) |
+| BNM Cash Rounding | 1 | -RM 0.02 | Bank Negara Malaysia 5-sen rounding ($16.72 \to 16.70$) |
+| **Receipt Total** | | **RM 16.70** | Strict cash slip grand total ($15.20 + 1.52 - 0.02$) |
 
-*(Informational Included SST: RM 0.93 / 93 sen already included in food items per Malaysian tax-inclusive restaurant rules)*
+*(Informational Included SST: per Malaysian tax-inclusive restaurant rules, any included taxes are informational and do not alter subtotal invariants)*
 
 ### 4.2 Exact Deterministic Apportionment
 
 Under the conserved integer-sen calculation engine (`settletable.calculation`):
 
 1. **Items Base Ratio**:
-   - Alice: $1200\text{ sen} / 1550\text{ sen} \approx 77.419\%$
-   - Bob: $350\text{ sen} / 1550\text{ sen} \approx 22.581\%$
+   - Alice: $1200\text{ sen} / 1520\text{ sen} \approx 78.947\%$
+   - Bob: $320\text{ sen} / 1520\text{ sen} \approx 21.053\%$
 
-2. **Service Charge (155 sen)**:
-   - Alice share: $\text{round}(155 \times 1200 / 1550) = 120\text{ sen}$ (RM 1.20)
-   - Bob share: $155 - 120 = 35\text{ sen}$ (RM 0.35)
+2. **Service Charge (152 sen)**:
+   - Alice share: $\text{round}(152 \times 1200 / 1520) = \text{round}(120.0) = \mathbf{120\text{ sen}}$ (RM 1.20)
+   - Bob share: $152 - 120 = \mathbf{32\text{ sen}}$ (RM 0.32)
 
-3. **Cash Rounding (-5 sen)**:
-   - Alice share: $\text{round}(-5 \times 1200 / 1550) = -4\text{ sen}$ (-RM 0.04)
-   - Bob share: $-5 - (-4) = -1\text{ sen}$ (-RM 0.01)
+3. **BNM Cash Rounding (-2 sen)**:
+   - Alice share: $\text{round}(-2 \times 1200 / 1520) = \text{round}(-1.5789) = \mathbf{-2\text{ sen}}$ (-RM 0.02)
+   - Bob share: $-2 - (-2) = \mathbf{0\text{ sen}}$ (RM 0.00)
 
 4. **Final Individual Totals**:
-   - **Alice (Organizer)**: $1200 + 120 - 4 = \mathbf{1316\text{ sen}}$ (**RM 13.16**)
-   - **Bob (Diner)**: $350 + 35 - 1 = \mathbf{384\text{ sen}}$ (**RM 3.84**)
-   - **Reconciled Grand Total**: $1316 + 384 = \mathbf{1700\text{ sen}}$ (**RM 17.00**)  
+   - **Alice (Organizer)**: $1200 + 120 - 2 = \mathbf{1318\text{ sen}}$ (**RM 13.18**)
+   - **Bob (Diner)**: $320 + 32 + 0 = \mathbf{352\text{ sen}}$ (**RM 3.52**)
+   - **Reconciled Grand Total**: $1318 + 352 = \mathbf{1670\text{ sen}}$ (**RM 16.70**)  
      *(Zero unallocated residue; exact cent conservation)*
 
 ---
@@ -166,9 +174,9 @@ Under the conserved integer-sen calculation engine (`settletable.calculation`):
 1. In Alice's window, the **Seal & Finalize Meal** card turns green.
 2. Click **Finalize & Calculate Bill**.
 3. Both Alice's and Bob's windows update with the authoritative **Final Apportionment Summary**:
-   - Alice: **RM 13.16**
-   - Bob: **RM 3.84**
-   - Grand Total: **RM 17.00**
+   - Alice: **RM 13.18**
+   - Bob: **RM 3.52**
+   - Grand Total: **RM 16.70**
 
 ### Step 7: Optional Notion Export
 1. As Alice, locate the **📤 Notion Archive & Reporting** section at the bottom.
@@ -216,7 +224,29 @@ Under the conserved integer-sen calculation engine (`settletable.calculation`):
 
 ---
 
-## 8. Recommended Next Product Milestone (Phase 4 Frontier)
+## 8. PR Creation Failure Investigation & Reliable Traceability Fallback
+
+### 8.1 Investigation Findings
+During autonomous integration, attempting `gh pr create` resulted in:
+```text
+gh : The term 'gh' is not recognized as the name of a cmdlet, function, script file, or operable program.
+```
+- **Root Cause**: GitHub CLI (`gh.exe`) is not installed on this host environment.
+- **Repository Visibility**: `KAIYI7/settle-table` is a private repository. Git authentication uses the Windows Git Credential Manager (`credential.helper = manager`), which secures git operations (`git push`, `git fetch`) without exposing a reusable personal access token to shell scripts or unauthenticated `curl` calls.
+
+### 8.2 Reliable Governance Fallback Protocol
+To preserve strict independent review, CI verification, and merge traceability when GitHub CLI is unavailable:
+1. **Feature Branch Isolation**: All work develops on dedicated branches (e.g. `feature/user-acceptance-readiness`).
+2. **Independent Subagent Audit**: Before merging, an independent subagent reviews the diff against base, checks invariants, and executes the full test suite and browser CDP suite.
+3. **Remediation & Regression Tests**: Any material findings are resolved on the feature branch with corresponding regression tests.
+4. **Local Verification**: The full 159-test suite and real Chrome browser E2E tests are rerun to ensure 100% pass rates.
+5. **Traceable Merge (`--no-ff`)**: The feature branch is pushed to `origin`, then merged into `main` using `git merge --no-ff feature/<name> -m "..."`. This preserves the two-parent commit structure, complete commit ancestry, and PR traceability in the Git graph (`git log --graph`).
+6. **Hosted CI Execution**: Pushing the feature branch and pushing the `--no-ff` merge commit to `origin/main` triggers the GitHub Actions workflow (`.github/workflows/python-tests.yml`).
+7. **Durable Transition Records**: Findings, exact commit SHAs, test outcomes, and gate matrices are recorded in `research/phase-3/`, `PROJECT_STATUS.md`, and `docs/agents/phase-transitions.md`.
+
+---
+
+## 9. Recommended Next Product Milestone (Phase 4 Frontier)
 
 With Phase 3 complete and User-Acceptance Readiness established, the recommended next milestone is:
 
