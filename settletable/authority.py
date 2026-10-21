@@ -111,6 +111,16 @@ class SetOwnQuantity:
 
 
 @dataclass(frozen=True, slots=True)
+class AssignParticipantQuantity:
+    command_id: str
+    participant_id: str
+    item_id: str
+    quantity: int | Fraction | None
+    expected_item_revision: int
+    expected_financial_revision: int
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewReceipt:
     command_id: str
     expected_revision: int
@@ -153,6 +163,7 @@ class Claim:
     quantity: Fraction
     financial_revision: int
     status: str
+    assigned_by: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,7 +326,7 @@ def _receipt_digest(receipt):
 
 
 def _command_data(command):
-    _require(type(command) in (ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize,
+    _require(type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize,
                                RevokeSession, RevokeMembership, RevokeInvitation))
     _id(command.command_id)
     data = {'contract': 'settletable-command-v1', 'kind': type(command).__name__, 'command_id': command.command_id}
@@ -324,10 +335,17 @@ def _command_data(command):
         _revision(command.expected_item_revision)
         data.update(item_id=command.item_id, quantity=None if command.quantity is None else _rational(command.quantity),
                     expected_item_revision=command.expected_item_revision)
+    elif type(command) is AssignParticipantQuantity:
+        _id(command.participant_id)
+        _id(command.item_id)
+        _revision(command.expected_item_revision)
+        data.update(participant_id=command.participant_id, item_id=command.item_id,
+                    quantity=None if command.quantity is None else _rational(command.quantity),
+                    expected_item_revision=command.expected_item_revision)
     else:
         _revision(command.expected_revision)
         data['expected_revision'] = command.expected_revision
-    if type(command) in (ReplaceReceipt, SetOwnQuantity, ReviewReceipt, Finalize):
+    if type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize):
         _revision(command.expected_financial_revision)
         data['expected_financial_revision'] = command.expected_financial_revision
     if type(command) is ReplaceReceipt:
@@ -343,14 +361,15 @@ def _command_data(command):
 
 def _claims(state):
     return tuple(Claim(c['item_id'], c['participant_id'], Fraction(*c['quantity']),
-                       c['financial_revision'], 'confirmed' if c['financial_revision'] == state['financial_revision'] else 'pending')
+                       c['financial_revision'], 'confirmed' if c['financial_revision'] == state['financial_revision'] else 'pending',
+                       c.get('assigned_by'))
                  for c in sorted(state['claims'], key=lambda c: (c['item_id'], c['participant_id'])))
 
 
 def _decode_result(wire):
     data = json.loads(wire)
     claims = tuple(Claim(c['item_id'], c['participant_id'], Fraction(*c['quantity']),
-                         c['financial_revision'], c['status']) for c in data['changed_claims'])
+                         c['financial_revision'], c['status'], c.get('assigned_by')) for c in data['changed_claims'])
     return AcceptedResult(data['command_id'], data['kind'], data['revision'],
                           data['financial_revision'], claims, _decode_calculation(data['calculation']), wire)
 
@@ -375,9 +394,12 @@ def _decode_calculation(data):
 
 
 def _claim_data(claim):
-    return {'item_id': claim.item_id, 'participant_id': claim.participant_id,
+    data = {'item_id': claim.item_id, 'participant_id': claim.participant_id,
             'quantity': [claim.quantity.numerator, claim.quantity.denominator],
             'financial_revision': claim.financial_revision, 'status': claim.status}
+    if claim.assigned_by is not None:
+        data['assigned_by'] = claim.assigned_by
+    return data
 
 
 class Authority:
@@ -894,6 +916,35 @@ class Authority:
         _revision(state['item_revisions'][item_id])
         return tuple(c for c in _claims(state) if c.item_id == item_id and c.participant_id == actor)
 
+    def _assign_participant_quantity(self, meal_id, state, actor, data):
+        target_id = data['participant_id']
+        target = self._db.execute('SELECT active FROM participants WHERE meal_id=? AND id=?',
+                                  (meal_id, target_id)).fetchone()
+        _require(target is not None and target[0] == 1, 'forbidden')
+        item_id = data['item_id']
+        _require(item_id in state['item_revisions'], 'unknown_item')
+        _require(data['expected_item_revision'] == state['item_revisions'][item_id], 'item_revision_conflict')
+        previous = [c for c in state['claims'] if c['item_id'] == item_id and c['participant_id'] == target_id]
+        quantity = data['quantity']
+        if quantity is None:
+            _require(bool(previous), 'claim_missing')
+            state['claims'].remove(previous[0])
+        else:
+            current = sum((Fraction(*c['quantity']) for c in state['claims']
+                           if c['item_id'] == item_id and c['participant_id'] != target_id
+                           and c['financial_revision'] == state['financial_revision']), Fraction())
+            item = next(i for i in state['receipt']['items'] if i['id'] == item_id)
+            _require(current + Fraction(*quantity) <= Fraction(*item['quantity']), 'quantity_capacity')
+            if previous:
+                state['claims'].remove(previous[0])
+            claim_entry = {'item_id': item_id, 'participant_id': target_id,
+                           'quantity': quantity, 'financial_revision': state['financial_revision'],
+                           'assigned_by': actor}
+            state['claims'].append(claim_entry)
+        state['item_revisions'][item_id] += 1
+        _revision(state['item_revisions'][item_id])
+        return tuple(c for c in _claims(state) if c.item_id == item_id and c.participant_id == target_id)
+
     def _review_receipt(self, state, actor, data):
         _require(data['receipt_digest'] == _receipt_digest(state['receipt']), 'receipt_digest_conflict')
         issues = self._receipt_issues(state)
@@ -980,6 +1031,8 @@ class Authority:
                 changed = self._replace_receipt(state, data)
             elif data['kind'] == 'SetOwnQuantity':
                 changed = self._set_own_quantity(state, actor, data)
+            elif data['kind'] == 'AssignParticipantQuantity':
+                changed = self._assign_participant_quantity(meal_id, state, actor, data)
             elif data['kind'] == 'ReviewReceipt':
                 self._review_receipt(state, actor, data)
                 changed = ()

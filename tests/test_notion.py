@@ -17,6 +17,7 @@ from settletable.authority import (
     ReplaceReceipt,
     ReviewReceipt,
     SetOwnQuantity,
+    AssignParticipantQuantity,
 )
 from settletable.notion import (
     MockNotionClient,
@@ -739,6 +740,60 @@ class TestNotionTransportIntegration(unittest.TestCase):
         # Verify page created under parent with normalized UUID
         created_pages = list(self.mock_client.pages.values())
         self.assertTrue(any(p.get("parent", {}).get("page_id") == "3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d" for p in created_pages))
+
+    def test_organizer_managed_meal_notion_export_without_diner_sessions(self):
+        """Verify organizer can allocate entire meal to diners who never log in and export to Notion."""
+        auth = Authority(self.db_path)
+        try:
+            boot = auth.bootstrap("meal-managed-notion", (
+                Participant("alice", "Alice", True),
+                Participant("bob", "Bob", False),
+                Participant("charlie", "Charlie", False),
+            ))
+            alice_cred = boot.sessions[0].credential
+
+            rcpt = Receipt(
+                items=(
+                    ReceiptItem("dish1", "Rendang Beef", 2, 3600),
+                    ReceiptItem("dish2", "Nasi Lemak", 1, 1400),
+                ),
+                subtotal_sen=5000,
+                total_sen=5000,
+            )
+            auth.apply(alice_cred, "meal-managed-notion", ReplaceReceipt("r1", 0, 0, rcpt))
+
+            # Alice allocates to Bob and Charlie using AssignParticipantQuantity
+            # Bob and Charlie never receive or redeem invitations!
+            auth.apply(alice_cred, "meal-managed-notion", AssignParticipantQuantity("a1", "bob", "dish1", 2, 1, 1))
+            auth.apply(alice_cred, "meal-managed-notion", AssignParticipantQuantity("a2", "charlie", "dish2", 1, 1, 1))
+
+            snap = auth.snapshot(alice_cred, "meal-managed-notion")
+            self.assertEqual(snap.issues, ())
+            self.assertEqual(len(snap.claims), 2)
+            # Revoke/expire any diner bootstrap sessions to simulate diners never joining or logging in
+            auth._db.execute("UPDATE sessions SET revoked=1 WHERE meal_id='meal-managed-notion' AND participant_id IN ('bob', 'charlie')")
+            active_diner_sessions = auth._db.execute("SELECT COUNT(*) FROM sessions WHERE meal_id='meal-managed-notion' AND participant_id IN ('bob', 'charlie') AND revoked=0").fetchone()[0]
+            self.assertEqual(active_diner_sessions, 0)
+
+            auth.apply(alice_cred, "meal-managed-notion", ReviewReceipt("rev1", 3, 1, snap.receipt_digest))
+            fin = auth.apply(alice_cred, "meal-managed-notion", Finalize("fin1", 4, 1))
+            self.assertTrue(fin.calculation is not None)
+
+            # Export to Notion via Transport API
+            headers = {
+                "Authorization": f"Bearer {alice_cred}",
+                "X-SettleTable-Action": "1",
+            }
+            body = {
+                "parent_id": "3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d",
+            }
+            code, _, res_body = self._call("POST", "/api/meals/meal-managed-notion/export/notion?sync=1", headers, body)
+            self.assertEqual(code, 200)
+            data = json.loads(res_body.decode("utf-8"))
+            self.assertTrue(data.get("ok"))
+            self.assertTrue(data.get("export", {}).get("ok"))
+        finally:
+            auth.close()
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ const state = {
   notionParentId: '',
   notionToken: '',
   notionExport: null,
+  allocationTargetId: null,
 };
 
 function formatSen(sen) {
@@ -244,6 +245,7 @@ async function handleLeaveRoom() {
   state.notionParentId = '';
   state.notionToken = '';
   state.notionExport = null;
+  state.allocationTargetId = null;
   const headerStatus = document.getElementById('header-user-status');
   if (headerStatus) headerStatus.innerHTML = '';
   if (window.location.hash === '#/') {
@@ -448,6 +450,7 @@ async function loadMeal(mealId) {
   state.notionParentId = '';
   state.notionToken = '';
   state.notionExport = null;
+  state.allocationTargetId = null;
   const app = document.getElementById('app');
   app.innerHTML = `
     <div class="loading-state">
@@ -940,8 +943,40 @@ function renderClaimsSection(snap) {
   if (items.length === 0) {
     return `
       <div class="card">
-        <h3 class="card-title">Item Claims</h3>
+        <h3 class="card-title">${snap.is_organizer ? 'Item Allocation' : 'Item Claims'}</h3>
         <p class="card-desc">No receipt items to claim. The organizer must add items first.</p>
+      </div>
+    `;
+  }
+
+  // Active participants list
+  const activeParts = snap.participants?.filter(p => !snap.inactive_participant_ids?.includes(p.id)) || [];
+  const validTarget = activeParts.some(p => p.id === state.allocationTargetId);
+  if (!validTarget && activeParts.length > 0) {
+    state.allocationTargetId = state.currentUserId || activeParts[0].id;
+  }
+  const currentTarget = activeParts.find(p => p.id === state.allocationTargetId) || activeParts[0];
+
+  let selectorBarHtml = '';
+  if (snap.is_organizer && activeParts.length > 0) {
+    selectorBarHtml = `
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <div style="font-weight: 700; font-size: 0.9rem; color: #a5b4fc;">ALLOCATION TARGET SELECTOR</div>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Select who you are allocating items for. (Diners do not need to log in for organizer-managed meals).</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label for="allocation-target-select" style="font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin: 0; white-space: nowrap;">Allocating for:</label>
+            <select id="allocation-target-select" class="form-input" style="min-height: 40px; padding: 6px 12px; font-weight: 600; min-width: 170px;">
+              ${activeParts.map(p => `
+                <option value="${p.id}" ${p.id === currentTarget?.id ? 'selected' : ''}>
+                  ${p.organizer ? '👑' : '🍽️'} ${escapeHtml(p.name)}${p.id === state.currentUserId ? ' (You)' : ''}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -951,30 +986,52 @@ function renderClaimsSection(snap) {
     const itemRevision = stateItem ? stateItem.item_revision : 0;
     const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
     
-    // User's own claim
-    const ownClaim = claims.find(c => c.participant_id === state.currentUserId);
-    const ownQty = ownClaim ? (Array.isArray(ownClaim.quantity) ? ownClaim.quantity[0]/ownClaim.quantity[1] : ownClaim.quantity) : 0;
+    // Target participant's claim (for organizer, currentTarget; for diner, currentUserId)
+    const activeUserId = snap.is_organizer ? (currentTarget?.id || state.currentUserId) : state.currentUserId;
+    const targetClaim = claims.find(c => c.participant_id === activeUserId);
+    const targetQty = targetClaim ? (Array.isArray(targetClaim.quantity) ? targetClaim.quantity[0]/targetClaim.quantity[1] : targetClaim.quantity) : 0;
 
-    // Total claimed
+    // Total claimed & capacity
     const totalClaimed = claims.reduce((acc, c) => acc + (Array.isArray(c.quantity) ? c.quantity[0]/c.quantity[1] : c.quantity), 0);
     const itemTotalQty = Array.isArray(item.quantity) ? item.quantity[0]/item.quantity[1] : item.quantity;
     const pct = Math.min(100, Math.round((totalClaimed / itemTotalQty) * 100));
+    const unassigned = Math.max(0, itemTotalQty - totalClaimed);
 
-    // Chips for other diners
+    // Status badge
+    let statusBadge = '';
+    if (totalClaimed === itemTotalQty) {
+      statusBadge = '<span class="badge badge-verified">✓ Fully Allocated</span>';
+    } else if (totalClaimed < itemTotalQty) {
+      statusBadge = `<span class="badge badge-pending">⚠️ ${unassigned} unassigned</span>`;
+    } else {
+      statusBadge = '<span class="badge" style="background: rgba(244,63,94,0.2); color: #fecdd3; border: 1px solid var(--accent-rose);">⚠️ Over-allocated</span>';
+    }
+
+    // Chips for diners with audit distinction
     const chipsHtml = claims.map(c => {
       const p = snap.participants?.find(part => part.id === c.participant_id);
       const name = p ? p.name : c.participant_id;
-      const isMe = c.participant_id === state.currentUserId;
+      const isSelected = c.participant_id === activeUserId;
       const qStr = Array.isArray(c.quantity) ? `${c.quantity[0]}/${c.quantity[1]}` : c.quantity;
-      return `<span class="chip ${isMe ? 'own-chip' : ''}">${escapeHtml(name)}: ${qStr}</span>`;
+      let badgeLabel = '';
+      if (c.assigned_by && c.assigned_by !== c.participant_id) {
+        badgeLabel = ' <span style="font-size: 0.68rem; color: #a5b4fc;">(Organizer Assigned)</span>';
+      } else if (!p?.organizer) {
+        badgeLabel = ' <span style="font-size: 0.68rem; color: #6ee7b7;">(Diner Claim)</span>';
+      }
+      return `<span class="chip ${isSelected ? 'own-chip' : ''}">${escapeHtml(name)}: ${qStr}${badgeLabel}</span>`;
     }).join('');
+
+    const actionLabel = snap.is_organizer
+      ? `Portion for ${escapeHtml(currentTarget?.name || 'Selected')}:`
+      : 'Your Portion:';
 
     return `
       <div class="item-card" id="item-card-${item.id}" data-item-id="${item.id}" data-revision="${itemRevision}">
         <div class="item-header">
           <div>
             <div class="item-label">${escapeHtml(item.label)}</div>
-            <div class="item-meta">Total: ${itemTotalQty} &bull; Claimed: ${totalClaimed} / ${itemTotalQty}</div>
+            <div class="item-meta">Total: ${itemTotalQty} &bull; Allocated: ${totalClaimed} / ${itemTotalQty} &bull; ${statusBadge}</div>
           </div>
           <div class="item-price">${formatSen(item.line_sen)}</div>
         </div>
@@ -984,13 +1041,18 @@ function renderClaimsSection(snap) {
         </div>
 
         <div class="claim-actions">
-          <div class="quantity-stepper">
-            <button class="btn btn-secondary btn-sm claim-dec-btn" data-id="${item.id}" data-current="${ownQty}" data-rev="${itemRevision}">-</button>
-            <span class="step-val">${ownQty}</span>
-            <button class="btn btn-secondary btn-sm claim-inc-btn" data-id="${item.id}" data-current="${ownQty}" data-rev="${itemRevision}">+</button>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">${actionLabel}</span>
+            <div class="quantity-stepper">
+              <button class="btn btn-secondary btn-sm claim-dec-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${activeUserId}" data-rev="${itemRevision}">-</button>
+              <span class="step-val">${targetQty}</span>
+              <button class="btn btn-secondary btn-sm claim-inc-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${activeUserId}" data-rev="${itemRevision}">+</button>
+            </div>
           </div>
           <div>
-            <button class="btn btn-secondary btn-sm claim-all-btn" data-id="${item.id}" data-rev="${itemRevision}" data-total="${itemTotalQty}">Claim All</button>
+            <button class="btn btn-secondary btn-sm claim-all-btn" data-id="${item.id}" data-target="${activeUserId}" data-rev="${itemRevision}" data-total="${itemTotalQty}" data-unassigned="${unassigned}">
+              ${snap.is_organizer ? 'Assign All' : 'Claim All'}
+            </button>
           </div>
         </div>
 
@@ -1001,8 +1063,13 @@ function renderClaimsSection(snap) {
 
   return `
     <div class="card">
-      <h3 class="card-title">Claim Your Portions</h3>
-      <p class="card-desc">Tap + or - to set your claimed portion for each item. Overlapping claims split the cost.</p>
+      <h3 class="card-title">${snap.is_organizer ? 'Item Allocation (Organizer & Collaborative)' : 'Claim Your Portions'}</h3>
+      <p class="card-desc">
+        ${snap.is_organizer 
+          ? 'Assign portions for any diner below. Collaborative diners can also claim their own portions.'
+          : 'Tap + or - to set your claimed portion for each item. Overlapping claims split the cost.'}
+      </p>
+      ${selectorBarHtml}
       ${itemsHtml}
     </div>
   `;
@@ -1580,11 +1647,21 @@ function bindEvents(snap) {
     });
   });
 
-  // 5. Claim Adjustments (+ / - / Claim All)
+  // 4b. Allocation Target Selector (Organizer)
+  const targetSelect = document.getElementById('allocation-target-select');
+  if (targetSelect) {
+    targetSelect.addEventListener('change', (e) => {
+      state.allocationTargetId = e.target.value;
+      updateMealUI();
+    });
+  }
+
+  // 5. Claim / Allocation Adjustments (+ / - / Claim All / Assign All)
   document.querySelectorAll('.claim-inc-btn, .claim-dec-btn, .claim-all-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const itemId = btn.getAttribute('data-id');
       const currentVal = parseFloat(btn.getAttribute('data-current') || '0');
+      const targetUserId = btn.getAttribute('data-target') || state.currentUserId;
       const rev = parseInt(btn.getAttribute('data-rev'), 10);
       let targetVal = currentVal;
 
@@ -1594,19 +1671,32 @@ function bindEvents(snap) {
         targetVal = Math.max(0, currentVal - 1);
       } else if (btn.classList.contains('claim-all-btn')) {
         const total = parseFloat(btn.getAttribute('data-total') || '1');
-        targetVal = (currentVal === total) ? 0 : total;
+        const unassigned = parseFloat(btn.getAttribute('data-unassigned') || '0');
+        if (currentVal === total) {
+          targetVal = 0;
+        } else if (unassigned > 0) {
+          targetVal = currentVal + unassigned;
+        } else {
+          targetVal = total;
+        }
       }
 
       state.mutationActive = true;
       try {
-        await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
-          kind: 'SetOwnQuantity',
-          command_id: `claim-${Date.now()}-${itemId}`,
+        const commandKind = snap.is_organizer ? 'AssignParticipantQuantity' : 'SetOwnQuantity';
+        const payload = {
+          kind: commandKind,
+          command_id: `${commandKind.toLowerCase()}-${Date.now()}-${itemId}`,
           item_id: itemId,
           quantity: targetVal === 0 ? null : targetVal,
           expected_item_revision: rev,
           expected_financial_revision: snap.financial_revision,
-        });
+        };
+        if (snap.is_organizer) {
+          payload.participant_id = targetUserId;
+        }
+
+        await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', payload);
         state.mutationActive = false;
         await fetchSnapshot(true);
       } catch (err) {
