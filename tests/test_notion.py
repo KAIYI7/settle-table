@@ -264,6 +264,7 @@ class TestNotionTransportIntegration(unittest.TestCase):
             self.db_path,
             server_origin="http://localhost:8000",
             notion_client=self.mock_client,
+            allow_sync_export=True,
         )
 
         # Bootstrap meal with Alice (organizer) and Bob (diner)
@@ -527,6 +528,121 @@ class TestNotionTransportIntegration(unittest.TestCase):
             self.assertEqual(code, 200)
         finally:
             socket.socket.connect = orig_connect
+
+
+    def test_sync_export_override_disabled_by_default(self):
+        """Verify that ?sync=1 is safely ignored and executed asynchronously when allow_sync_export is False."""
+        app_default = SettleTableApp(
+            self.db_path,
+            server_origin="http://localhost:8000",
+            notion_client=self.mock_client,
+            allow_sync_export=False,
+        )
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.org_cred}",
+                "X-SettleTable-Action": "1",
+            }
+            body = {
+                "parent_id": "11111111-2222-3333-4444-555555555555",
+                "token": "secret_12345678901234567890",
+            }
+            env = {
+                "REQUEST_METHOD": "POST",
+                "PATH_INFO": "/api/meals/meal-notion-test/export/notion",
+                "QUERY_STRING": "sync=1",
+                "SERVER_NAME": "localhost",
+                "SERVER_PORT": "8000",
+                "HTTP_HOST": "localhost:8000",
+                "wsgi.url_scheme": "http",
+            }
+            body_file = tempfile.SpooledTemporaryFile()
+            env["wsgi.input"] = body_file
+            body_bytes = json.dumps(body).encode("utf-8")
+            body_file.write(body_bytes)
+            body_file.seek(0)
+            env["CONTENT_LENGTH"] = str(len(body_bytes))
+            env["CONTENT_TYPE"] = "application/json"
+            for k, v in headers.items():
+                env[f"HTTP_{k.upper().replace('-', '_')}"] = v
+
+            status_captured = []
+            def start_response(status, resp_headers):
+                status_captured.append(status)
+
+            try:
+                res_iter = app_default(env, start_response)
+                res_body = b"".join(res_iter)
+            finally:
+                body_file.close()
+            code = int(status_captured[0].split()[0])
+            self.assertEqual(code, 202)
+            data = json.loads(res_body.decode("utf-8"))
+            self.assertEqual(data["export"]["status"], "in_progress")
+        finally:
+            app_default.close()
+
+    def test_notion_export_failed_status_and_recovery(self):
+        """Verify that export failures transition to 'failed' and allow clean recovery and status reporting."""
+        authority = Authority(str(self.db_path))
+        try:
+            snap = authority.snapshot(self.org_cred, "meal-notion-test")
+            rev = snap.revision
+            authority.record_notion_export_failed("meal-notion-test", rev, "test_network_error")
+            rec = authority.get_notion_export("meal-notion-test", rev)
+            self.assertIsNotNone(rec)
+            self.assertEqual(rec["status"], "failed")
+            self.assertEqual(rec["export_digest"], "test_network_error")
+
+            # GET endpoint returns failed status to caller
+            headers = {"Authorization": f"Bearer {self.org_cred}"}
+            code, _, res_body = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers)
+            self.assertEqual(code, 200)
+            data = json.loads(res_body.decode("utf-8"))
+            self.assertEqual(data["export"]["status"], "failed")
+            self.assertEqual(data["export"]["export_digest"], "test_network_error")
+
+            # Clean recovery: re-export succeeds
+            body = {
+                "parent_id": "11111111-2222-3333-4444-555555555555",
+                "token": "secret_12345678901234567890",
+            }
+            post_headers = {
+                "Authorization": f"Bearer {self.org_cred}",
+                "X-SettleTable-Action": "1",
+            }
+            code2, _, res_body2 = self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", post_headers, body)
+            self.assertEqual(code2, 200)
+            data2 = json.loads(res_body2.decode("utf-8"))
+            self.assertEqual(data2["export"]["status"], "completed")
+        finally:
+            authority.close()
+
+    def test_query_block_children_pagination(self):
+        """Verify that NotionHttpClient.query_block_children handles cursor pagination."""
+        from settletable.notion.client import NotionHttpClient
+        client = NotionHttpClient()
+
+        calls = []
+        def fake_request(token, method, endpoint, data=None):
+            calls.append(endpoint)
+            if "start_cursor=page2" in endpoint:
+                return {
+                    "results": [{"id": "b3", "type": "paragraph"}],
+                    "has_more": False,
+                    "next_cursor": None,
+                }
+            return {
+                "results": [{"id": "b1", "type": "paragraph"}, {"id": "b2", "type": "paragraph"}],
+                "has_more": True,
+                "next_cursor": "page2",
+            }
+
+        client._request = fake_request
+        blocks = client.query_block_children("secret_test", "block-uuid")
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual([b["id"] for b in blocks], ["b1", "b2", "b3"])
+        self.assertEqual(len(calls), 2)
 
 
 if __name__ == "__main__":

@@ -696,6 +696,8 @@ def export_finalized_meal(
                             page_url=existing_url,
                             blocks_created=0,
                         )
+        except (NotionAuthError, NotionValidationError, NotionNotFoundError):
+            raise
         except Exception:
             pass
 

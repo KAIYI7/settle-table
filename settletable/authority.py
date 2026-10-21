@@ -1038,12 +1038,17 @@ class Authority:
             ).fetchone()
             if not row:
                 return None
+            status = row[4]
+            digest = row[3]
+            if status == 'in_progress' and (self._now() - row[2]) > 60.0:
+                status = 'failed'
+                digest = 'timeout'
             return {
                 'page_id': row[0],
                 'page_url': row[1],
                 'exported_at': row[2],
-                'export_digest': row[3],
-                'status': row[4],
+                'export_digest': digest,
+                'status': status,
             }
         except sqlite3.Error as err:
             self._storage_failure(err)
@@ -1058,6 +1063,22 @@ class Authority:
                 'ON CONFLICT(meal_id, finalized_revision) DO UPDATE SET '
                 'status = excluded.status, exported_at = excluded.exported_at, export_digest = excluded.export_digest',
                 (meal_id, finalized_revision, '', '', now, export_digest, 'in_progress'),
+            )
+            self._db.execute('COMMIT')
+        except sqlite3.Error as err:
+            self._rollback()
+            self._storage_failure(err)
+
+    def record_notion_export_failed(self, meal_id, finalized_revision, error_code):
+        try:
+            self._db.execute('BEGIN IMMEDIATE')
+            now = self._now()
+            self._db.execute(
+                'INSERT INTO notion_exports (meal_id, finalized_revision, page_id, page_url, exported_at, export_digest, status) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?) '
+                'ON CONFLICT(meal_id, finalized_revision) DO UPDATE SET '
+                'status = excluded.status, exported_at = excluded.exported_at, export_digest = excluded.export_digest',
+                (meal_id, finalized_revision, '', '', now, str(error_code)[:128], 'failed'),
             )
             self._db.execute('COMMIT')
         except sqlite3.Error as err:

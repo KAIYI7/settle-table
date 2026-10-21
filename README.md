@@ -8,10 +8,36 @@ Repository: [KAIYI7/settle-table](https://github.com/KAIYI7/settle-table). The l
 
 The checkout contains sanitized research, aggregate results and source metadata. Receipt images/text, models, environments, local databases and private Notion locators are excluded. Read [publication and reproducibility notes](research/publishing/README.md) before reproducing experiments or restoring the locally installed Impeccable skill.
 
-The production modules are a Python standard-library financial calculator and a bounded local SQLite draft authority, separate from disposable research experiments. Read the [authority interface](docs/authority-interface.md) for trusted bootstrap, snapshot and command use. Run public-interface tests from this directory:
+The production modules are a Python standard-library financial calculator, a bounded local SQLite draft authority, a same-origin WSGI transport adapter, a zero-dependency browser client, and an optional decoupled Notion exporter, separate from disposable research experiments.
+
+### Running Public-Interface Tests
+
+Run the full automated test suite from this directory:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-The suite includes10,000 real durable command transactions and may take several minutes. Disposable databases use ignored `.local/tests/`. See the [authority specification](.scratch/authoritative-draft/SPEC.md), [acceptance evidence](research/phase-3/authority-acceptance.md) and [implementation record](research/phase-3/README.md). Local authority acceptance does not establish Internet identity, an operational session product, OCR accuracy or Notion delivery. Those capabilities have their own gates.
+The suite includes real durable SQLite command transactions, mock OCR extraction, and bounded Notion export tests. Disposable databases use ignored `.local/tests/`.
+
+To run the automated real browser journey test (requires Chrome and Node.js):
+
+```powershell
+node tools/e2e_browser_test.mjs
+```
+
+### Running the Local Browser Demo
+
+Launch the local development and demonstration server with deterministic mock OCR and mock Notion clients:
+
+```powershell
+python tools/run_demo.py --host 127.0.0.1 --port 8000 --mock-ocr --mock-notion
+```
+
+Open `http://127.0.0.1:8000` in your web browser.
+
+**Runner Behavior & Credential Security**:
+- The runner binds to the local interface and prints the server origin and database path.
+- The runner **never prints organizer credentials or session links to stdout**. Credentials are issued directly to the browser via host-only secure cookies (`settletable_session`), and diner invitations are created and copied directly within the organizer's web UI.
+- OCR inference runs locally on the host server (RapidOCR CPU ONNX), not on-device inside phone browsers.
+- See the complete [User Acceptance Testing (UAT) Handover Guide](docs/uat-handover.md) for step-by-step walkthroughs, realistic test meals, failure/recovery scenarios, and known limitations.
