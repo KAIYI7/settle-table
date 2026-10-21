@@ -722,114 +722,142 @@ function renderOrganizerSection(snap) {
       </div>
 
       ${state.ocrCandidate ? `
-        <!-- Staged OCR Candidate Card with Inline Edit-Before-Accept Experience -->
-        <div id="ocr-candidate-card" style="background: var(--bg-surface); border: 2px solid var(--accent-indigo); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 0.9rem; color: var(--accent-indigo);">📋 SCANNED CANDIDATE (STAGED)</span>
+        <!-- Staged OCR Candidate Card with Polished Responsive Editor -->
+        <div id="ocr-candidate-card" class="ocr-candidate-card">
+          <div class="ocr-candidate-header">
+            <span class="ocr-candidate-title">📋 SCANNED CANDIDATE (STAGED)</span>
             ${state.ocrCandidate.route === 'manual_correction'
-              ? '<span style="font-size: 0.75rem; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 999px; font-weight: 600;">⚠️ Needs Correction</span>'
-              : '<span style="font-size: 0.75rem; background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 999px; font-weight: 600;">✓ Ready for Review</span>'}
+              ? '<span class="badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">⚠️ Needs Correction</span>'
+              : '<span class="badge" style="background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;">✓ Ready for Review</span>'}
           </div>
-          <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">
-            Staged in browser memory outside SQLite. Edit any misread items, quantities, prices, taxes, discounts, or fees below before applying to authoritative receipt.
+          <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 12px; line-height: 1.4;">
+            Staged in browser memory outside SQLite. Edit any misread items, quantities, line totals, taxes, discounts, or BNM cash rounding below before applying to authoritative receipt.
           </p>
           ${state.ocrCandidate.issues && state.ocrCandidate.issues.length > 0 ? `
-            <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 10px; font-size: 0.8rem; color: #92400e;">
+            <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 12px; font-size: 0.82rem; color: #92400e;">
               <strong>Verification Note:</strong> ${escapeHtml(state.ocrCandidate.issues.join('; '))}
             </div>
           ` : ''}
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
-            Merchant: <strong>${escapeHtml(state.ocrCandidate.merchant || 'Unknown')}</strong> |
-            Confidence: <strong>${((state.ocrCandidate.mean_confidence || 0) * 100).toFixed(1)}%</strong>
+          <div class="ocr-meta-bar">
+            <span>Merchant: <strong>${escapeHtml(state.ocrCandidate.merchant || 'Unknown')}</strong></span>
+            <span>Confidence: <strong>${((state.ocrCandidate.mean_confidence || 0) * 100).toFixed(1)}%</strong></span>
           </div>
 
-          <!-- Candidate Items Table (Editable) -->
-          <div style="margin-bottom: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden;">
-            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+          <!-- Section: Scanned Items -->
+          <div class="ocr-section-title">
+            <span>Receipt Items</span>
+            <span class="ocr-section-hint">Amounts represent Line Totals (Qty &times; Unit Price)</span>
+          </div>
+
+          <!-- Candidate Items Table (Responsive Desktop Table + Mobile Stacked Cards) -->
+          <div class="ocr-table-container">
+            <table class="ocr-items-table">
               <thead>
-                <tr style="background: var(--bg-main); text-align: left; font-size: 0.75rem; color: var(--text-muted);">
-                  <th style="padding: 6px 8px;">Item Name</th>
-                  <th style="padding: 6px 4px; text-align: center; width: 55px;">Qty</th>
-                  <th style="padding: 6px 4px; text-align: right; width: 85px;">Amount (RM)</th>
-                  <th style="padding: 6px 4px; text-align: center; width: 30px;"></th>
+                <tr>
+                  <th>Item Name</th>
+                  <th class="col-qty">Qty</th>
+                  <th class="col-amount">Line Total (RM)</th>
+                  <th class="col-unit">Unit Price (est.)</th>
+                  <th class="col-action"></th>
                 </tr>
               </thead>
               <tbody id="ocr-cand-items-body">
-                ${state.ocrCandidate.items.map((it, idx) => `
-                  <tr class="ocr-cand-item-row" data-idx="${idx}" style="border-top: 1px solid var(--border-color);">
-                    <td style="padding: 4px 6px;">
-                      <input type="text" class="ocr-edit-item-label form-input" data-idx="${idx}" value="${escapeHtml(it.label)}" style="width: 100%; font-size: 0.82rem; padding: 4px 6px; box-sizing: border-box;" />
+                ${state.ocrCandidate.items.map((it, idx) => {
+                  const qtyVal = Array.isArray(it.quantity) ? it.quantity[0] : (it.quantity || 1);
+                  const lineSen = it.line_sen || 0;
+                  const unitSen = qtyVal > 0 ? Math.round(lineSen / qtyVal) : lineSen;
+                  return `
+                  <tr class="ocr-cand-item-row" data-idx="${idx}">
+                    <td class="cell-label">
+                      <div class="ocr-mobile-only ocr-field-label">Item Name</div>
+                      <input type="text" id="ocr-item-label-${idx}" class="ocr-edit-item-label form-input" data-idx="${idx}" value="${escapeHtml(it.label)}" placeholder="Item name" />
                     </td>
-                    <td style="padding: 4px 4px; text-align: center;">
-                      <input type="number" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${Array.isArray(it.quantity) ? it.quantity[0] : it.quantity}" style="width: 48px; text-align: center; font-size: 0.82rem; padding: 4px 2px; box-sizing: border-box;" />
+
+                    <td class="cell-qty">
+                      <div class="ocr-mobile-only ocr-field-label">Qty</div>
+                      <input type="number" id="ocr-item-qty-${idx}" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${qtyVal}" />
                     </td>
-                    <td style="padding: 4px 4px; text-align: right;">
-                      <input type="text" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(it.line_sen / 100).toFixed(2)}" style="width: 78px; text-align: right; font-size: 0.82rem; padding: 4px 4px; font-family: monospace; box-sizing: border-box;" />
+
+                    <td class="cell-amount">
+                      <div class="ocr-mobile-only ocr-field-label">Line Total (RM)</div>
+                      <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" />
+                      <div class="ocr-mobile-only ocr-cand-item-unit-mobile ocr-cand-item-unit" data-idx="${idx}">@ RM ${(unitSen / 100).toFixed(2)} ea</div>
                     </td>
-                    <td style="padding: 4px 4px; text-align: center;">
-                      <button type="button" class="btn btn-secondary btn-sm ocr-del-item-btn" data-idx="${idx}" title="Remove item" style="padding: 2px 6px; font-size: 0.75rem; color: var(--accent-rose);">✕</button>
+
+                    <td class="cell-unit ocr-desktop-only">
+                      <span class="ocr-cand-item-unit" data-idx="${idx}">@ RM ${(unitSen / 100).toFixed(2)}</span>
+                    </td>
+
+                    <td class="cell-action">
+                      <button type="button" class="ocr-del-btn ocr-del-item-btn" data-idx="${idx}" title="Remove item" aria-label="Remove item">✕</button>
                     </td>
                   </tr>
-                `).join('')}
+                `;}).join('')}
               </tbody>
             </table>
-            <div style="padding: 6px 8px; background: var(--bg-main); border-top: 1px solid var(--border-color);">
-              <button type="button" id="ocr-add-item-btn" class="btn btn-secondary btn-sm" style="font-size: 0.75rem;">+ Add Missing Item</button>
+            <div class="ocr-table-footer">
+              <button type="button" id="ocr-add-item-btn" class="btn btn-secondary btn-sm">+ Add Missing Item</button>
+              <span style="font-size: 0.8rem; color: var(--text-dim);">${state.ocrCandidate.items.length} item(s)</span>
             </div>
           </div>
 
-          <!-- Candidate Adjustments & Taxes Section (Editable) -->
-          <div style="background: var(--bg-main); padding: 10px; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 12px;">
-            <div style="font-weight: 600; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">ADJUSTMENTS, TAXES & DISCOUNTS</div>
+          <!-- Section: Adjustments, Taxes & BNM Rounding -->
+          <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); margin-bottom: 14px;">
+            <div class="ocr-section-title">
+              <span>Adjustments, Taxes & Discounts</span>
+              <span class="ocr-section-hint">Signed minor units (e.g. -0.02 BNM rounding)</span>
+            </div>
             <div id="ocr-cand-adjustments-list">
               ${(state.ocrCandidate.adjustments || []).map((adj, idx) => `
-                <div class="ocr-cand-adj-row" data-adj-idx="${idx}" style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-                  <input type="text" class="ocr-edit-adj-label form-input" data-adj-idx="${idx}" value="${escapeHtml(adj.label || '')}" placeholder="Label (e.g. Service)" style="flex: 2; font-size: 0.8rem; padding: 3px 6px;" />
-                  <select class="ocr-edit-adj-kind form-input" data-adj-idx="${idx}" style="flex: 1.2; font-size: 0.75rem; padding: 3px 2px;">
-                    <option value="service" ${adj.kind === 'service' ? 'selected' : ''}>Service</option>
-                    <option value="tax" ${adj.kind === 'tax' ? 'selected' : ''}>Tax/SST</option>
-                    <option value="discount" ${adj.kind === 'discount' ? 'selected' : ''}>Discount</option>
-                    <option value="rounding" ${adj.kind === 'rounding' ? 'selected' : ''}>Rounding</option>
-                  </select>
-                  <input type="text" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 75px; text-align: right; font-size: 0.8rem; padding: 3px 4px; font-family: monospace;" />
-                  <button type="button" class="btn btn-secondary btn-sm ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove charge" style="padding: 2px 6px; font-size: 0.75rem; color: var(--accent-rose);">✕</button>
+                <div class="ocr-cand-adj-row" data-adj-idx="${idx}">
+                  <input type="text" id="ocr-adj-label-${idx}" class="ocr-edit-adj-label form-input" data-adj-idx="${idx}" value="${escapeHtml(adj.label || '')}" placeholder="Label (e.g. Service Charge)" style="flex: 2; min-height: 44px;" />
+                  <div class="ocr-adj-controls-mobile">
+                    <select id="ocr-adj-kind-${idx}" class="ocr-edit-adj-kind form-input" data-adj-idx="${idx}" style="min-height: 44px;">
+                      <option value="service" ${adj.kind === 'service' ? 'selected' : ''}>Service Charge</option>
+                      <option value="tax" ${adj.kind === 'tax' ? 'selected' : ''}>SST / Tax</option>
+                      <option value="discount" ${adj.kind === 'discount' ? 'selected' : ''}>Discount</option>
+                      <option value="rounding" ${adj.kind === 'rounding' ? 'selected' : ''}>BNM Rounding</option>
+                    </select>
+                    <input type="text" id="ocr-adj-amount-${idx}" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 100px; text-align: right; font-family: monospace; min-height: 44px;" />
+                    <button type="button" class="ocr-del-btn ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove charge" aria-label="Remove adjustment">✕</button>
+                  </div>
                 </div>
               `).join('')}
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
-              <button type="button" id="ocr-add-adj-btn" class="btn btn-secondary btn-sm" style="font-size: 0.75rem;">+ Add Fee / Tax / Discount</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+              <button type="button" id="ocr-add-adj-btn" class="btn btn-secondary btn-sm" style="min-height: 44px;">+ Add Fee / Tax / Rounding</button>
             </div>
 
             <!-- Tax-inclusive Included SST -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-color); font-size: 0.8rem; color: var(--text-dim);">
-              <span>Included SST (informational):</span>
-              <div style="display: flex; align-items: center; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-subtle); font-size: 0.85rem; color: var(--text-dim); flex-wrap: wrap; gap: 6px;">
+              <span>Included SST (tax-inclusive, informational):</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
                 <span>RM</span>
-                <input type="text" id="ocr-edit-included-tax" class="form-input" value="${((state.ocrCandidate.included_tax_sen || 0) / 100).toFixed(2)}" style="width: 65px; text-align: right; font-size: 0.8rem; padding: 2px 4px; font-family: monospace;" />
+                <input type="text" id="ocr-edit-included-tax" class="form-input" value="${((state.ocrCandidate.included_tax_sen || 0) / 100).toFixed(2)}" style="width: 80px; text-align: right; min-height: 44px; font-family: monospace;" />
               </div>
             </div>
 
             <!-- Dynamic Recalculated Totals Display -->
-            <div style="border-top: 1px solid var(--border-color); margin-top: 10px; padding-top: 8px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                <span style="color: var(--text-muted);">Candidate Subtotal:</span>
-                <span id="ocr-cand-subtotal-val" style="font-weight: 600;">${formatSen(state.ocrCandidate.subtotal_sen)}</span>
+            <div style="border-top: 1px solid var(--border-subtle); margin-top: 12px; padding-top: 10px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem;">
+                <span style="color: var(--text-muted);">Candidate Subtotal (sum of line totals):</span>
+                <span id="ocr-cand-subtotal-val" style="font-weight: 600; font-family: monospace;">${formatSen(state.ocrCandidate.subtotal_sen)}</span>
               </div>
-              <div style="display: flex; justify-content: space-between; font-weight: 700;">
-                <span>Candidate Total:</span>
-                <span id="ocr-cand-total-val" style="color: var(--accent-indigo);">${formatSen(state.ocrCandidate.total_sen)}</span>
+              <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.05rem;">
+                <span>Candidate Final Total:</span>
+                <span id="ocr-cand-total-val" style="color: #a5b4fc; font-family: monospace;">${formatSen(state.ocrCandidate.total_sen)}</span>
               </div>
             </div>
           </div>
 
           ${snap.receipt && snap.receipt.items && snap.receipt.items.length > 0 ? `
-            <p style="font-size: 0.75rem; color: #f59e0b; margin-bottom: 10px;">
+            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 12px; font-size: 0.8rem; color: #fde68a;">
               ⚠️ Applying candidate will replace the ${snap.receipt.items.length} existing items on the draft receipt.
-            </p>
+            </div>
           ` : ''}
-          <div style="display: flex; gap: 8px;">
-            <button type="button" id="ocr-accept-btn" class="btn btn-primary btn-sm" style="flex: 2;">Accept & Apply to Receipt</button>
-            <button type="button" id="ocr-discard-btn" class="btn btn-secondary btn-sm" style="flex: 1;">Discard</button>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" id="ocr-accept-btn" class="btn btn-primary" style="flex: 2; min-height: 48px; font-size: 1rem;">Accept & Apply to Receipt</button>
+            <button type="button" id="ocr-discard-btn" class="btn btn-secondary" style="flex: 1; min-height: 48px; font-size: 1rem;">Discard</button>
           </div>
         </div>
       ` : ''}
@@ -1263,6 +1291,13 @@ function bindEvents(snap) {
       }
       const existingId = (cand.items && cand.items[i]) ? cand.items[i].id : `item-${i + 1}`;
       items.push({ id: existingId, label, quantity: qty, line_sen: lineSen });
+
+      // Update unit price estimate displays live
+      const unitSen = qty > 0 ? Math.round(lineSen / qty) : lineSen;
+      row.querySelectorAll('.ocr-cand-item-unit').forEach(unitEl => {
+        const isMobile = unitEl.classList.contains('ocr-cand-item-unit-mobile');
+        unitEl.textContent = `@ RM ${(unitSen / 100).toFixed(2)}${isMobile ? ' ea' : ''}`;
+      });
     });
 
     // Read adjustments from candidate list

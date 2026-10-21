@@ -527,3 +527,325 @@ button:active, .btn:active {
     text-align: left;
   }
 }
+
+/* ==========================================================================
+   Scanned OCR Candidate Editor (Polished, Responsive Layout)
+   ========================================================================== */
+.ocr-candidate-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border-focus);
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.ocr-candidate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ocr-candidate-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #a5b4fc;
+  letter-spacing: 0.03em;
+}
+
+.ocr-meta-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ocr-section-title {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ocr-section-hint {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.15);
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: none;
+}
+
+.ocr-table-container {
+  margin-bottom: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-main);
+}
+
+.ocr-items-table {
+  width: 100%;
+  font-size: 0.9rem;
+  border-collapse: collapse;
+}
+
+.ocr-items-table th {
+  background: rgba(30, 41, 59, 0.9);
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ocr-items-table th.col-qty {
+  width: 75px;
+  text-align: center;
+}
+
+.ocr-items-table th.col-amount {
+  width: 140px;
+  text-align: right;
+}
+
+.ocr-items-table th.col-unit {
+  width: 110px;
+  text-align: right;
+  color: var(--text-dim);
+}
+
+.ocr-items-table th.col-action {
+  width: 52px;
+  text-align: center;
+}
+
+.ocr-cand-item-row {
+  border-top: 1px solid var(--border-subtle);
+  transition: background-color 0.1s ease;
+}
+
+.ocr-cand-item-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ocr-cand-item-row td {
+  padding: 8px 10px;
+  vertical-align: middle;
+}
+
+.ocr-cand-item-row td.cell-qty {
+  text-align: center;
+}
+
+.ocr-cand-item-row td.cell-amount {
+  text-align: right;
+}
+
+.ocr-cand-item-row td.cell-unit {
+  text-align: right;
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.ocr-cand-item-row td.cell-action {
+  text-align: center;
+}
+
+/* Touch targets and input styling */
+.ocr-edit-item-label {
+  width: 100%;
+  min-height: 44px;
+  font-size: 0.95rem;
+  padding: 8px 12px;
+}
+
+.ocr-edit-item-qty {
+  width: 65px;
+  min-height: 44px;
+  text-align: center;
+  font-size: 0.95rem;
+  padding: 8px 4px;
+}
+
+.ocr-edit-item-price {
+  width: 115px;
+  min-height: 44px;
+  text-align: right;
+  font-family: monospace;
+  font-size: 0.95rem;
+  padding: 8px 10px;
+}
+
+.ocr-del-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 12px;
+  color: var(--accent-rose);
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+
+.ocr-del-btn:hover {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: var(--accent-rose);
+}
+
+.ocr-table-footer {
+  padding: 8px 12px;
+  background: var(--bg-main);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Mobile markup helper: hidden on desktop */
+.ocr-mobile-only {
+  display: none;
+}
+
+.ocr-desktop-only {
+  display: table-cell;
+}
+
+/* Responsive Stacked Cards on Narrow / Mobile Screens (< 640px) */
+@media (max-width: 639px) {
+  .ocr-candidate-card {
+    padding: 14px;
+  }
+  .ocr-items-table {
+    display: block;
+    width: 100%;
+  }
+  .ocr-items-table thead {
+    display: none;
+  }
+  .ocr-items-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 10px;
+  }
+  .ocr-cand-item-row {
+    display: grid;
+    grid-template-columns: 75px 1fr 44px;
+    grid-template-areas:
+      "label label label"
+      "qty price action";
+    gap: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    align-items: end;
+  }
+  .ocr-cand-item-row td {
+    padding: 0;
+    border: none;
+  }
+  .ocr-cand-item-row td.cell-label {
+    grid-area: label;
+    width: 100%;
+  }
+  .ocr-cand-item-row td.cell-qty {
+    grid-area: qty;
+    width: 100%;
+  }
+  .ocr-cand-item-row td.cell-amount {
+    grid-area: price;
+    width: 100%;
+  }
+  .ocr-cand-item-row td.cell-amount input {
+    max-width: 100%;
+  }
+  .ocr-cand-item-row td.cell-unit {
+    display: none !important;
+  }
+  .ocr-cand-item-row td.cell-action {
+    grid-area: action;
+    width: 44px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .ocr-desktop-only {
+    display: none !important;
+  }
+  .ocr-mobile-only {
+    display: block;
+  }
+
+  .ocr-field-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+  .ocr-cand-item-unit-mobile {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+    font-family: monospace;
+  }
+
+  .ocr-cand-adj-row {
+    flex-direction: column;
+    align-items: stretch;
+    background: var(--bg-card);
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    gap: 8px;
+  }
+  .ocr-adj-controls-mobile {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    align-items: center;
+  }
+  .ocr-adj-controls-mobile select {
+    flex: 1.2;
+    min-height: 44px;
+  }
+  .ocr-adj-controls-mobile input {
+    flex: 1;
+    min-height: 44px;
+  }
+}
+

@@ -302,6 +302,36 @@ async function main() {
     await pageA.waitFor("document.getElementById('ocr-cand-subtotal-val').innerText === 'RM 15.20'");
     console.log('   ✓ Server OCR candidate verified: Subtotal RM 15.20, Total RM 16.70');
 
+    // Test Desktop Viewport Usability & Typography
+    const desktopTheadDisplay = await pageA.evaluate("window.getComputedStyle(document.querySelector('.ocr-items-table thead')).display");
+    if (desktopTheadDisplay === 'none') {
+      throw new Error(`Expected desktop table thead to be visible, got ${desktopTheadDisplay}`);
+    }
+    const desktopUnitText = await pageA.evaluate("document.querySelector('.cell-unit .ocr-cand-item-unit').innerText");
+    if (!desktopUnitText.includes('@ RM')) {
+      throw new Error(`Expected unit price estimate in desktop cell, got: ${desktopUnitText}`);
+    }
+    console.log('   ✓ Desktop candidate layout verified: readable table with Line Total & Unit Price columns');
+
+    // Test Mobile Viewport Usability, Stacked Layout, & Touch Targets (375x667)
+    await pageA.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 2, mobile: true });
+    const mobileTheadDisplay = await pageA.evaluate("window.getComputedStyle(document.querySelector('.ocr-items-table thead')).display");
+    if (mobileTheadDisplay !== 'none') {
+      throw new Error(`Expected mobile table thead to be hidden, got ${mobileTheadDisplay}`);
+    }
+    const mobileLabelDisplay = await pageA.evaluate("window.getComputedStyle(document.querySelector('.ocr-mobile-only.ocr-field-label')).display");
+    if (mobileLabelDisplay !== 'block') {
+      throw new Error(`Expected mobile field labels to be displayed, got ${mobileLabelDisplay}`);
+    }
+    const touchTargets = await pageA.evaluate("(() => { const btn = document.querySelector('.ocr-del-item-btn'); const r = btn.getBoundingClientRect(); return { w: r.width, h: r.height }; })()");
+    if (touchTargets.w < 40 || touchTargets.h < 40) {
+      throw new Error(`Mobile touch target too small: ${JSON.stringify(touchTargets)}, expected >= 40px`);
+    }
+    console.log(`   ✓ Mobile responsive stacked layout verified (375px): stacked grid, touch targets ${touchTargets.w}x${touchTargets.h}px >= 40px`);
+
+    // Restore Desktop Viewport (1280x800)
+    await pageA.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+
     // Test inline editing of candidate item
     await pageA.evaluate(`(() => {
       const labelInput = document.querySelector('.ocr-edit-item-label');
