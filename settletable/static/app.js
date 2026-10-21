@@ -15,6 +15,9 @@ const state = {
   mutationActive: false,
   issuedTokens: {},
   ocrCandidate: null,
+  notionParentId: '',
+  notionToken: '',
+  notionExport: null,
 };
 
 function formatSen(sen) {
@@ -190,10 +193,27 @@ async function fetchSnapshot(force = false) {
   try {
     const snap = await apiCall(`/api/meals/${state.mealId}/snapshot`);
     if (seq >= state.pollSeq && snap?.ok) {
+      const prevSnap = state.snapshot;
+      const prevRev = prevSnap ? prevSnap.revision : -1;
+      const prevFinRev = prevSnap ? prevSnap.financial_revision : -1;
+      const prevFinalized = prevSnap ? prevSnap.finalized : null;
+      const prevUser = state.currentUserId;
+      const prevIsOrg = state.isOrganizer;
+
       state.snapshot = snap;
       state.currentUserId = snap.current_participant_id;
       state.isOrganizer = snap.is_organizer;
-      updateMealUI();
+
+      const hasChanged = !prevSnap 
+        || snap.revision !== prevRev 
+        || snap.financial_revision !== prevFinRev
+        || snap.finalized !== prevFinalized
+        || snap.current_participant_id !== prevUser
+        || snap.is_organizer !== prevIsOrg;
+
+      if (force || hasChanged) {
+        updateMealUI();
+      }
     }
   } catch (err) {
     if (err.status === 401) {
@@ -221,6 +241,9 @@ async function handleLeaveRoom() {
   state.currentUserId = null;
   state.isOrganizer = false;
   state.ocrCandidate = null;
+  state.notionParentId = '';
+  state.notionToken = '';
+  state.notionExport = null;
   const headerStatus = document.getElementById('header-user-status');
   if (headerStatus) headerStatus.innerHTML = '';
   if (window.location.hash === '#/') {
@@ -422,6 +445,9 @@ async function renderInviteLanding(token) {
 // --- View 3: Meal Room ---
 async function loadMeal(mealId) {
   state.mealId = mealId;
+  state.notionParentId = '';
+  state.notionToken = '';
+  state.notionExport = null;
   const app = document.getElementById('app');
   app.innerHTML = `
     <div class="loading-state">
@@ -436,6 +462,19 @@ async function loadMeal(mealId) {
       state.snapshot = snap;
       state.currentUserId = snap.current_participant_id;
       state.isOrganizer = snap.is_organizer;
+
+      // If finalized and organizer, check if this revision was already exported to Notion
+      if (snap.finalized && snap.is_organizer) {
+        try {
+          const expRes = await apiCall(`/api/meals/${mealId}/export/notion`);
+          if (expRes?.ok && expRes.export && (expRes.export.status === 'completed' || expRes.export.status === 'already_exported' || expRes.export.status === 'failed')) {
+            state.notionExport = expRes.export;
+          }
+        } catch {
+          // Non-critical, ignore
+        }
+      }
+
       updateMealUI();
       startPolling();
     }
@@ -467,6 +506,35 @@ function updateMealUI() {
   window.settletable = { state, updateMealUI };
   const snap = state.snapshot;
   if (!snap) return;
+
+  // Preserve any in-progress input values and active focus across re-renders
+  const activeElem = document.activeElement;
+  const activeId = activeElem?.id;
+  const selectionStart = activeElem?.selectionStart;
+  const selectionEnd = activeElem?.selectionEnd;
+
+  const currentParentId = document.getElementById('notion-parent-id')?.value;
+  if (currentParentId !== undefined && currentParentId !== '') {
+    state.notionParentId = currentParentId;
+  }
+  const currentToken = document.getElementById('notion-token')?.value;
+  if (currentToken !== undefined && currentToken !== '') {
+    state.notionToken = currentToken;
+  }
+
+  const restoreFocus = () => {
+    if (activeId) {
+      const el = document.getElementById(activeId);
+      if (el) {
+        el.focus();
+        if (typeof selectionStart === 'number' && typeof selectionEnd === 'number') {
+          try {
+            el.setSelectionRange(selectionStart, selectionEnd);
+          } catch {}
+        }
+      }
+    }
+  };
 
   // Header Status
   const user = snap.participants?.find(p => p.id === state.currentUserId);
@@ -535,6 +603,7 @@ function updateMealUI() {
     html += renderFinalizedCalculation(snap);
     app.innerHTML = html;
     bindEvents(snap);
+    restoreFocus();
     return;
   }
 
@@ -581,6 +650,7 @@ function updateMealUI() {
 
   app.innerHTML = html;
   bindEvents(snap);
+  restoreFocus();
 }
 
 // --- Sub-renderers ---
@@ -951,6 +1021,30 @@ function renderFinalizedCalculation(snap) {
     `;
   }).join('');
 
+  const parentVal = state.notionParentId || '';
+  const tokenVal = state.notionToken || '';
+
+  let exportResultHtml = '';
+  if (state.notionExport && (state.notionExport.status === 'completed' || state.notionExport.status === 'already_exported')) {
+    exportResultHtml = `
+      <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #6ee7b7;">
+        <strong>✓ Export Successful!</strong><br/>
+        Page ID: <code style="font-size: 0.8rem;">${escapeHtml(state.notionExport.page_id || '')}</code><br/>
+        <a href="${escapeHtml(state.notionExport.page_url || '#')}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 0.5rem;" id="notion-page-link">
+          Open Report in Notion ↗
+        </a>
+      </div>
+    `;
+  } else if (state.notionExport && state.notionExport.status === 'failed') {
+    exportResultHtml = `
+      <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--accent-rose);">
+        Export failed: ${escapeHtml(state.notionExport.export_digest || 'notion_error')}
+      </div>
+    `;
+  } else {
+    exportResultHtml = `<div id="notion-export-result" style="display: none; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px;"></div>`;
+  }
+
   return `
     <div class="card">
       <div class="card-title" style="color: var(--accent-emerald);">Final Apportionment Summary</div>
@@ -980,11 +1074,11 @@ function renderFinalizedCalculation(snap) {
           <div id="notion-export-controls">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
               <label style="font-size: 0.8rem; color: var(--text-muted);">Notion Parent Page URL or UUID:</label>
-              <input type="text" id="notion-parent-id" placeholder="Paste Notion page URL or UUID (e.g. 3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d)" class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+              <input type="text" id="notion-parent-id" value="${escapeHtml(parentVal)}" placeholder="Paste Notion page URL or UUID (e.g. 3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d)" class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
               <label style="font-size: 0.8rem; color: var(--text-muted);">Integration Token (optional if set on server):</label>
-              <input type="password" id="notion-token" placeholder="secret_..." class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+              <input type="password" id="notion-token" value="${escapeHtml(tokenVal)}" placeholder="secret_..." class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
             </div>
             <button id="notion-export-btn" class="btn btn-primary" style="width: 100%;">
               Export Finalized Report to Notion
@@ -995,7 +1089,7 @@ function renderFinalizedCalculation(snap) {
             ⏳ Creating structured Notion page...
           </div>
 
-          <div id="notion-export-result" style="display: none; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px;"></div>
+          ${exportResultHtml}
         </div>
       ` : ''}
     </div>
@@ -1522,6 +1616,14 @@ function bindEvents(snap) {
       if (parsed && (parentInputElem.value.includes('http') || parentInputElem.value.length === 32)) {
         parentInputElem.value = parsed;
       }
+      state.notionParentId = parentInputElem.value;
+    });
+  }
+
+  const tokenInputElem = document.getElementById('notion-token');
+  if (tokenInputElem) {
+    tokenInputElem.addEventListener('input', () => {
+      state.notionToken = tokenInputElem.value;
     });
   }
 
@@ -1586,6 +1688,7 @@ function bindEvents(snap) {
               if (pollData.ok && pollData.export && (pollData.export.status === 'completed' || pollData.export.status === 'already_exported')) {
                 clearInterval(pollInterval);
                 const pollExp = pollData.export;
+                state.notionExport = pollExp;
                 if (resultDiv) {
                   resultDiv.style.display = 'block';
                   resultDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';
@@ -1604,6 +1707,7 @@ function bindEvents(snap) {
                 if (spinner) spinner.style.display = 'none';
               } else if (pollData.ok && pollData.export && pollData.export.status === 'failed') {
                 clearInterval(pollInterval);
+                state.notionExport = pollData.export;
                 notionBtn.disabled = false;
                 if (spinner) spinner.style.display = 'none';
                 const errDetail = pollData.export.export_digest || 'notion_error';

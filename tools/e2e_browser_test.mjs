@@ -601,6 +601,14 @@ async function main() {
     }
     console.log('   ✓ Notion sharing URL automatically normalized to canonical UUID:', normalizedId);
 
+    // Wait 4 seconds (exceeding the 3-second poll interval) to verify background polling does NOT clear the input field
+    await new Promise(resolve => setTimeout(resolve, 4000));
+    const inputValAfterPoll = await pageA.evaluate("document.getElementById('notion-parent-id').value");
+    if (inputValAfterPoll !== '3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d') {
+      throw new Error(`Input field was cleared by background polling! Expected '3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d', got '${inputValAfterPoll}'`);
+    }
+    console.log('   ✓ Verified input field persists across background polling cycles without being cleared');
+
     // Alice clicks export with token input empty
     await pageA.evaluate(`document.getElementById('notion-export-btn').click()`);
 
