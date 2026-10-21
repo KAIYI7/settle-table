@@ -8,6 +8,7 @@ from .client import (
     NotionNotFoundError,
     NotionRateLimitError,
     NotionValidationError,
+    extract_notion_id,
     sanitize_notion_error_message,
 )
 from .exporter import (
@@ -36,6 +37,7 @@ __all__ = [
     'NotionNotFoundError',
     'NotionValidationError',
     'sanitize_notion_error_message',
+    'extract_notion_id',
     'format_sen',
     'text_cell',
     'format_meal_properties',

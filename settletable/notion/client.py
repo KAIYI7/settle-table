@@ -43,6 +43,29 @@ def sanitize_notion_error_message(msg: str) -> str:
     return s
 
 
+def extract_notion_id(val: str) -> str | None:
+    """Normalize a Notion ID, UUID, or page URL into a canonical 36-character hyphenated UUID."""
+    if not val or not isinstance(val, str):
+        return None
+    s = val.strip()
+    if NOTION_ID_REGEX.match(s):
+        clean = s.replace('-', '').lower()
+        return f"{clean[0:8]}-{clean[8:12]}-{clean[12:16]}-{clean[16:20]}-{clean[20:32]}"
+
+    # Search for standard hyphenated UUID in string or URL
+    m_hyphen = re.search(r'\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b', s)
+    if m_hyphen:
+        return m_hyphen.group(1).lower()
+
+    # Search for 32-hex string (e.g. trailing slug in Notion sharing URLs)
+    m_hex = re.search(r'([0-9a-fA-F]{32})', s)
+    if m_hex:
+        clean = m_hex.group(1).lower()
+        return f"{clean[0:8]}-{clean[8:12]}-{clean[12:16]}-{clean[16:20]}-{clean[20:32]}"
+
+    return None
+
+
 class NotionClientProtocol(Protocol):
     """Protocol for Notion API clients."""
 

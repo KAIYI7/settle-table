@@ -589,12 +589,20 @@ async function main() {
     const bobHasNotion = await pageB.evaluate("Boolean(document.getElementById('notion-export-card'))");
     if (bobHasNotion) throw new Error('Diner should NOT see Notion export controls');
 
-    // Alice enters Notion parent UUID and clicks export
-    await pageA.evaluate(`(() => {
-      document.getElementById('notion-parent-id').value = '11111111-2222-3333-4444-555555555555';
-      document.getElementById('notion-token').value = 'secret_test_mock_token_1234567890';
-      document.getElementById('notion-export-btn').click();
+    // Alice pastes a full Notion sharing URL and leaves token blank (tests URL auto-extraction & mock token default)
+    const normalizedId = await pageA.evaluate(`(() => {
+      const input = document.getElementById('notion-parent-id');
+      input.value = 'https://app.notion.com/p/SYNTHETIC-Meal-001-3fb0ffe172a6815eb59def81c6e8eb4d?source=copy_link';
+      input.dispatchEvent(new Event('input'));
+      return input.value;
     })()`);
+    if (normalizedId !== '3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d') {
+      throw new Error(`Expected normalized UUID 3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d, got ${normalizedId}`);
+    }
+    console.log('   ✓ Notion sharing URL automatically normalized to canonical UUID:', normalizedId);
+
+    // Alice clicks export with token input empty
+    await pageA.evaluate(`document.getElementById('notion-export-btn').click()`);
 
     // Await green success banner with Notion link
     await pageA.waitFor("document.getElementById('notion-page-link') !== null");

@@ -27,6 +27,7 @@ from settletable.notion import (
     NotionValidationError,
     count_notion_blocks,
     export_finalized_meal,
+    extract_notion_id,
     format_compact_meal_blocks,
     format_full_meal_blocks,
     format_meal_properties,
@@ -50,6 +51,23 @@ class TestNotionModelsAndFormatting(unittest.TestCase):
     def test_text_cell(self):
         cell = text_cell("Test Cell")
         self.assertEqual(cell, [{"type": "text", "text": {"content": "Test Cell"}}])
+
+    def test_extract_notion_id(self):
+        canonical = "3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d"
+        # Standard hyphenated UUID
+        self.assertEqual(extract_notion_id("3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d"), canonical)
+        # Unhyphenated 32-hex
+        self.assertEqual(extract_notion_id("3fb0ffe172a6815eb59def81c6e8eb4d"), canonical)
+        # Full Notion sharing page URL with slug and query
+        share_url = "https://app.notion.com/p/SYNTHETIC-Meal-001-3fb0ffe172a6815eb59def81c6e8eb4d?source=copy_link"
+        self.assertEqual(extract_notion_id(share_url), canonical)
+        # Workspace Notion URL
+        ws_url = "https://www.notion.so/my-workspace/Dinner-3fb0ffe172a6815eb59def81c6e8eb4d"
+        self.assertEqual(extract_notion_id(ws_url), canonical)
+        # Invalid inputs
+        self.assertIsNone(extract_notion_id(""))
+        self.assertIsNone(extract_notion_id("not-a-uuid"))
+        self.assertIsNone(extract_notion_id(None))
 
     def test_sanitize_notion_error_message(self):
         msg = "Error with token secret_abcdef1234567890123456 and Bearer mytoken123"
@@ -701,6 +719,26 @@ class TestNotionTransportIntegration(unittest.TestCase):
             self.assertEqual(status_data["export"]["export_digest"], "notion_rate_limited")
         finally:
             authority.close()
+
+    def test_export_with_notion_url_and_mock_token_default(self):
+        """Verify that passing a full Notion page URL and omitting token in mock mode succeeds."""
+        headers = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        share_url = "https://app.notion.com/p/SYNTHETIC-Meal-001-3fb0ffe172a6815eb59def81c6e8eb4d?source=copy_link"
+        body = {
+            "parent_id": share_url,
+            # token omitted to test mock notion mode defaulting
+        }
+        code, _, res_body = self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", headers, body)
+        self.assertEqual(code, 200)
+        data = json.loads(res_body.decode("utf-8"))
+        self.assertTrue(data.get("ok"))
+        self.assertTrue(data.get("export", {}).get("ok"))
+        # Verify page created under parent with normalized UUID
+        created_pages = list(self.mock_client.pages.values())
+        self.assertTrue(any(p.get("parent", {}).get("page_id") == "3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d" for p in created_pages))
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ def main():
     if args.mock_notion or os.environ.get("SETTLETABLE_MOCK_NOTION") == "1":
         from settletable.notion import MockNotionClient
         notion_client = MockNotionClient()
+        os.environ.setdefault("SETTLETABLE_NOTION_TOKEN", "secret_mock_notion_uat_testing_token_12345")
 
     ocr_engine = None
     if args.mock_ocr or os.environ.get("SETTLETABLE_MOCK_OCR") == "1":

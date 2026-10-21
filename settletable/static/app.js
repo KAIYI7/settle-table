@@ -67,6 +67,20 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+function extractNotionUuid(val) {
+  if (!val || typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  const hyphenMatch = trimmed.match(/\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b/);
+  if (hyphenMatch) return hyphenMatch[1].toLowerCase();
+
+  const hexMatch = trimmed.match(/([0-9a-fA-F]{32})/);
+  if (hexMatch) {
+    const h = hexMatch[1].toLowerCase();
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+  }
+  return null;
+}
+
 function showAlert(message, type = 'error') {
   const container = document.getElementById('alert-container');
   if (!container) return;
@@ -965,8 +979,8 @@ function renderFinalizedCalculation(snap) {
 
           <div id="notion-export-controls">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
-              <label style="font-size: 0.8rem; color: var(--text-muted);">Notion Parent Page UUID:</label>
-              <input type="text" id="notion-parent-id" placeholder="e.g. 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d" class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+              <label style="font-size: 0.8rem; color: var(--text-muted);">Notion Parent Page URL or UUID:</label>
+              <input type="text" id="notion-parent-id" placeholder="Paste Notion page URL or UUID (e.g. 3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d)" class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
               <label style="font-size: 0.8rem; color: var(--text-muted);">Integration Token (optional if set on server):</label>
@@ -1501,6 +1515,16 @@ function bindEvents(snap) {
   }
 
   // 7. Notion Export
+  const parentInputElem = document.getElementById('notion-parent-id');
+  if (parentInputElem) {
+    parentInputElem.addEventListener('input', () => {
+      const parsed = extractNotionUuid(parentInputElem.value);
+      if (parsed && (parentInputElem.value.includes('http') || parentInputElem.value.length === 32)) {
+        parentInputElem.value = parsed;
+      }
+    });
+  }
+
   const notionBtn = document.getElementById('notion-export-btn');
   if (notionBtn) {
     notionBtn.addEventListener('click', async () => {
@@ -1509,13 +1533,15 @@ function bindEvents(snap) {
       const spinner = document.getElementById('notion-export-spinner');
       const resultDiv = document.getElementById('notion-export-result');
 
-      const parentId = (parentInput?.value || '').trim();
+      const rawParent = (parentInput?.value || '').trim();
+      const parentId = extractNotionUuid(rawParent);
       const token = (tokenInput?.value || '').trim();
 
       if (!parentId) {
-        showAlert('Please enter a valid Notion Parent Page or Database UUID.', 'error');
+        showAlert('Please enter a valid Notion Parent Page UUID or paste your Notion page URL.', 'error');
         return;
       }
+      if (parentInput) parentInput.value = parentId;
 
       notionBtn.disabled = true;
       if (spinner) spinner.style.display = 'block';
