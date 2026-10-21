@@ -1112,6 +1112,9 @@ function bindEvents(snap) {
         }
       }
       const existingId = (cand.adjustments && cand.adjustments[j]) ? cand.adjustments[j].id : `adj-${j + 1}`;
+      const existingRationale = (cand.adjustments && cand.adjustments[j] && cand.adjustments[j].rationale)
+        ? cand.adjustments[j].rationale
+        : `${label} adjustment`;
       const eligible = (cand.adjustments && cand.adjustments[j] && cand.adjustments[j].eligible_item_ids)
         ? cand.adjustments[j].eligible_item_ids
         : items.map(it => it.id);
@@ -1121,6 +1124,7 @@ function bindEvents(snap) {
         kind,
         amount_sen: amountSen,
         eligible_item_ids: eligible,
+        rationale: existingRationale,
       });
     });
 
@@ -1237,13 +1241,20 @@ function bindEvents(snap) {
       }
 
       const allItemIds = candidate.items.map(i => i.id);
-      const cleanAdjustments = (candidate.adjustments || []).map((adj, idx) => ({
-        id: adj.id || `adj-${idx + 1}`,
-        label: adj.label || adj.kind,
-        kind: adj.kind,
-        amount_sen: adj.amount_sen,
-        eligible_item_ids: (adj.eligible_item_ids && adj.eligible_item_ids.length > 0) ? adj.eligible_item_ids : allItemIds,
-      }));
+      const itemIdSet = new Set(allItemIds);
+      const cleanAdjustments = (candidate.adjustments || []).map((adj, idx) => {
+        const filteredEligible = (adj.eligible_item_ids || []).filter(id => itemIdSet.has(id));
+        const finalEligible = filteredEligible.length > 0 ? filteredEligible : allItemIds;
+        const fallbackRationale = `${adj.label || adj.kind || 'Receipt'} adjustment`;
+        return {
+          id: adj.id || `adj-${idx + 1}`,
+          label: adj.label || adj.kind || 'Adjustment',
+          kind: adj.kind || 'rounding',
+          amount_sen: adj.amount_sen,
+          eligible_item_ids: finalEligible,
+          rationale: (adj.rationale && adj.rationale.trim()) ? adj.rationale.trim() : fallbackRationale,
+        };
+      });
 
       ocrAcceptBtn.disabled = true;
       state.mutationActive = true;

@@ -349,6 +349,50 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(res['status'], 400)
         self.assertEqual(res['json']['error'], 'invalid_input')
 
+    def test_replace_receipt_with_adjustments_missing_rationale_and_negative_rounding(self):
+        boot = self.client.post('/api/meals/m-adj/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Org', 'organizer': True}]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # ReplaceReceipt with adjustments missing 'rationale' and including BNM negative rounding
+        res = self.client.post('/api/meals/m-adj/apply', body={
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-adj-test',
+            'expected_revision': 0,
+            'expected_financial_revision': 0,
+            'receipt': {
+                'items': [
+                    {'id': 'it-1', 'label': 'Chicken Rice', 'quantity': 1, 'line_sen': 1200},
+                    {'id': 'it-2', 'label': 'Ice Lemon Tea', 'quantity': 1, 'line_sen': 320},
+                ],
+                'subtotal_sen': 1520,
+                'total_sen': 1670,
+                'adjustments': [
+                    {'id': 'adj-1', 'label': 'Service Charge', 'kind': 'service', 'amount_sen': 152},
+                    {'id': 'adj-2', 'label': 'Rounding Adjustment', 'kind': 'rounding', 'amount_sen': -2},
+                ],
+                'included_tax_sen': 0,
+            }
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(res['status'], 200)
+        self.assertEqual(res['json']['revision'], 1)
+        self.assertEqual(res['json']['financial_revision'], 1)
+
+        # Snapshot check to confirm adjustments have valid non-empty rationale and correct eligible_item_ids
+        snap = self.client.get('/api/meals/m-adj/snapshot', headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(snap['status'], 200)
+        rcpt = snap['json']['receipt']
+        self.assertEqual(len(rcpt['adjustments']), 2)
+        adj_service = next(a for a in rcpt['adjustments'] if a['kind'] == 'service')
+        adj_rounding = next(a for a in rcpt['adjustments'] if a['kind'] == 'rounding')
+        self.assertEqual(adj_service['amount_sen'], 152)
+        self.assertEqual(adj_service['rationale'], 'Service Charge adjustment')
+        self.assertEqual(sorted(adj_service['eligible_item_ids']), ['it-1', 'it-2'])
+        self.assertEqual(adj_rounding['amount_sen'], -2)
+        self.assertEqual(adj_rounding['rationale'], 'Rounding Adjustment adjustment')
+        self.assertEqual(sorted(adj_rounding['eligible_item_ids']), ['it-1', 'it-2'])
+
     def test_logging_and_secret_redaction(self):
         logs = []
         app_with_logger = SettleTableApp(self.db_path, clock=lambda: self.clock_val, logger=logs.append)

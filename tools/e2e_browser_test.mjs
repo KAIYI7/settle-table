@@ -265,26 +265,23 @@ async function main() {
     const pageA = orgChrome.page;
     const pageB = dinerChrome.page;
 
-    // 4. Organizer Journey: Create meal room
-    console.log('[3/8] Organizer Alice creating meal "dinner-e2e"...');
+    // 4a. Test Dedicated OCR Workflow: Upload, Inline Edit, Discard & Accept
+    console.log('[3/8] Testing OCR Image Upload, Staging, Inline Edit, Discard, and Accept & Apply...');
     await pageA.navigate(`${serverOrigin}/`);
     await pageA.waitFor("document.getElementById('create-meal-form') !== null");
 
     await pageA.evaluate(`
-      document.getElementById('create-meal-id').value = 'dinner-e2e';
+      document.getElementById('create-meal-id').value = 'ocr-e2e-room';
       document.getElementById('create-org-name').value = 'Alice';
       document.getElementById('create-diners').value = 'Bob';
       document.getElementById('create-meal-form').requestSubmit();
     `);
+    await pageA.waitFor("window.location.hash.includes('#/meal/ocr-e2e-room') && document.getElementById('add-item-form') !== null");
+    console.log('   ✓ Dedicated OCR test room created');
 
-    // Wait until room loads
-    await pageA.waitFor("window.location.hash.includes('#/meal/dinner-e2e') && document.getElementById('add-item-form') !== null");
-    console.log('   ✓ Meal created and Alice loaded room as Organizer');
-
-    // 4b. Test Genuine Image Upload OCR extraction via real browser input & HTTP POST
+    // Genuine Image Upload OCR extraction via real browser input & HTTP POST
     console.log('   Testing genuine image upload OCR extraction via real browser input...');
-    await pageA.evaluate(`(() => {
-      // Create a valid 100x100 PNG blob and attach to #ocr-file-input
+    const triggerUpload = `(() => {
       const pngHeader = new Uint8Array([
         137, 80, 78, 71, 13, 10, 26, 10,
         0, 0, 0, 13, 73, 72, 68, 82,
@@ -297,7 +294,9 @@ async function main() {
       const input = document.getElementById('ocr-file-input');
       input.files = dt.files;
       input.dispatchEvent(new Event('change', { bubbles: true }));
-    })()`);
+    })()`;
+
+    await pageA.evaluate(triggerUpload);
     await pageA.waitFor("document.getElementById('ocr-candidate-card') !== null");
     console.log('   ✓ Genuine browser image upload parsed by server OCR engine and rendered candidate card');
     await pageA.waitFor("document.getElementById('ocr-cand-subtotal-val').innerText === 'RM 15.20'");
@@ -324,6 +323,40 @@ async function main() {
     await pageA.evaluate("document.getElementById('ocr-discard-btn').click()");
     await pageA.waitFor("document.getElementById('ocr-candidate-card') === null");
     console.log('   ✓ OCR Candidate discarded cleanly without altering SQLite state');
+
+    // Test Accept & Apply to Receipt button:
+    console.log('   Testing "Accept & Apply to Receipt" button workflow...');
+    await pageA.evaluate(triggerUpload);
+    await pageA.waitFor("document.getElementById('ocr-candidate-card') !== null");
+    await pageA.evaluate("document.getElementById('ocr-accept-btn').click()");
+    await pageA.waitFor("document.getElementById('ocr-candidate-card') === null");
+    await pageA.waitFor("document.body.innerText.toUpperCase().includes('CHICKEN RICE')");
+    await pageA.waitFor("document.body.innerText.toUpperCase().includes('ICE LEMON TEA')");
+    await pageA.waitFor("document.body.innerText.includes('Service Charge')");
+    await pageA.waitFor("document.body.innerText.includes('-0.02')");
+    await pageA.waitFor("document.body.innerText.includes('RM 16.70')");
+    // Verify no error banner
+    const ocrRoomText = await pageA.evaluate("document.body.innerText");
+    if (ocrRoomText.includes('Action rejected')) {
+      throw new Error(`Unexpected 'Action rejected' error banner after Accept & Apply: ${ocrRoomText}`);
+    }
+    console.log('   ✓ "Accept & Apply to Receipt" succeeded without error: items, service charge, and -RM 0.02 rounding applied to SQLite draft');
+
+    // 4. Organizer Journey: Create meal room "dinner-e2e" for multi-user flow
+    console.log('[4/8] Organizer Alice creating main meal "dinner-e2e"...');
+    await pageA.navigate(`${serverOrigin}/`);
+    await pageA.waitFor("document.getElementById('create-meal-form') !== null");
+
+    await pageA.evaluate(`
+      document.getElementById('create-meal-id').value = 'dinner-e2e';
+      document.getElementById('create-org-name').value = 'Alice';
+      document.getElementById('create-diners').value = 'Bob';
+      document.getElementById('create-meal-form').requestSubmit();
+    `);
+
+    // Wait until room loads
+    await pageA.waitFor("window.location.hash.includes('#/meal/dinner-e2e') && document.getElementById('add-item-form') !== null");
+    console.log('   ✓ Meal dinner-e2e created and Alice loaded room as Organizer');
 
     // 5. Organizer adds two receipt items
     console.log('[4/8] Organizer Alice adding two receipt items with prices...');

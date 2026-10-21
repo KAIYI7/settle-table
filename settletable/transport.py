@@ -832,15 +832,27 @@ class SettleTableApp:
                     if isinstance(qty, list) and len(qty) == 2:
                         qty = Fraction(qty[0], qty[1])
                     items.append(ReceiptItem(item['id'], item['label'], qty, item.get('line_sen')))
+                item_id_set = {item.id for item in items}
                 adjustments = []
-                for adj in raw_adjustments:
+                for idx, adj in enumerate(raw_adjustments, start=1):
+                    raw_eligible = adj.get('eligible_item_ids') or ()
+                    eligible = tuple(eid for eid in raw_eligible if eid in item_id_set)
+                    if not eligible:
+                        eligible = tuple(item.id for item in items)
+                    adj_id = adj.get('id') or f"adj-{idx}"
+                    label = adj.get('label') or adj.get('kind') or f"Adjustment {idx}"
+                    rationale = adj.get('rationale')
+                    if not rationale or not str(rationale).strip():
+                        rationale = f"{label} adjustment"
+                    else:
+                        rationale = str(rationale).strip()
                     adjustments.append(ReceiptAdjustment(
-                        id=adj['id'],
-                        label=adj['label'],
+                        id=str(adj_id),
+                        label=str(label),
                         kind=adj['kind'],
                         amount_sen=adj.get('amount_sen'),
-                        eligible_item_ids=tuple(adj.get('eligible_item_ids') or ()),
-                        rationale=adj.get('rationale', ''),
+                        eligible_item_ids=eligible,
+                        rationale=rationale,
                     ))
                 receipt = Receipt(
                     items=tuple(items),
