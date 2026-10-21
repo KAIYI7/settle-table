@@ -7,6 +7,7 @@ from dataclasses import asdict, is_dataclass
 from fractions import Fraction
 import http.cookies
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -222,7 +223,7 @@ def serialize_json(data):
 class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
                  server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None,
-                 notion_client=None):
+                 notion_client=None, allow_sync_export=False):
         self.db_path = str(db_path)
         self.allowed_hosts = set(allowed_hosts)
         self.server_origin = server_origin.rstrip('/')
@@ -230,6 +231,10 @@ class SettleTableApp:
         self.logger = logger
         self.ocr_engine = ocr_engine
         self.notion_client = notion_client
+        self.allow_sync_export = (
+            bool(allow_sync_export)
+            or os.environ.get('SETTLETABLE_ALLOW_SYNC_EXPORT') == '1'
+        )
         self._local = threading.local()
 
     def get_ocr_engine(self):
@@ -702,7 +707,8 @@ class SettleTableApp:
             authority.record_notion_export_in_progress(meal_id, rev, digest)
 
             qs = environ.get('QUERY_STRING', '')
-            is_sync = ('sync=1' in qs) or (environ.get('HTTP_X_SETTLETABLE_SYNC_EXPORT') == '1')
+            requested_sync = ('sync=1' in qs) or (environ.get('HTTP_X_SETTLETABLE_SYNC_EXPORT') == '1')
+            is_sync = requested_sync and self.allow_sync_export
 
             from settletable.notion import (
                 NotionExportConfig,
@@ -731,26 +737,28 @@ class SettleTableApp:
                         out = {'ok': True, 'export': result.to_dict()}
                         return 200, self._default_headers(), serialize_json(out)
                     else:
-                        authority.clear_notion_export(meal_id, rev)
+                        authority.record_notion_export_failed(meal_id, rev, result.error or 'notion_error')
                         return 400, self._default_headers(), serialize_json({'ok': False, 'error': result.error or 'notion_error'})
                 except NotionRateLimitError:
-                    authority.clear_notion_export(meal_id, rev)
+                    authority.record_notion_export_failed(meal_id, rev, 'notion_rate_limited')
                     raise TransportError('notion_rate_limited', 429) from None
                 except NotionAuthError:
-                    authority.clear_notion_export(meal_id, rev)
+                    authority.record_notion_export_failed(meal_id, rev, 'notion_auth_error')
                     raise TransportError('notion_auth_error', 400) from None
                 except (NotionValidationError, NotionNotFoundError):
-                    authority.clear_notion_export(meal_id, rev)
+                    authority.record_notion_export_failed(meal_id, rev, 'invalid_input')
                     raise TransportError('invalid_input', 400) from None
                 except NotionError:
-                    authority.clear_notion_export(meal_id, rev)
+                    authority.record_notion_export_failed(meal_id, rev, 'notion_error')
                     raise TransportError('notion_error', 502) from None
                 except Exception:
-                    authority.clear_notion_export(meal_id, rev)
+                    authority.record_notion_export_failed(meal_id, rev, 'notion_error')
                     raise TransportError('notion_error', 502) from None
             else:
                 # Asynchronous delivery: dispatch in background thread, return 202 immediately
-                # to prevent WSGI worker thread starvation for live diners
+                # to prevent WSGI worker thread starvation for live diners.
+                # Ephemeral background worker thread (asynchronous execution, not durable queue persistence).
+                # Does not survive process termination; uncompleted exports time out cleanly after 60s.
                 def _bg_export():
                     bg_auth = self.get_authority()
                     try:
@@ -761,9 +769,17 @@ class SettleTableApp:
                                 meal_id, rev, result.page_id or '', result.page_url or '', digest
                             )
                         else:
-                            bg_auth.clear_notion_export(meal_id, rev)
+                            bg_auth.record_notion_export_failed(meal_id, rev, result.error or 'notion_error')
+                    except NotionRateLimitError:
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'notion_rate_limited')
+                    except NotionAuthError:
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'notion_auth_error')
+                    except (NotionValidationError, NotionNotFoundError):
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'invalid_input')
+                    except NotionError:
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'notion_error')
                     except Exception:
-                        bg_auth.clear_notion_export(meal_id, rev)
+                        bg_auth.record_notion_export_failed(meal_id, rev, 'unexpected_error')
                     finally:
                         self.close()
 

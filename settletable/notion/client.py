@@ -181,9 +181,23 @@ class NotionHttpClient:
         self,
         token: str,
         block_id: str,
+        *,
+        max_pages: int = 5,
     ) -> list[dict[str, Any]]:
-        res = self._request(token, "GET", f"blocks/{block_id}/children")
-        return res.get("results", [])
+        """Retrieve block children for a block, handling Notion API cursor pagination."""
+        all_results: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(max_pages):
+            endpoint = f"blocks/{block_id}/children?page_size=100"
+            if cursor:
+                endpoint += f"&start_cursor={cursor}"
+            res = self._request(token, "GET", endpoint)
+            results = res.get("results", [])
+            all_results.extend(results)
+            if not res.get("has_more") or not res.get("next_cursor"):
+                break
+            cursor = res.get("next_cursor")
+        return all_results
 
 
 class MockNotionClient:
@@ -304,5 +318,11 @@ class MockNotionClient:
         self,
         token: str,
         block_id: str,
+        *,
+        max_pages: int = 5,
     ) -> list[dict[str, Any]]:
-        return self.blocks.get(block_id, [])
+        if self._forced_error:
+            err_type, msg = self._forced_error
+            self._forced_error = None
+            raise err_type(msg)
+        return list(self.blocks.get(block_id, []))

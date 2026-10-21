@@ -23,16 +23,28 @@ function formatSen(sen) {
   return `RM ${val.toFixed(2)}`;
 }
 
-function parseSen(input) {
+function parseSen(input, allowNegative = false) {
   if (typeof input !== 'string') {
     throw new Error('Price must be a string');
   }
   let s = input.trim();
+  let isNegative = false;
+  if (s.startsWith('-')) {
+    isNegative = true;
+    s = s.slice(1).trim();
+  }
   if (s.toUpperCase().startsWith('RM')) {
     s = s.slice(2).trim();
   }
+  if (s.startsWith('-')) {
+    isNegative = true;
+    s = s.slice(1).trim();
+  }
   if (!s || !/^[0-9]+(?:\.[0-9]{1,2})?$/.test(s)) {
     throw new Error(`Invalid price '${input}'. Enter an amount like 12.50 or RM 12.50`);
+  }
+  if (isNegative && !allowNegative) {
+    throw new Error(`Negative amount not allowed for '${input}'`);
   }
   const parts = s.split('.');
   const whole = parseInt(parts[0], 10);
@@ -42,7 +54,7 @@ function parseSen(input) {
   if (totalSen < 0 || totalSen > 1_000_000_000) {
     throw new Error('Price out of bounds: maximum RM 10,000,000.00');
   }
-  return totalSen;
+  return isNegative ? -totalSen : totalSen;
 }
 
 function escapeHtml(str) {
@@ -544,20 +556,20 @@ function renderOrganizerSection(snap) {
       <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">LOCAL RECEIPT OCR SCANNER</span>
-          <span style="font-size: 0.75rem; color: #a7f3d0; font-weight: 600;">Self-Hosted / Local</span>
+          <span style="font-size: 0.75rem; color: #a7f3d0; font-weight: 600;">Server-Side Local Inference</span>
         </div>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">
-          Upload a receipt photo (JPEG/PNG/WebP) to automatically extract items, taxes, and service charges. Requires physical verification before sealing.
+          Upload a receipt photo (JPEG/PNG/WebP) to automatically extract items, taxes, and service charges via local server-side inference (RapidOCR ONNX). Requires physical verification before sealing.
         </p>
         <input type="file" id="ocr-file-input" accept="image/jpeg,image/png,image/webp" style="display: none;">
         <button type="button" id="ocr-upload-btn" class="btn btn-secondary btn-sm btn-block">📷 Scan Receipt Image</button>
         <div id="ocr-spinner" style="display: none; text-align: center; margin-top: 8px; font-size: 0.85rem; color: var(--accent-indigo);">
-          Analyzing receipt locally on device...
+          Analyzing receipt via local server-side inference (RapidOCR ONNX)...
         </div>
       </div>
 
       ${state.ocrCandidate ? `
-        <!-- Staged OCR Candidate Card -->
+        <!-- Staged OCR Candidate Card with Inline Edit-Before-Accept Experience -->
         <div id="ocr-candidate-card" style="background: var(--bg-surface); border: 2px solid var(--accent-indigo); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <span style="font-weight: 700; font-size: 0.9rem; color: var(--accent-indigo);">📋 SCANNED CANDIDATE (STAGED)</span>
@@ -566,7 +578,7 @@ function renderOrganizerSection(snap) {
               : '<span style="font-size: 0.75rem; background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 999px; font-weight: 600;">✓ Ready for Review</span>'}
           </div>
           <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">
-            Staged in browser memory outside SQLite. Review extracted items and adjustments below before applying to authoritative receipt.
+            Staged in browser memory outside SQLite. Edit any misread items, quantities, prices, taxes, discounts, or fees below before applying to authoritative receipt.
           </p>
           ${state.ocrCandidate.issues && state.ocrCandidate.issues.length > 0 ? `
             <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 10px; font-size: 0.8rem; color: #92400e;">
@@ -575,44 +587,88 @@ function renderOrganizerSection(snap) {
           ` : ''}
           <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
             Merchant: <strong>${escapeHtml(state.ocrCandidate.merchant || 'Unknown')}</strong> |
-            Confidence: <strong>${(state.ocrCandidate.mean_confidence * 100).toFixed(1)}%</strong>
+            Confidence: <strong>${((state.ocrCandidate.mean_confidence || 0) * 100).toFixed(1)}%</strong>
           </div>
-          <div style="max-height: 180px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+
+          <!-- Candidate Items Table (Editable) -->
+          <div style="margin-bottom: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden;">
             <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
               <thead>
                 <tr style="background: var(--bg-main); text-align: left; font-size: 0.75rem; color: var(--text-muted);">
-                  <th style="padding: 6px 8px;">Item</th>
-                  <th style="padding: 6px 8px; text-align: center;">Qty</th>
-                  <th style="padding: 6px 8px; text-align: right;">Amount</th>
+                  <th style="padding: 6px 8px;">Item Name</th>
+                  <th style="padding: 6px 4px; text-align: center; width: 55px;">Qty</th>
+                  <th style="padding: 6px 4px; text-align: right; width: 85px;">Amount (RM)</th>
+                  <th style="padding: 6px 4px; text-align: center; width: 30px;"></th>
                 </tr>
               </thead>
-              <tbody>
-                ${state.ocrCandidate.items.map(it => `
-                  <tr style="border-top: 1px solid var(--border-color);">
-                    <td style="padding: 6px 8px;">${escapeHtml(it.label)}</td>
-                    <td style="padding: 6px 8px; text-align: center;">${Array.isArray(it.quantity) ? it.quantity[0] : it.quantity}</td>
-                    <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${formatSen(it.line_sen)}</td>
+              <tbody id="ocr-cand-items-body">
+                ${state.ocrCandidate.items.map((it, idx) => `
+                  <tr class="ocr-cand-item-row" data-idx="${idx}" style="border-top: 1px solid var(--border-color);">
+                    <td style="padding: 4px 6px;">
+                      <input type="text" class="ocr-edit-item-label form-input" data-idx="${idx}" value="${escapeHtml(it.label)}" style="width: 100%; font-size: 0.82rem; padding: 4px 6px; box-sizing: border-box;" />
+                    </td>
+                    <td style="padding: 4px 4px; text-align: center;">
+                      <input type="number" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${Array.isArray(it.quantity) ? it.quantity[0] : it.quantity}" style="width: 48px; text-align: center; font-size: 0.82rem; padding: 4px 2px; box-sizing: border-box;" />
+                    </td>
+                    <td style="padding: 4px 4px; text-align: right;">
+                      <input type="text" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(it.line_sen / 100).toFixed(2)}" style="width: 78px; text-align: right; font-size: 0.82rem; padding: 4px 4px; font-family: monospace; box-sizing: border-box;" />
+                    </td>
+                    <td style="padding: 4px 4px; text-align: center;">
+                      <button type="button" class="btn btn-secondary btn-sm ocr-del-item-btn" data-idx="${idx}" title="Remove item" style="padding: 2px 6px; font-size: 0.75rem; color: var(--accent-rose);">✕</button>
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
-          </div>
-          <div style="background: var(--bg-main); padding: 8px 10px; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 12px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-              <span style="color: var(--text-muted);">Candidate Subtotal:</span>
-              <span style="font-weight: 600;">${formatSen(state.ocrCandidate.subtotal_sen)}</span>
+            <div style="padding: 6px 8px; background: var(--bg-main); border-top: 1px solid var(--border-color);">
+              <button type="button" id="ocr-add-item-btn" class="btn btn-secondary btn-sm" style="font-size: 0.75rem;">+ Add Missing Item</button>
             </div>
-            ${(state.ocrCandidate.adjustments || []).map(adj => `
-              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.8rem; color: var(--text-dim);">
-                <span>${escapeHtml(adj.label)} (${adj.kind}):</span>
-                <span>${formatSen(adj.amount_sen)}</span>
+          </div>
+
+          <!-- Candidate Adjustments & Taxes Section (Editable) -->
+          <div style="background: var(--bg-main); padding: 10px; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 12px;">
+            <div style="font-weight: 600; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">ADJUSTMENTS, TAXES & DISCOUNTS</div>
+            <div id="ocr-cand-adjustments-list">
+              ${(state.ocrCandidate.adjustments || []).map((adj, idx) => `
+                <div class="ocr-cand-adj-row" data-adj-idx="${idx}" style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+                  <input type="text" class="ocr-edit-adj-label form-input" data-adj-idx="${idx}" value="${escapeHtml(adj.label || '')}" placeholder="Label (e.g. Service)" style="flex: 2; font-size: 0.8rem; padding: 3px 6px;" />
+                  <select class="ocr-edit-adj-kind form-input" data-adj-idx="${idx}" style="flex: 1.2; font-size: 0.75rem; padding: 3px 2px;">
+                    <option value="service" ${adj.kind === 'service' ? 'selected' : ''}>Service</option>
+                    <option value="tax" ${adj.kind === 'tax' ? 'selected' : ''}>Tax/SST</option>
+                    <option value="discount" ${adj.kind === 'discount' ? 'selected' : ''}>Discount</option>
+                    <option value="rounding" ${adj.kind === 'rounding' ? 'selected' : ''}>Rounding</option>
+                  </select>
+                  <input type="text" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 75px; text-align: right; font-size: 0.8rem; padding: 3px 4px; font-family: monospace;" />
+                  <button type="button" class="btn btn-secondary btn-sm ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove charge" style="padding: 2px 6px; font-size: 0.75rem; color: var(--accent-rose);">✕</button>
+                </div>
+              `).join('')}
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+              <button type="button" id="ocr-add-adj-btn" class="btn btn-secondary btn-sm" style="font-size: 0.75rem;">+ Add Fee / Tax / Discount</button>
+            </div>
+
+            <!-- Tax-inclusive Included SST -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-color); font-size: 0.8rem; color: var(--text-dim);">
+              <span>Included SST (informational):</span>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <span>RM</span>
+                <input type="text" id="ocr-edit-included-tax" class="form-input" value="${((state.ocrCandidate.included_tax_sen || 0) / 100).toFixed(2)}" style="width: 65px; text-align: right; font-size: 0.8rem; padding: 2px 4px; font-family: monospace;" />
               </div>
-            `).join('')}
-            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 4px; font-weight: 700;">
-              <span>Candidate Total:</span>
-              <span style="color: var(--accent-indigo);">${formatSen(state.ocrCandidate.total_sen)}</span>
+            </div>
+
+            <!-- Dynamic Recalculated Totals Display -->
+            <div style="border-top: 1px solid var(--border-color); margin-top: 10px; padding-top: 8px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: var(--text-muted);">Candidate Subtotal:</span>
+                <span id="ocr-cand-subtotal-val" style="font-weight: 600;">${formatSen(state.ocrCandidate.subtotal_sen)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                <span>Candidate Total:</span>
+                <span id="ocr-cand-total-val" style="color: var(--accent-indigo);">${formatSen(state.ocrCandidate.total_sen)}</span>
+              </div>
             </div>
           </div>
+
           ${snap.receipt && snap.receipt.items && snap.receipt.items.length > 0 ? `
             <p style="font-size: 0.75rem; color: #f59e0b; margin-bottom: 10px;">
               ⚠️ Applying candidate will replace the ${snap.receipt.items.length} existing items on the draft receipt.
@@ -1000,13 +1056,195 @@ function bindEvents(snap) {
     });
   }
 
-  // 1c. Staged OCR Candidate Actions (Accept / Discard)
+  // 1c. Staged OCR Candidate Edit & Verification Actions
+  const syncCandidateInputs = () => {
+    if (!state.ocrCandidate) return;
+    const cand = state.ocrCandidate;
+
+    // Read items from candidate table
+    const itemRows = document.querySelectorAll('.ocr-cand-item-row');
+    const items = [];
+    itemRows.forEach((row, i) => {
+      const labelInput = row.querySelector('.ocr-edit-item-label');
+      const qtyInput = row.querySelector('.ocr-edit-item-qty');
+      const priceInput = row.querySelector('.ocr-edit-item-price');
+      const label = labelInput ? (labelInput.value.trim() || `Item ${i + 1}`) : `Item ${i + 1}`;
+      const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value, 10) || 1) : 1;
+      let lineSen = 0;
+      if (priceInput) {
+        try {
+          lineSen = parseSen(priceInput.value);
+        } catch {
+          lineSen = 0;
+        }
+      }
+      const existingId = (cand.items && cand.items[i]) ? cand.items[i].id : `item-${i + 1}`;
+      items.push({ id: existingId, label, quantity: qty, line_sen: lineSen });
+    });
+
+    // Read adjustments from candidate list
+    const adjRows = document.querySelectorAll('.ocr-cand-adj-row');
+    const adjustments = [];
+    adjRows.forEach((row, j) => {
+      const labelInput = row.querySelector('.ocr-edit-adj-label');
+      const kindSelect = row.querySelector('.ocr-edit-adj-kind');
+      const amountInput = row.querySelector('.ocr-edit-adj-amount');
+      const label = labelInput ? (labelInput.value.trim() || 'Adjustment') : 'Adjustment';
+      const kind = kindSelect ? kindSelect.value : 'service';
+      let rawSen = 0;
+      if (amountInput) {
+        try {
+          rawSen = parseSen(amountInput.value, true);
+        } catch {
+          rawSen = 0;
+        }
+      }
+      let amountSen = rawSen;
+      if (kind === 'discount') {
+        amountSen = -Math.abs(rawSen);
+      } else if (kind === 'service' || kind === 'tax') {
+        amountSen = Math.abs(rawSen);
+      } else if (kind === 'rounding') {
+        if (amountInput && amountInput.value.trim().startsWith('-')) {
+          amountSen = -Math.abs(rawSen);
+        } else {
+          amountSen = Math.abs(rawSen);
+        }
+      }
+      const existingId = (cand.adjustments && cand.adjustments[j]) ? cand.adjustments[j].id : `adj-${j + 1}`;
+      const eligible = (cand.adjustments && cand.adjustments[j] && cand.adjustments[j].eligible_item_ids)
+        ? cand.adjustments[j].eligible_item_ids
+        : items.map(it => it.id);
+      adjustments.push({
+        id: existingId,
+        label,
+        kind,
+        amount_sen: amountSen,
+        eligible_item_ids: eligible,
+      });
+    });
+
+    // Read included tax
+    const incTaxInput = document.getElementById('ocr-edit-included-tax');
+    let incTaxSen = 0;
+    if (incTaxInput) {
+      try {
+        incTaxSen = parseSen(incTaxInput.value);
+      } catch {
+        incTaxSen = 0;
+      }
+    }
+
+    const subtotalSen = items.reduce((acc, it) => acc + (it.line_sen || 0), 0);
+    const adjTotalSen = adjustments.reduce((acc, a) => acc + (a.amount_sen || 0), 0);
+    const totalSen = subtotalSen + adjTotalSen;
+
+    cand.items = items;
+    cand.adjustments = adjustments;
+    cand.included_tax_sen = incTaxSen;
+    cand.subtotal_sen = subtotalSen;
+    cand.total_sen = totalSen;
+
+    const subtotalValEl = document.getElementById('ocr-cand-subtotal-val');
+    const totalValEl = document.getElementById('ocr-cand-total-val');
+    if (subtotalValEl) subtotalValEl.textContent = formatSen(subtotalSen);
+    if (totalValEl) totalValEl.textContent = formatSen(totalSen);
+  };
+
+  if (state.ocrCandidate) {
+    document.querySelectorAll('.ocr-edit-item-label, .ocr-edit-item-qty, .ocr-edit-item-price, .ocr-edit-adj-label, .ocr-edit-adj-kind, .ocr-edit-adj-amount, #ocr-edit-included-tax').forEach(el => {
+      el.addEventListener('input', syncCandidateInputs);
+      el.addEventListener('change', syncCandidateInputs);
+    });
+
+    document.getElementById('ocr-add-item-btn')?.addEventListener('click', () => {
+      syncCandidateInputs();
+      const items = state.ocrCandidate.items || [];
+      items.push({
+        id: `item-${items.length + 1}`,
+        label: `Item ${items.length + 1}`,
+        quantity: 1,
+        line_sen: 1000,
+      });
+      state.ocrCandidate.items = items;
+      state.ocrCandidate.subtotal_sen = items.reduce((s, i) => s + (i.line_sen || 0), 0);
+      state.ocrCandidate.total_sen = state.ocrCandidate.subtotal_sen + (state.ocrCandidate.adjustments || []).reduce((s, a) => s + (a.amount_sen || 0), 0);
+      updateMealUI();
+    });
+
+    document.querySelectorAll('.ocr-del-item-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncCandidateInputs();
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+        if (state.ocrCandidate.items && state.ocrCandidate.items.length > 1) {
+          state.ocrCandidate.items.splice(idx, 1);
+          state.ocrCandidate.subtotal_sen = state.ocrCandidate.items.reduce((s, i) => s + (i.line_sen || 0), 0);
+          state.ocrCandidate.total_sen = state.ocrCandidate.subtotal_sen + (state.ocrCandidate.adjustments || []).reduce((s, a) => s + (a.amount_sen || 0), 0);
+          updateMealUI();
+        } else {
+          showAlert('Candidate must have at least one receipt item.', 'conflict');
+        }
+      });
+    });
+
+    document.getElementById('ocr-add-adj-btn')?.addEventListener('click', () => {
+      syncCandidateInputs();
+      const adjs = state.ocrCandidate.adjustments || [];
+      const allItemIds = (state.ocrCandidate.items || []).map(it => it.id);
+      adjs.push({
+        id: `adj-${adjs.length + 1}`,
+        label: 'Service Charge',
+        kind: 'service',
+        amount_sen: 100,
+        eligible_item_ids: allItemIds,
+      });
+      state.ocrCandidate.adjustments = adjs;
+      state.ocrCandidate.total_sen = (state.ocrCandidate.subtotal_sen || 0) + adjs.reduce((s, a) => s + (a.amount_sen || 0), 0);
+      updateMealUI();
+    });
+
+    document.querySelectorAll('.ocr-del-adj-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncCandidateInputs();
+        const idx = parseInt(btn.getAttribute('data-adj-idx'), 10);
+        if (state.ocrCandidate.adjustments) {
+          state.ocrCandidate.adjustments.splice(idx, 1);
+          state.ocrCandidate.total_sen = (state.ocrCandidate.subtotal_sen || 0) + state.ocrCandidate.adjustments.reduce((s, a) => s + (a.amount_sen || 0), 0);
+          updateMealUI();
+        }
+      });
+    });
+  }
+
   const ocrAcceptBtn = document.getElementById('ocr-accept-btn');
   const ocrDiscardBtn = document.getElementById('ocr-discard-btn');
   if (ocrAcceptBtn && state.ocrCandidate) {
     ocrAcceptBtn.addEventListener('click', async () => {
+      syncCandidateInputs();
       const candidate = state.ocrCandidate;
       if (!candidate) return;
+
+      if (!candidate.items || candidate.items.length === 0) {
+        showAlert('Candidate must have at least one receipt item.', 'error');
+        return;
+      }
+
+      for (const it of candidate.items) {
+        if (!it.label || it.line_sen <= 0) {
+          showAlert(`Item "${it.label || 'Unnamed'}" must have a valid name and price greater than RM 0.00`, 'error');
+          return;
+        }
+      }
+
+      const allItemIds = candidate.items.map(i => i.id);
+      const cleanAdjustments = (candidate.adjustments || []).map((adj, idx) => ({
+        id: adj.id || `adj-${idx + 1}`,
+        label: adj.label || adj.kind,
+        kind: adj.kind,
+        amount_sen: adj.amount_sen,
+        eligible_item_ids: (adj.eligible_item_ids && adj.eligible_item_ids.length > 0) ? adj.eligible_item_ids : allItemIds,
+      }));
+
       ocrAcceptBtn.disabled = true;
       state.mutationActive = true;
       try {
@@ -1019,7 +1257,7 @@ function bindEvents(snap) {
             items: candidate.items,
             subtotal_sen: candidate.subtotal_sen,
             total_sen: candidate.total_sen,
-            adjustments: candidate.adjustments || [],
+            adjustments: cleanAdjustments,
             included_tax_sen: candidate.included_tax_sen || 0,
           }
         });
@@ -1252,6 +1490,19 @@ function bindEvents(snap) {
                 showAlert('Report exported to Notion successfully!', 'success');
                 notionBtn.disabled = false;
                 if (spinner) spinner.style.display = 'none';
+              } else if (pollData.ok && pollData.export && pollData.export.status === 'failed') {
+                clearInterval(pollInterval);
+                notionBtn.disabled = false;
+                if (spinner) spinner.style.display = 'none';
+                const errDetail = pollData.export.export_digest || 'notion_error';
+                if (resultDiv) {
+                  resultDiv.style.display = 'block';
+                  resultDiv.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                  resultDiv.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                  resultDiv.style.color = 'var(--accent-rose)';
+                  resultDiv.textContent = `Export failed: ${errDetail}`;
+                }
+                showAlert(`Notion export failed: ${errDetail}`, 'error');
               } else if (pollAttempts >= 30) {
                 clearInterval(pollInterval);
                 notionBtn.disabled = false;

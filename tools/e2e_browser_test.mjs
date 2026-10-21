@@ -281,23 +281,64 @@ async function main() {
     await pageA.waitFor("window.location.hash.includes('#/meal/dinner-e2e') && document.getElementById('add-item-form') !== null");
     console.log('   ✓ Meal created and Alice loaded room as Organizer');
 
-    // 4b. Test OCR Candidate Staging Boundary (In-Memory outside SQLite)
-    console.log('   Testing OCR Candidate staging card and discard boundary...');
+    // 4b. Test OCR Candidate Staging Boundary & Inline Edit-Before-Accept Experience
+    console.log('   Testing OCR Candidate staging card, inline edit-before-accept, and discard boundary...');
     await pageA.evaluate(`(() => {
       window.settletable.state.ocrCandidate = {
         merchant: 'Restoran Wan Sheng',
-        route: 'human_verification',
-        mean_confidence: 0.965,
-        items: [{ id: 'cand-1', label: 'Chicken Rice', quantity: [1, 1], line_sen: 1200 }],
-        subtotal_sen: 1200,
-        total_sen: 1200,
+        route: 'manual_correction',
+        mean_confidence: 0.85,
+        items: [{ id: 'cand-1', label: 'Ch1cken R1ce', quantity: [1, 1], line_sen: 1000 }],
+        subtotal_sen: 1000,
+        total_sen: 1000,
         adjustments: [],
-        issues: ['Sample confidence verification check'],
+        issues: ['Discrepancy detected in OCR character recognition'],
       };
       window.settletable.updateMealUI();
     })()`);
     await pageA.waitFor("document.getElementById('ocr-candidate-card') !== null");
     console.log('   ✓ OCR Candidate Staging Card rendered outside SQLite authority');
+
+    // Test inline editing of misextracted candidate item
+    await pageA.evaluate(`(() => {
+      const labelInput = document.querySelector('.ocr-edit-item-label');
+      const qtyInput = document.querySelector('.ocr-edit-item-qty');
+      const priceInput = document.querySelector('.ocr-edit-item-price');
+      labelInput.value = 'Chicken Rice';
+      qtyInput.value = '2';
+      priceInput.value = '20.00';
+      priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await pageA.waitFor("document.getElementById('ocr-cand-subtotal-val').innerText === 'RM 20.00'");
+    console.log('   ✓ Inline item correction recalculates candidate subtotal: RM 20.00');
+
+    // Test adding an adjustment (service fee) to staged candidate
+    await pageA.evaluate("document.getElementById('ocr-add-adj-btn').click()");
+    await pageA.waitFor("document.querySelector('.ocr-cand-adj-row') !== null");
+    await pageA.evaluate(`(() => {
+      const adjAmount = document.querySelector('.ocr-edit-adj-amount');
+      adjAmount.value = '2.00';
+      adjAmount.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await pageA.waitFor("document.getElementById('ocr-cand-total-val').innerText === 'RM 22.00'");
+    console.log('   ✓ Inline adjustment addition recalculates candidate total: RM 22.00');
+
+    // Test negative cash rounding adjustment (-RM 0.02)
+    await pageA.evaluate("document.getElementById('ocr-add-adj-btn').click()");
+    await pageA.waitFor("document.querySelectorAll('.ocr-cand-adj-row').length === 2");
+    await pageA.evaluate(`(() => {
+      const rows = document.querySelectorAll('.ocr-cand-adj-row');
+      const row2 = rows[1];
+      const kindSelect = row2.querySelector('.ocr-edit-adj-kind');
+      const labelInput = row2.querySelector('.ocr-edit-adj-label');
+      const amountInput = row2.querySelector('.ocr-edit-adj-amount');
+      kindSelect.value = 'rounding';
+      labelInput.value = 'Rounding';
+      amountInput.value = '-0.02';
+      amountInput.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await pageA.waitFor("document.getElementById('ocr-cand-total-val').innerText === 'RM 21.98'");
+    console.log('   ✓ Negative BNM cash rounding (-RM 0.02) preserves sign and recalculates candidate total: RM 21.98');
 
     // Discard candidate: clears candidate card without modifying authoritative draft
     await pageA.evaluate("document.getElementById('ocr-discard-btn').click()");
