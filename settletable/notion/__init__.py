@@ -11,8 +11,10 @@ from .client import (
     sanitize_notion_error_message,
 )
 from .exporter import (
+    count_notion_blocks,
     export_finalized_meal,
     format_compact_meal_blocks,
+    format_full_meal_blocks,
     format_meal_properties,
     format_sen,
     text_cell,

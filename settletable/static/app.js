@@ -14,6 +14,7 @@ const state = {
   pollSeq: 0,
   mutationActive: false,
   issuedTokens: {},
+  ocrCandidate: null,
 };
 
 function formatSen(sen) {
@@ -386,6 +387,7 @@ async function loadMeal(mealId) {
 }
 
 function updateMealUI() {
+  window.settletable = { state, updateMealUI };
   const snap = state.snapshot;
   if (!snap) return;
 
@@ -553,6 +555,75 @@ function renderOrganizerSection(snap) {
           Analyzing receipt locally on device...
         </div>
       </div>
+
+      ${state.ocrCandidate ? `
+        <!-- Staged OCR Candidate Card -->
+        <div id="ocr-candidate-card" style="background: var(--bg-surface); border: 2px solid var(--accent-indigo); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: 700; font-size: 0.9rem; color: var(--accent-indigo);">📋 SCANNED CANDIDATE (STAGED)</span>
+            ${state.ocrCandidate.route === 'manual_correction'
+              ? '<span style="font-size: 0.75rem; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 999px; font-weight: 600;">⚠️ Needs Correction</span>'
+              : '<span style="font-size: 0.75rem; background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 999px; font-weight: 600;">✓ Ready for Review</span>'}
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">
+            Staged in browser memory outside SQLite. Review extracted items and adjustments below before applying to authoritative receipt.
+          </p>
+          ${state.ocrCandidate.issues && state.ocrCandidate.issues.length > 0 ? `
+            <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 10px; font-size: 0.8rem; color: #92400e;">
+              <strong>Verification Note:</strong> ${escapeHtml(state.ocrCandidate.issues.join('; '))}
+            </div>
+          ` : ''}
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+            Merchant: <strong>${escapeHtml(state.ocrCandidate.merchant || 'Unknown')}</strong> |
+            Confidence: <strong>${(state.ocrCandidate.mean_confidence * 100).toFixed(1)}%</strong>
+          </div>
+          <div style="max-height: 180px; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+              <thead>
+                <tr style="background: var(--bg-main); text-align: left; font-size: 0.75rem; color: var(--text-muted);">
+                  <th style="padding: 6px 8px;">Item</th>
+                  <th style="padding: 6px 8px; text-align: center;">Qty</th>
+                  <th style="padding: 6px 8px; text-align: right;">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${state.ocrCandidate.items.map(it => `
+                  <tr style="border-top: 1px solid var(--border-color);">
+                    <td style="padding: 6px 8px;">${escapeHtml(it.label)}</td>
+                    <td style="padding: 6px 8px; text-align: center;">${Array.isArray(it.quantity) ? it.quantity[0] : it.quantity}</td>
+                    <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${formatSen(it.line_sen)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div style="background: var(--bg-main); padding: 8px 10px; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+              <span style="color: var(--text-muted);">Candidate Subtotal:</span>
+              <span style="font-weight: 600;">${formatSen(state.ocrCandidate.subtotal_sen)}</span>
+            </div>
+            ${(state.ocrCandidate.adjustments || []).map(adj => `
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.8rem; color: var(--text-dim);">
+                <span>${escapeHtml(adj.label)} (${adj.kind}):</span>
+                <span>${formatSen(adj.amount_sen)}</span>
+              </div>
+            `).join('')}
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 4px; font-weight: 700;">
+              <span>Candidate Total:</span>
+              <span style="color: var(--accent-indigo);">${formatSen(state.ocrCandidate.total_sen)}</span>
+            </div>
+          </div>
+          ${snap.receipt && snap.receipt.items && snap.receipt.items.length > 0 ? `
+            <p style="font-size: 0.75rem; color: #f59e0b; margin-bottom: 10px;">
+              ⚠️ Applying candidate will replace the ${snap.receipt.items.length} existing items on the draft receipt.
+            </p>
+          ` : ''}
+          <div style="display: flex; gap: 8px;">
+            <button type="button" id="ocr-accept-btn" class="btn btn-primary btn-sm" style="flex: 2;">Accept & Apply to Receipt</button>
+            <button type="button" id="ocr-discard-btn" class="btn btn-secondary btn-sm" style="flex: 1;">Discard</button>
+          </div>
+        </div>
+      ` : ''}
 
       <!-- Add Item Form -->
       <form id="add-item-form" style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
@@ -903,28 +974,14 @@ function bindEvents(snap) {
           return;
         }
 
-        // Apply extracted candidate items to draft receipt
-        state.mutationActive = true;
-        await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
-          kind: 'ReplaceReceipt',
-          command_id: `ocr-rcpt-${Date.now()}`,
-          expected_revision: snap.revision,
-          expected_financial_revision: snap.financial_revision,
-          receipt: {
-            items: candidate.items,
-            subtotal_sen: candidate.subtotal_sen,
-            total_sen: candidate.total_sen,
-            adjustments: candidate.adjustments || [],
-            included_tax_sen: candidate.included_tax_sen || 0,
-          }
-        });
-        state.mutationActive = false;
-        await fetchSnapshot(true);
+        // Stage candidate outside authoritative SQLite state until explicit organizer acceptance
+        state.ocrCandidate = candidate;
+        updateMealUI();
 
         if (candidate.route === 'manual_correction' || (candidate.issues && candidate.issues.length > 0)) {
-          showAlert(`Extracted ${candidate.items.length} items (${formatSen(candidate.total_sen)}). Please verify items and adjustments.`, 'conflict');
+          showAlert(`Extracted ${candidate.items.length} candidate items (${formatSen(candidate.total_sen)}). Please inspect and verify before accepting.`, 'conflict');
         } else {
-          showAlert(`Extracted ${candidate.items.length} items from receipt (${formatSen(candidate.total_sen)}) ✓`, 'success');
+          showAlert(`Extracted ${candidate.items.length} candidate items (${formatSen(candidate.total_sen)}). Please inspect and accept below.`, 'success');
         }
       } catch (err) {
         state.mutationActive = false;
@@ -940,6 +997,48 @@ function bindEvents(snap) {
         ocrBtn.disabled = false;
         ocrInput.value = '';
       }
+    });
+  }
+
+  // 1c. Staged OCR Candidate Actions (Accept / Discard)
+  const ocrAcceptBtn = document.getElementById('ocr-accept-btn');
+  const ocrDiscardBtn = document.getElementById('ocr-discard-btn');
+  if (ocrAcceptBtn && state.ocrCandidate) {
+    ocrAcceptBtn.addEventListener('click', async () => {
+      const candidate = state.ocrCandidate;
+      if (!candidate) return;
+      ocrAcceptBtn.disabled = true;
+      state.mutationActive = true;
+      try {
+        await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
+          kind: 'ReplaceReceipt',
+          command_id: `ocr-rcpt-${Date.now()}`,
+          expected_revision: snap.revision,
+          expected_financial_revision: snap.financial_revision,
+          receipt: {
+            items: candidate.items,
+            subtotal_sen: candidate.subtotal_sen,
+            total_sen: candidate.total_sen,
+            adjustments: candidate.adjustments || [],
+            included_tax_sen: candidate.included_tax_sen || 0,
+          }
+        });
+        state.ocrCandidate = null;
+        state.mutationActive = false;
+        await fetchSnapshot(true);
+        showAlert('Scanned receipt accepted and applied to draft. Mandatory human receipt review is still required before finalization.', 'success');
+      } catch (err) {
+        state.mutationActive = false;
+        ocrAcceptBtn.disabled = false;
+        handleApiError(err);
+      }
+    });
+  }
+  if (ocrDiscardBtn) {
+    ocrDiscardBtn.addEventListener('click', () => {
+      state.ocrCandidate = null;
+      updateMealUI();
+      showAlert('Scanned receipt candidate discarded. Existing receipt unchanged.', 'info');
     });
   }
 
@@ -1120,6 +1219,55 @@ function bindEvents(snap) {
         }
 
         const exp = data.export || {};
+        if (exp.status === 'in_progress') {
+          if (resultDiv) {
+            resultDiv.style.display = 'block';
+            resultDiv.style.backgroundColor = 'rgba(99, 102, 241, 0.1)';
+            resultDiv.style.border = '1px solid rgba(99, 102, 241, 0.3)';
+            resultDiv.style.color = 'var(--accent-indigo)';
+            resultDiv.innerHTML = '<strong>⏳ Archiving to Notion...</strong><br/><span style="font-size:0.8rem;">Export running asynchronously in background. Live dining updates continue uninterrupted.</span>';
+          }
+          let pollAttempts = 0;
+          const pollInterval = setInterval(async () => {
+            pollAttempts++;
+            try {
+              const pollRes = await fetch(`/api/meals/${state.mealId}/export/notion`);
+              const pollData = await pollRes.json();
+              if (pollData.ok && pollData.export && (pollData.export.status === 'completed' || pollData.export.status === 'already_exported')) {
+                clearInterval(pollInterval);
+                const pollExp = pollData.export;
+                if (resultDiv) {
+                  resultDiv.style.display = 'block';
+                  resultDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';
+                  resultDiv.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                  resultDiv.style.color = '#6ee7b7';
+                  resultDiv.innerHTML = `
+                    <strong>✓ Export Successful!</strong><br/>
+                    Page ID: <code style="font-size: 0.8rem;">${escapeHtml(pollExp.page_id || '')}</code><br/>
+                    <a href="${escapeHtml(pollExp.page_url || '#')}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 0.5rem;" id="notion-page-link">
+                      Open Report in Notion ↗
+                    </a>
+                  `;
+                }
+                showAlert('Report exported to Notion successfully!', 'success');
+                notionBtn.disabled = false;
+                if (spinner) spinner.style.display = 'none';
+              } else if (pollAttempts >= 30) {
+                clearInterval(pollInterval);
+                notionBtn.disabled = false;
+                if (spinner) spinner.style.display = 'none';
+                showAlert('Notion export is taking longer than expected. Please check back later.', 'conflict');
+              }
+            } catch (pollErr) {
+              clearInterval(pollInterval);
+              notionBtn.disabled = false;
+              if (spinner) spinner.style.display = 'none';
+              showAlert('Failed to poll Notion export status.', 'error');
+            }
+          }, 1000);
+          return;
+        }
+
         if (resultDiv) {
           resultDiv.style.display = 'block';
           resultDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';

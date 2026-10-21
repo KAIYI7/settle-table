@@ -240,6 +240,7 @@ async function main() {
     '--port', String(serverPort),
     '--db', dbPath,
     '--mock-notion',
+    '--mock-ocr',
   ], { cwd: REPO_ROOT });
 
   serverProc.stderr.on('data', d => console.error('[SERVER STDERR]:', d.toString()));
@@ -279,6 +280,29 @@ async function main() {
     // Wait until room loads
     await pageA.waitFor("window.location.hash.includes('#/meal/dinner-e2e') && document.getElementById('add-item-form') !== null");
     console.log('   ✓ Meal created and Alice loaded room as Organizer');
+
+    // 4b. Test OCR Candidate Staging Boundary (In-Memory outside SQLite)
+    console.log('   Testing OCR Candidate staging card and discard boundary...');
+    await pageA.evaluate(`(() => {
+      window.settletable.state.ocrCandidate = {
+        merchant: 'Restoran Wan Sheng',
+        route: 'human_verification',
+        mean_confidence: 0.965,
+        items: [{ id: 'cand-1', label: 'Chicken Rice', quantity: [1, 1], line_sen: 1200 }],
+        subtotal_sen: 1200,
+        total_sen: 1200,
+        adjustments: [],
+        issues: ['Sample confidence verification check'],
+      };
+      window.settletable.updateMealUI();
+    })()`);
+    await pageA.waitFor("document.getElementById('ocr-candidate-card') !== null");
+    console.log('   ✓ OCR Candidate Staging Card rendered outside SQLite authority');
+
+    // Discard candidate: clears candidate card without modifying authoritative draft
+    await pageA.evaluate("document.getElementById('ocr-discard-btn').click()");
+    await pageA.waitFor("document.getElementById('ocr-candidate-card') === null");
+    console.log('   ✓ OCR Candidate discarded cleanly without altering SQLite state');
 
     // 5. Organizer adds two receipt items
     console.log('[4/8] Organizer Alice adding two receipt items with prices...');

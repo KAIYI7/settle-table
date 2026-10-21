@@ -163,13 +163,17 @@ class RapidOcrEngine:
 
     def __init__(self, num_threads: int = 4):
         try:
-            from rapidocr import RapidOCR
-            self._engine = RapidOCR(params={
-                "EngineConfig.onnxruntime.intra_op_num_threads": num_threads,
-                "EngineConfig.onnxruntime.inter_op_num_threads": 1,
-            })
+            try:
+                from rapidocr import RapidOCR
+                self._engine = RapidOCR(params={
+                    "EngineConfig.onnxruntime.intra_op_num_threads": num_threads,
+                    "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+                })
+            except ImportError:
+                from rapidocr_onnxruntime import RapidOCR
+                self._engine = RapidOCR()
         except ImportError as err:
-            raise OcrUnavailableError("rapidocr is not installed on this system") from err
+            raise OcrUnavailableError("rapidocr / rapidocr_onnxruntime is not installed on this system") from err
         except Exception as err:
             raise OcrUnavailableError(f"Failed to initialize RapidOCR engine: {err}") from err
 

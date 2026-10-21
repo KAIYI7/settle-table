@@ -626,6 +626,22 @@ class SettleTableApp:
             except OcrUnavailableError:
                 raise TransportError('ocr_unavailable', 503) from None
 
+        # Check Notion Export Status GET /api/meals/{meal_id}/export/notion
+        m_notion_get = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/export/notion', path)
+        if m_notion_get and method == 'GET':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_notion_get.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+            snap = asdict(authority.snapshot(active_cred, meal_id))
+            rev = snap.get('revision', 0)
+            rec = authority.get_notion_export(meal_id, rev)
+            if rec:
+                return 200, self._default_headers(), serialize_json({'ok': True, 'export': rec})
+            return 200, self._default_headers(), serialize_json({'ok': True, 'export': {'status': 'not_started'}})
+
         # Export Finalized Meal to Notion POST /api/meals/{meal_id}/export/notion
         m_notion = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/export/notion', path)
         if m_notion and method == 'POST':
@@ -672,53 +688,98 @@ class SettleTableApp:
                 return 200, self._default_headers(), serialize_json(out)
             if rec and rec.get('status') == 'in_progress':
                 elapsed = time.time() - rec.get('exported_at', 0)
-                if elapsed < 30.0:
-                    raise TransportError('export_in_progress', 409)
+                if elapsed < 60.0:
+                    return 202, self._default_headers(), serialize_json({
+                        'ok': True,
+                        'export': {
+                            'ok': True,
+                            'status': 'in_progress',
+                            'page_id': None,
+                            'page_url': None,
+                        }
+                    })
 
             authority.record_notion_export_in_progress(meal_id, rev, digest)
 
-            try:
-                from settletable.notion import (
-                    NotionExportConfig,
-                    NotionRateLimitError,
-                    NotionAuthError,
-                    NotionNotFoundError,
-                    NotionValidationError,
-                    NotionError,
-                    export_finalized_meal,
-                )
-                config = NotionExportConfig(
-                    token=token,
-                    parent_id=parent_id.strip(),
-                    parent_type=parent_type,
-                    mode=body_data.get('mode', 'compact'),
-                )
-                client = self.get_notion_client()
-                result = export_finalized_meal(client, meal_id, snap, config)
-                if result.ok:
-                    authority.record_notion_export_completed(
-                        meal_id, rev, result.page_id or '', result.page_url or '', digest
-                    )
-                    out = {'ok': True, 'export': result.to_dict()}
-                    return 200, self._default_headers(), serialize_json(out)
-                else:
+            qs = environ.get('QUERY_STRING', '')
+            is_sync = ('sync=1' in qs) or (environ.get('HTTP_X_SETTLETABLE_SYNC_EXPORT') == '1')
+
+            from settletable.notion import (
+                NotionExportConfig,
+                NotionRateLimitError,
+                NotionAuthError,
+                NotionNotFoundError,
+                NotionValidationError,
+                NotionError,
+                export_finalized_meal,
+            )
+            config = NotionExportConfig(
+                token=token,
+                parent_id=parent_id.strip(),
+                parent_type=parent_type,
+                mode=body_data.get('mode', 'compact'),
+            )
+
+            if is_sync:
+                try:
+                    client = self.get_notion_client()
+                    result = export_finalized_meal(client, meal_id, snap, config)
+                    if result.ok:
+                        authority.record_notion_export_completed(
+                            meal_id, rev, result.page_id or '', result.page_url or '', digest
+                        )
+                        out = {'ok': True, 'export': result.to_dict()}
+                        return 200, self._default_headers(), serialize_json(out)
+                    else:
+                        authority.clear_notion_export(meal_id, rev)
+                        return 400, self._default_headers(), serialize_json({'ok': False, 'error': result.error or 'notion_error'})
+                except NotionRateLimitError:
                     authority.clear_notion_export(meal_id, rev)
-                    return 400, self._default_headers(), serialize_json({'ok': False, 'error': result.error or 'notion_error'})
-            except NotionRateLimitError:
-                authority.clear_notion_export(meal_id, rev)
-                raise TransportError('notion_rate_limited', 429) from None
-            except NotionAuthError:
-                authority.clear_notion_export(meal_id, rev)
-                raise TransportError('notion_auth_error', 400) from None
-            except (NotionValidationError, NotionNotFoundError):
-                authority.clear_notion_export(meal_id, rev)
-                raise TransportError('invalid_input', 400) from None
-            except NotionError:
-                authority.clear_notion_export(meal_id, rev)
-                raise TransportError('notion_error', 502) from None
-            except Exception:
-                authority.clear_notion_export(meal_id, rev)
-                raise TransportError('notion_error', 502) from None
+                    raise TransportError('notion_rate_limited', 429) from None
+                except NotionAuthError:
+                    authority.clear_notion_export(meal_id, rev)
+                    raise TransportError('notion_auth_error', 400) from None
+                except (NotionValidationError, NotionNotFoundError):
+                    authority.clear_notion_export(meal_id, rev)
+                    raise TransportError('invalid_input', 400) from None
+                except NotionError:
+                    authority.clear_notion_export(meal_id, rev)
+                    raise TransportError('notion_error', 502) from None
+                except Exception:
+                    authority.clear_notion_export(meal_id, rev)
+                    raise TransportError('notion_error', 502) from None
+            else:
+                # Asynchronous delivery: dispatch in background thread, return 202 immediately
+                # to prevent WSGI worker thread starvation for live diners
+                def _bg_export():
+                    bg_auth = self.get_authority()
+                    try:
+                        client = self.get_notion_client()
+                        result = export_finalized_meal(client, meal_id, snap, config)
+                        if result.ok:
+                            bg_auth.record_notion_export_completed(
+                                meal_id, rev, result.page_id or '', result.page_url or '', digest
+                            )
+                        else:
+                            bg_auth.clear_notion_export(meal_id, rev)
+                    except Exception:
+                        bg_auth.clear_notion_export(meal_id, rev)
+                    finally:
+                        self.close()
+
+                bg_thread = threading.Thread(target=_bg_export, daemon=True)
+                bg_thread.start()
+                out = {
+                    'ok': True,
+                    'export': {
+                        'ok': True,
+                        'status': 'in_progress',
+                        'page_id': None,
+                        'page_url': None,
+                        'message': 'Notion export running asynchronously in background',
+                    }
+                }
+                return 202, self._default_headers(), serialize_json(out)
 
         raise TransportError('not_found', 404)
 

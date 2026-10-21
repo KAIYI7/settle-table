@@ -271,6 +271,17 @@ class MockNotionClient:
         if children:
             self.blocks[page_uuid] = list(children)
 
+        # Mirror Notion API: creating a page under page parent creates a child_page block in parent
+        if "page_id" in parent:
+            pid = parent["page_id"]
+            title_items = properties.get("title", {}).get("title", [])
+            title_str = "".join(item.get("text", {}).get("content", "") for item in title_items)
+            self.blocks.setdefault(pid, []).append({
+                "id": page_uuid,
+                "type": "child_page",
+                "child_page": {"title": title_str},
+            })
+
         return page_obj
 
     def append_block_children(
