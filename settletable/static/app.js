@@ -941,8 +941,8 @@ function renderOrganizerSection(snap) {
               ? '<span class="badge ocr-badge-correction">⚠️ Needs Correction</span>'
               : '<span class="badge ocr-badge-ready">✓ Ready for Review</span>'}
           </div>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
-            Staged in browser memory outside SQLite. Edit any misread items, quantities, line totals, taxes, discounts, or BNM cash rounding below before applying to authoritative receipt.
+          <p class="ocr-candidate-desc" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
+            Review scanned items, taxes, or discounts before applying them to the receipt.
           </p>
           ${state.ocrCandidate.issues && state.ocrCandidate.issues.length > 0 ? `
             <div class="ocr-verification-note">
@@ -957,7 +957,6 @@ function renderOrganizerSection(snap) {
           <!-- Section: Scanned Items -->
           <div class="ocr-section-title">
             <span>Receipt Items</span>
-            <span class="ocr-section-hint">Amounts represent Line Totals (Qty &times; Unit Price)</span>
           </div>
 
           <!-- Candidate Items Table (Responsive Desktop Table + Mobile Stacked Cards) -->
@@ -996,9 +995,8 @@ function renderOrganizerSection(snap) {
                       <div class="ocr-mobile-only ocr-field-label">Line Total (RM)</div>
                       <div class="ocr-amount-wrapper">
                         <span class="ocr-currency-prefix">RM</span>
-                        <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" inputmode="decimal" />
+                        <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" inputmode="decimal" title="${qtyVal > 1 ? `Estimated unit price: ~RM ${(unitSen / 100).toFixed(2)} each` : 'Line total'}" />
                       </div>
-                      <div class="cell-unit ocr-unit-container"><span class="ocr-cand-item-unit ${qtyVal > 1 ? '' : 'ocr-unit-hidden'}" data-idx="${idx}">@ RM ${(unitSen / 100).toFixed(2)} ea</span></div>
                     </td>
 
                     <td class="cell-action">
@@ -1018,7 +1016,7 @@ function renderOrganizerSection(snap) {
           <div class="ocr-adjustments-section">
             <div class="ocr-section-title">
               <span>Adjustments, Taxes & Discounts</span>
-              <span class="ocr-section-hint">Signed minor units (e.g. -0.02 BNM rounding)</span>
+              <span class="ocr-section-hint">Discounts and rounding as negative (e.g. -0.02)</span>
             </div>
             <div class="ocr-adj-grid-header ocr-desktop-only">
               <span>Adjustment Label</span>
@@ -1095,16 +1093,23 @@ function renderOrganizerSection(snap) {
         </div>
       ` : ''}
 
-      <!-- Add Item Form -->
-      <form id="add-item-form" style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
-        <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted);">ADD RECEIPT ITEM</div>
-        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
-          <input type="text" id="new-item-label" placeholder="Item name" required>
-          <input type="number" id="new-item-qty" value="1" min="1" step="1" required>
-          <input type="text" id="new-item-price" placeholder="RM 0.00" required>
+      <!-- Add Item Form (Paused during active OCR candidate staging to prevent competing draft mutations) -->
+      ${state.ocrCandidate ? `
+        <div class="ocr-staging-active-notice" style="background: var(--bg-main); border: 1px dashed var(--border-subtle); padding: 12px 16px; border-radius: var(--radius-md); margin-bottom: 16px; font-size: 0.85rem; color: var(--text-muted); text-align: center;">
+          <span>Staged receipt review in progress. Accept or discard the scanned candidate above before adding manual items.</span>
         </div>
-        <button type="submit" class="btn btn-secondary btn-sm btn-block">+ Add Item</button>
-      </form>
+      ` : `
+        <!-- Add Item Form -->
+        <form id="add-item-form" style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
+          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted);">ADD RECEIPT ITEM</div>
+          <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+            <input type="text" id="new-item-label" placeholder="Item name" required>
+            <input type="number" id="new-item-qty" value="1" min="1" step="1" required>
+            <input type="text" id="new-item-price" placeholder="RM 0.00" required>
+          </div>
+          <button type="submit" class="btn btn-secondary btn-sm btn-block">+ Add Item</button>
+        </form>
+      `}
 
       <!-- Review & Verification Card -->
       <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md);">
@@ -1113,11 +1118,16 @@ function renderOrganizerSection(snap) {
           Examine the items above against the merchant receipt. Confirm the digest before finalization.
         </p>
         <label style="display: flex; align-items: center; gap: 8px; text-transform: none; color: var(--text-main); font-size: 0.9rem; cursor: pointer;">
-          <input type="checkbox" id="review-confirm-check" ${reviewConfirmed ? 'checked disabled' : ''}>
+          <input type="checkbox" id="review-confirm-check" ${reviewConfirmed ? 'checked disabled' : ''} ${state.ocrCandidate && !reviewConfirmed ? 'disabled title="Accept or discard staged candidate before confirming physical bill"' : ''}>
           I confirm totals match the physical bill.
         </label>
+        ${state.ocrCandidate && !reviewConfirmed ? `
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
+            ⚠️ Accept or discard the scanned candidate above before verifying and sealing the receipt.
+          </div>
+        ` : ''}
         ${!reviewConfirmed ? `
-          <button id="review-submit-btn" class="btn btn-primary btn-sm btn-block" style="margin-top: 10px;" disabled>
+          <button id="review-submit-btn" class="btn btn-primary btn-sm btn-block" style="margin-top: 10px;" ${state.ocrCandidate ? 'disabled' : ''}>
             Approve & Seal Receipt
           </button>
         ` : ''}
@@ -1642,16 +1652,11 @@ function bindEvents(snap) {
       const existingId = (cand.items && cand.items[i]) ? cand.items[i].id : `item-${i + 1}`;
       items.push({ id: existingId, label, quantity: qty, line_sen: lineSen });
 
-      // Update unit price estimate displays live
+      // Update unit price estimate as accessible tooltip on amount input
       const unitSen = qty > 0 ? Math.round(lineSen / qty) : lineSen;
-      row.querySelectorAll('.ocr-cand-item-unit').forEach(unitEl => {
-        unitEl.textContent = `@ RM ${(unitSen / 100).toFixed(2)} ea`;
-        if (qty > 1) {
-          unitEl.classList.remove('ocr-unit-hidden');
-        } else {
-          unitEl.classList.add('ocr-unit-hidden');
-        }
-      });
+      if (priceInput) {
+        priceInput.title = qty > 1 ? `Estimated unit price: ~RM ${(unitSen / 100).toFixed(2)} each` : 'Line total';
+      }
 
       // Update minus stepper button state
       const decBtn = row.querySelector('.ocr-qty-dec');
