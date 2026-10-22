@@ -320,21 +320,43 @@ async function main() {
       throw new Error('Expected minus button to be disabled when quantity is 1');
     }
 
-    // Click increment button on first item: qty becomes 2, unit price becomes @ RM 6.00 ea while line total is RM 12.00
+    // Click increment button on first item: qty becomes 2, authoritative line total is RM 12.00, tooltip stores ~RM 6.00 each
     await pageA.evaluate("document.querySelector('.ocr-qty-inc').click()");
     await pageA.waitFor("document.getElementById('ocr-item-qty-0').value === '2'");
-    await pageA.waitFor("document.querySelector('.cell-unit .ocr-cand-item-unit').innerText.includes('@ RM 6.00')");
+    await pageA.waitFor("document.getElementById('ocr-item-price-0').title.includes('~RM 6.00')");
     const incDecDisabled = await pageA.evaluate("document.querySelector('.ocr-qty-dec').disabled");
     if (incDecDisabled) {
       throw new Error('Expected minus button to be enabled when quantity is > 1');
     }
 
-    // Check unit price estimate displayed when qty > 1
-    const desktopUnitText = await pageA.evaluate("document.querySelector('.cell-unit .ocr-cand-item-unit').innerText");
-    if (!desktopUnitText.includes('@ RM')) {
-      throw new Error(`Expected unit price estimate in desktop cell, got: ${desktopUnitText}`);
+    // Check no floating unit price caption in DOM and verify locked uniform row heights
+    const floatingUnitExists = await pageA.evaluate("document.querySelector('.ocr-cand-item-unit') !== null");
+    if (floatingUnitExists) {
+      throw new Error('Expected floating unit price caption to be removed from table DOM');
     }
-    console.log('   ✓ Desktop candidate layout verified: Stepper component, Line Total, and conditional Unit Price estimate');
+    const rowHeights = await pageA.evaluate(`(() => {
+      const rows = Array.from(document.querySelectorAll('.ocr-cand-item-row'));
+      return rows.map(r => r.getBoundingClientRect().height);
+    })()`);
+    if (rowHeights.length >= 2 && Math.abs(rowHeights[0] - rowHeights[1]) > 2) {
+      throw new Error(`Expected uniform locked row heights across items, got: ${JSON.stringify(rowHeights)}`);
+    }
+    console.log(`   ✓ Desktop candidate layout verified: Stepper component, authoritative Line Total, accessible tooltip, and locked uniform row heights (${rowHeights[0]}px)`);
+
+    // Verify Competing Receipt-Editing Flows: #add-item-form is paused and notice rendered
+    const competingFormExists = await pageA.evaluate("document.getElementById('add-item-form') !== null");
+    if (competingFormExists) {
+      throw new Error('Expected separate manual #add-item-form to be paused during active candidate staging');
+    }
+    const stagingNoticeExists = await pageA.evaluate("document.querySelector('.ocr-staging-active-notice') !== null");
+    if (!stagingNoticeExists) {
+      throw new Error('Expected .ocr-staging-active-notice to be displayed while candidate is staged');
+    }
+    const reviewCheckDisabled = await pageA.evaluate("document.getElementById('review-confirm-check').disabled");
+    if (!reviewCheckDisabled) {
+      throw new Error('Expected review-confirm-check to be disabled while candidate is staged');
+    }
+    console.log('   ✓ Single editing workflow verified: manual #add-item-form paused and review checkbox guarded during staging');
 
     // Capture Stepper Interaction Screenshot
     const artifactDir = process.env.ARTIFACT_DIR || (process.platform === 'win32' ? path.resolve('C:/Users/alpha/.gemini/antigravity/brain/8551baa0-7cf7-4f83-91eb-19824df0c298') : null);
@@ -385,6 +407,29 @@ async function main() {
 
     // Test Mobile Viewport Usability, Stacked Layout, & Touch Targets (375x667)
     await pageA.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 2, mobile: true });
+
+    // Verify Mobile Navigation Header
+    const mobileHomeNavDisplay = await pageA.evaluate("window.getComputedStyle(document.getElementById('nav-home-btn')).display");
+    if (mobileHomeNavDisplay !== 'none') {
+      throw new Error(`Expected #nav-home-btn to be hidden on mobile, got ${mobileHomeNavDisplay}`);
+    }
+    const leaveBtnHeight = await pageA.evaluate("document.getElementById('header-leave-btn').getBoundingClientRect().height");
+    if (leaveBtnHeight > 36) {
+      throw new Error(`Expected single-line Leave Room button on mobile (height <= 36px), got ${leaveBtnHeight}px`);
+    }
+    const headerOverflow = await pageA.evaluate("document.querySelector('.header-inner').scrollWidth > document.querySelector('.header-inner').clientWidth + 1");
+    if (headerOverflow) {
+      throw new Error('Detected horizontal overflow in mobile header');
+    }
+    console.log(`   ✓ Mobile header layout verified (375px): single-line Leave Room (${leaveBtnHeight}px), #nav-home-btn hidden, zero horizontal overflow`);
+
+    // Capture Mobile Header Screenshot
+    await pageA.evaluate("window.scrollTo(0, 0)");
+    if (artifactDir) {
+      await pageA.screenshot(path.join(artifactDir, 'screenshot_mobile_header_375px.png'));
+    }
+
+    // Verify Mobile Items Table
     const mobileTheadDisplay = await pageA.evaluate("window.getComputedStyle(document.querySelector('.ocr-items-table thead')).display");
     if (mobileTheadDisplay !== 'none') {
       throw new Error(`Expected mobile table thead to be hidden, got ${mobileTheadDisplay}`);
@@ -399,11 +444,24 @@ async function main() {
     }
     console.log(`   ✓ Mobile responsive stacked layout verified (375px): stacked grid, touch targets ${touchTargets.w}x${touchTargets.h}px >= 40px`);
 
-    // Capture Mobile Viewport Screenshot (375x667)
+    // Verify Mobile Adjustments Select Width & Readability
+    const selectWidth = await pageA.evaluate("document.querySelector('.ocr-edit-adj-kind').getBoundingClientRect().width");
+    if (selectWidth < 140) {
+      throw new Error(`Expected mobile adjustment select width >= 140px, got ${selectWidth}px`);
+    }
+    console.log(`   ✓ Mobile adjustments verified (375px): Kind select width ${selectWidth}px >= 140px (untruncated options)`);
+
+    // Capture Mobile Candidate Editor Full Screenshot (375x667)
     await pageA.evaluate("document.getElementById('ocr-candidate-card')?.scrollIntoView({ block: 'start' })");
     if (artifactDir) {
       await pageA.screenshot(path.join(artifactDir, 'screenshot_mobile_candidate_editor.png'));
       console.log('   ✓ Mobile candidate editor screenshot captured (375x667)');
+    }
+
+    // Capture Mobile Adjustments Screenshot
+    await pageA.evaluate("document.querySelector('.ocr-adjustments-section')?.scrollIntoView({ block: 'start' })");
+    if (artifactDir) {
+      await pageA.screenshot(path.join(artifactDir, 'screenshot_mobile_adjustments_375px.png'));
     }
 
     // Restore Desktop Viewport (1280x800)
