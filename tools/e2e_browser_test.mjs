@@ -6,10 +6,10 @@
  * Works across Windows, Linux, and macOS without hardcoded paths.
  */
 import { spawn, execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import fs, { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import path, { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -149,6 +149,12 @@ class CDPPage {
 
   async reload() {
     await this.send('Page.reload');
+  }
+
+  async screenshot(filePath) {
+    const res = await this.send('Page.captureScreenshot', { format: 'png' });
+    const buffer = Buffer.from(res.data, 'base64');
+    await fs.promises.writeFile(filePath, buffer);
   }
 
   async waitFor(expr, timeoutMs = 8000) {
@@ -302,16 +308,80 @@ async function main() {
     await pageA.waitFor("document.getElementById('ocr-cand-subtotal-val').innerText === 'RM 15.20'");
     console.log('   ✓ Server OCR candidate verified: Subtotal RM 15.20, Total RM 16.70');
 
-    // Test Desktop Viewport Usability & Typography
+    // Test Desktop Viewport Usability & Stepper Interaction
     const desktopTheadDisplay = await pageA.evaluate("window.getComputedStyle(document.querySelector('.ocr-items-table thead')).display");
     if (desktopTheadDisplay === 'none') {
       throw new Error(`Expected desktop table thead to be visible, got ${desktopTheadDisplay}`);
     }
+
+    // Verify Stepper Quantity Component
+    const initialDecDisabled = await pageA.evaluate("document.querySelector('.ocr-qty-dec').disabled");
+    if (!initialDecDisabled) {
+      throw new Error('Expected minus button to be disabled when quantity is 1');
+    }
+
+    // Click increment button on first item: qty becomes 2, unit price becomes @ RM 6.00 ea while line total is RM 12.00
+    await pageA.evaluate("document.querySelector('.ocr-qty-inc').click()");
+    await pageA.waitFor("document.getElementById('ocr-item-qty-0').value === '2'");
+    await pageA.waitFor("document.querySelector('.cell-unit .ocr-cand-item-unit').innerText.includes('@ RM 6.00')");
+    const incDecDisabled = await pageA.evaluate("document.querySelector('.ocr-qty-dec').disabled");
+    if (incDecDisabled) {
+      throw new Error('Expected minus button to be enabled when quantity is > 1');
+    }
+
+    // Check unit price estimate displayed when qty > 1
     const desktopUnitText = await pageA.evaluate("document.querySelector('.cell-unit .ocr-cand-item-unit').innerText");
     if (!desktopUnitText.includes('@ RM')) {
       throw new Error(`Expected unit price estimate in desktop cell, got: ${desktopUnitText}`);
     }
-    console.log('   ✓ Desktop candidate layout verified: readable table with Line Total & Unit Price columns');
+    console.log('   ✓ Desktop candidate layout verified: Stepper component, Line Total, and conditional Unit Price estimate');
+
+    // Capture Stepper Interaction Screenshot
+    const artifactDir = process.env.ARTIFACT_DIR || (process.platform === 'win32' ? path.resolve('C:/Users/alpha/.gemini/antigravity/brain/8551baa0-7cf7-4f83-91eb-19824df0c298') : null);
+    if (artifactDir && !fs.existsSync(artifactDir)) fs.mkdirSync(artifactDir, { recursive: true });
+    await pageA.evaluate("document.getElementById('ocr-candidate-card')?.scrollIntoView({ block: 'start' })");
+    if (artifactDir) await pageA.screenshot(path.join(artifactDir, 'screenshot_stepper_interaction.png'));
+
+    // Click decrement button back to 1
+    await pageA.evaluate("document.querySelector('.ocr-qty-dec').click()");
+    await pageA.waitFor("document.getElementById('ocr-item-qty-0').value === '1'");
+    await pageA.waitFor("document.getElementById('ocr-cand-subtotal-val').innerText === 'RM 15.20'");
+
+    // Test Adjustment Category Selector Auto-Suggestion
+    await pageA.evaluate(`(() => {
+      const select = document.querySelector('.ocr-edit-adj-kind');
+      select.value = 'tax';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    const suggestedTaxLabel = await pageA.evaluate("document.querySelector('.ocr-edit-adj-label').value");
+    if (suggestedTaxLabel !== 'SST Tax') {
+      throw new Error(`Expected auto-suggested label 'SST Tax', got: ${suggestedTaxLabel}`);
+    }
+    await pageA.evaluate(`(() => {
+      const select = document.querySelector('.ocr-edit-adj-kind');
+      select.value = 'service';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    const restoredServiceLabel = await pageA.evaluate("document.querySelector('.ocr-edit-adj-label').value");
+    if (restoredServiceLabel !== 'Service Charge') {
+      throw new Error(`Expected restored label 'Service Charge', got: ${restoredServiceLabel}`);
+    }
+    console.log('   ✓ Adjustment category auto-suggestion verified: switching kind updates default label cleanly');
+
+    // Capture Desktop Viewport Screenshot (1280x800)
+    await pageA.evaluate("document.getElementById('ocr-candidate-card')?.scrollIntoView({ block: 'start' })");
+    if (artifactDir) {
+      await pageA.screenshot(path.join(artifactDir, 'screenshot_desktop_candidate_editor.png'));
+      console.log('   ✓ Desktop candidate editor screenshot captured');
+    }
+
+    // Test Tablet Viewport Usability (768x1024)
+    await pageA.send('Emulation.setDeviceMetricsOverride', { width: 768, height: 1024, deviceScaleFactor: 2, mobile: false });
+    await pageA.evaluate("document.getElementById('ocr-candidate-card')?.scrollIntoView({ block: 'start' })");
+    if (artifactDir) {
+      await pageA.screenshot(path.join(artifactDir, 'screenshot_tablet_candidate_editor.png'));
+      console.log('   ✓ Tablet candidate editor screenshot captured (768x1024)');
+    }
 
     // Test Mobile Viewport Usability, Stacked Layout, & Touch Targets (375x667)
     await pageA.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 2, mobile: true });
@@ -328,6 +398,13 @@ async function main() {
       throw new Error(`Mobile touch target too small: ${JSON.stringify(touchTargets)}, expected >= 40px`);
     }
     console.log(`   ✓ Mobile responsive stacked layout verified (375px): stacked grid, touch targets ${touchTargets.w}x${touchTargets.h}px >= 40px`);
+
+    // Capture Mobile Viewport Screenshot (375x667)
+    await pageA.evaluate("document.getElementById('ocr-candidate-card')?.scrollIntoView({ block: 'start' })");
+    if (artifactDir) {
+      await pageA.screenshot(path.join(artifactDir, 'screenshot_mobile_candidate_editor.png'));
+      console.log('   ✓ Mobile candidate editor screenshot captured (375x667)');
+    }
 
     // Restore Desktop Viewport (1280x800)
     await pageA.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
