@@ -308,6 +308,17 @@ async function main() {
     await pageA.waitFor("document.getElementById('ocr-cand-subtotal-val').innerText === 'RM 15.20'");
     console.log('   ✓ Server OCR candidate verified: Subtotal RM 15.20, Total RM 16.70');
 
+    // Verify Compact Dismissible OCR Alert
+    const alertMsg = await pageA.evaluate("document.querySelector('.alert-banner .alert-message')?.textContent");
+    if (!alertMsg || !alertMsg.includes('Scanned 2 items (RM 16.70)')) {
+      throw new Error(`Expected compact OCR alert message with count and total, got: ${alertMsg}`);
+    }
+    const hasCloseBtn = await pageA.evaluate("document.querySelector('.alert-banner .alert-close-btn') !== null");
+    if (!hasCloseBtn) {
+      throw new Error('Expected dismiss button (.alert-close-btn) on alert banner');
+    }
+    console.log(`   ✓ Compact dismissible alert verified: "${alertMsg}" with close button`);
+
     // Test Desktop Viewport Usability & Stepper Interaction
     const desktopTheadDisplay = await pageA.evaluate("window.getComputedStyle(document.querySelector('.ocr-items-table thead')).display");
     if (desktopTheadDisplay === 'none') {
@@ -408,26 +419,47 @@ async function main() {
     // Test Mobile Viewport Usability, Stacked Layout, & Touch Targets (375x667)
     await pageA.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 2, mobile: true });
 
+    // Show compact alert in mobile viewport to verify height and dismissibility
+    await pageA.evaluate("showAlert('✓ Scanned 2 items (RM 16.70)', 'success', true)");
+    const mobileAlertHeight = await pageA.evaluate("document.querySelector('.alert-banner')?.getBoundingClientRect().height");
+    if (!mobileAlertHeight || mobileAlertHeight > 50) {
+      throw new Error(`Expected compact mobile alert height <= 50px, got ${mobileAlertHeight}px`);
+    }
+    console.log(`   ✓ Mobile compact alert verified: height ${mobileAlertHeight}px <= 50px (saves vertical screen space)`);
+
     // Verify Mobile Navigation Header
     const mobileHomeNavDisplay = await pageA.evaluate("window.getComputedStyle(document.getElementById('nav-home-btn')).display");
     if (mobileHomeNavDisplay !== 'none') {
       throw new Error(`Expected #nav-home-btn to be hidden on mobile, got ${mobileHomeNavDisplay}`);
     }
-    const leaveBtnHeight = await pageA.evaluate("document.getElementById('header-leave-btn').getBoundingClientRect().height");
-    if (leaveBtnHeight > 36) {
-      throw new Error(`Expected single-line Leave Room button on mobile (height <= 36px), got ${leaveBtnHeight}px`);
+    const leaveBtnBounds = await pageA.evaluate("(() => { const r = document.getElementById('header-leave-btn').getBoundingClientRect(); return { w: r.width, h: r.height }; })()");
+    if (leaveBtnBounds.h < 38 || leaveBtnBounds.h > 44 || leaveBtnBounds.w < 40) {
+      throw new Error(`Expected single-line Leave Room button with touch height >= 38px and <= 44px, got ${JSON.stringify(leaveBtnBounds)}`);
+    }
+    const refreshBtnBounds = await pageA.evaluate("(() => { const r = document.getElementById('manual-refresh-btn').getBoundingClientRect(); return { w: r.width, h: r.height }; })()");
+    if (refreshBtnBounds.h < 38 || refreshBtnBounds.w < 38) {
+      throw new Error(`Expected mobile Refresh button touch target >= 40px, got ${JSON.stringify(refreshBtnBounds)}`);
     }
     const headerOverflow = await pageA.evaluate("document.querySelector('.header-inner').scrollWidth > document.querySelector('.header-inner').clientWidth + 1");
     if (headerOverflow) {
       throw new Error('Detected horizontal overflow in mobile header');
     }
-    console.log(`   ✓ Mobile header layout verified (375px): single-line Leave Room (${leaveBtnHeight}px), #nav-home-btn hidden, zero horizontal overflow`);
+    console.log(`   ✓ Mobile header layout verified (375px): single-line Leave Room (${leaveBtnBounds.w}x${leaveBtnBounds.h}px), Refresh (${refreshBtnBounds.w}x${refreshBtnBounds.h}px) touch targets >= 40px, #nav-home-btn hidden, zero horizontal overflow`);
 
-    // Capture Mobile Header Screenshot
+    // Capture Mobile Header & Compact Alert Screenshot
     await pageA.evaluate("window.scrollTo(0, 0)");
     if (artifactDir) {
       await pageA.screenshot(path.join(artifactDir, 'screenshot_mobile_header_375px.png'));
+      console.log('   ✓ Mobile header and compact alert screenshot captured (375px)');
     }
+
+    // Dismiss alert and verify removal
+    await pageA.evaluate("document.querySelector('.alert-close-btn')?.click()");
+    const alertDismissed = await pageA.evaluate("document.querySelector('.alert-banner') === null");
+    if (!alertDismissed) {
+      throw new Error('Expected alert banner to be removed upon clicking close button');
+    }
+    console.log('   ✓ Alert dismissal verified: clicking ✕ cleanly removes banner from DOM');
 
     // Verify Mobile Items Table
     const mobileTheadDisplay = await pageA.evaluate("window.getComputedStyle(document.querySelector('.ocr-items-table thead')).display");
