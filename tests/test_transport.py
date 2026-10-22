@@ -419,6 +419,13 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn(token, redacted)
         self.assertIn('[REDACTED]', redacted)
 
+        # Test claim token redactions in query string and JSON payloads
+        claim_raw = f'GET /api/meals/m1/join-requests/req-1?claim_token={token} {{"claim_token": "{token}"}}'
+        claim_redacted = redact_log_string(claim_raw)
+        self.assertNotIn(token, claim_redacted)
+        self.assertIn('?claim_token=[REDACTED]', claim_redacted)
+        self.assertIn('"claim_token":"[REDACTED]"', claim_redacted)
+
     def test_case_insensitive_bearer_header(self):
         boot = self.client.post('/api/meals/m1/bootstrap', body={
             'participants': [{'id': 'O', 'name': 'Org', 'organizer': True}]

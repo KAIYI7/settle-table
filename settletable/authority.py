@@ -1232,6 +1232,8 @@ class Authority:
                                        (meal_id, data['participant_id'])).rowcount
             inv_up = self._db.execute('UPDATE invitations SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0 AND consumed=0 AND expires>?',
                                       (meal_id, data['participant_id'], now)).rowcount
+            self._db.execute('''UPDATE join_requests SET status='rejected' WHERE meal_id=? AND participant_id=? AND status IN ('pending', 'approved')''',
+                             (meal_id, data['participant_id']))
             _require(sess_up + inv_up > 0, 'already_revoked')
         elif data['kind'] == 'RevokeMembership':
             part_up = self._db.execute('UPDATE participants SET active=0 WHERE meal_id=? AND id=? AND active=1',

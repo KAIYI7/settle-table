@@ -792,7 +792,7 @@ async function main() {
       document.getElementById('join-name-input').value = 'UnknownGuest';
       document.getElementById('submit-join-req-btn').click();
     `);
-    await pageB.waitFor("document.getElementById('join-error-box').style.display !== 'none'");
+    await pageB.waitFor("document.getElementById('join-error-box').style.display !== 'none' && !document.getElementById('submit-join-req-btn').disabled");
     const unknownError = await pageB.evaluate("document.getElementById('join-error-box').innerText");
     if (!unknownError.includes('No diner named "UnknownGuest" was found')) {
       throw new Error(`Unexpected unknown guest error: ${unknownError}`);
@@ -804,7 +804,7 @@ async function main() {
       document.getElementById('join-name-input').value = 'Alice';
       document.getElementById('submit-join-req-btn').click();
     `);
-    await pageB.waitFor("document.getElementById('join-error-box').innerText.includes('organizer')");
+    await pageB.waitFor("document.getElementById('join-error-box').innerText.includes('organizer') && !document.getElementById('submit-join-req-btn').disabled");
     console.log('   ✓ Security check passed: Organizer backdoor prohibited');
 
     // Valid join request for Charlie

@@ -106,11 +106,13 @@ function clearAlerts() {
 }
 
 // --- API Layer ---
-async function apiCall(endpoint, method = 'GET', body = null) {
-  const headers = {};
+async function apiCall(endpoint, method = 'GET', body = null, extraHeaders = {}) {
+  const headers = Object.assign({}, extraHeaders);
   if (method === 'POST') {
     headers['X-SettleTable-Action'] = '1';
-    headers['Content-Type'] = 'application/json';
+    if (!headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
   }
 
   const opts = {
@@ -596,7 +598,9 @@ function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
 
   const pollStatus = async () => {
     try {
-      const inspectRes = await apiCall(`/api/meals/${mealId}/join-requests/${requestId}?claim_token=${claimToken}`);
+      const inspectRes = await apiCall(`/api/meals/${mealId}/join-requests/${requestId}`, 'GET', null, {
+        'X-Claim-Token': claimToken,
+      });
       if (!inspectRes?.ok) return;
 
       if (inspectRes.status === 'approved') {
