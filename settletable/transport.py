@@ -27,6 +27,7 @@ from settletable.authority import (
 STATUS_MAP = {
     # 400 Bad Request
     'invalid_input': 400,
+    'invalid_join_target': 400,
     'participant_inactive': 400,
     'join_request_expired': 400,
     'invalid_join_request': 400,
@@ -68,6 +69,7 @@ STATUS_MAP = {
     # 409 Conflict
     'ambiguous_participant_name': 409,
     'join_request_conflict': 409,
+    'active_join_request_exists': 409,
     'command_conflict': 409,
     'revision_conflict': 409,
     'financial_revision_conflict': 409,

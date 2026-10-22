@@ -25,15 +25,21 @@ This User Acceptance Testing (UAT) document provides the exact operational comma
 Run the local demo runner from the repository root:
 
 ```powershell
-python tools/run_demo.py --host 127.0.0.1 --port 8000 --mock-ocr --mock-notion
+python tools/run_demo.py --mock-ocr --mock-notion
 ```
 
-Or using environment variables:
+The runner binds to `127.0.0.1:8000` by default (origin `http://127.0.0.1:8000`).
 
+Or using explicit arguments or environment variables:
+
+```powershell
+python tools/run_demo.py --host 127.0.0.1 --port 8000 --mock-ocr --mock-notion
+```
+or:
 ```powershell
 $env:SETTLETABLE_MOCK_OCR="1"
 $env:SETTLETABLE_MOCK_NOTION="1"
-python tools/run_demo.py --host 127.0.0.1 --port 8000
+python tools/run_demo.py
 ```
 
 ### 2.2 Actual Runner Output & Security Behavior
@@ -124,9 +130,11 @@ Under the conserved integer-sen calculation engine (`settletable.calculation`):
 
 ---
 
-## 5. End-to-End Walkthrough
+## 5. End-to-End Walkthroughs
 
-### Step 1: Organizer Meal Provisioning
+### 5.1 Walkthrough A: Collaborative Dining Scenario (Alice & Bob)
+
+#### Step 1: Organizer Meal Provisioning
 1. Open browser at `http://127.0.0.1:8000/`.
 2. Fill out **Create New Meal**:
    - **Meal ID**: `dinner-friday`
@@ -135,60 +143,134 @@ Under the conserved integer-sen calculation engine (`settletable.calculation`):
 3. Click **Create & Provision Meal**.
 4. The browser provisions the meal in SQLite, sets a host-only secure session cookie, and opens `/#/meal/dinner-friday` with the `👑 Organizer` role badge.
 
-### Step 2: Receipt Scanning & Edit-Before-Accept
+#### Step 2: Receipt Scanning & Edit-Before-Accept
 1. In the **Receipt & Charges** card, click **📷 Scan Receipt Image**.
 2. Select any image file (or dummy JPEG/PNG). The mock OCR engine parses the slip.
 3. The **📋 SCANNED CANDIDATE (STAGED)** card appears in amber/green:
    - The candidate is held strictly in **client browser memory** (`state.ocrCandidate`) outside SQLite.
-   - **Inline Edit Experience**: Notice that item labels, quantities, amounts in RM, and adjustment rows have editable input fields.
+   - **Polished Responsive Editor**: Displays a clear desktop table with distinct **Unit Price** and authoritative **Line Total** columns, and shifts to a spacious stacked touch-friendly layout on mobile viewports ($\ge 44\text{px}$ targets).
+   - **Inline Edit Experience**: Item labels, quantities, amounts in RM, and adjustment rows have editable input fields.
    - You can modify misrecognized names, adjust prices, click **✕** to remove spurious items, or click **+ Add Missing Item**.
-   - Notice that changing any price or adding a fee dynamically updates **Candidate Subtotal** and **Candidate Total** in real time without losing cursor focus.
+   - Modifying prices dynamically recalculates **Candidate Subtotal** and **Candidate Total** in real time while maintaining keyboard focus.
 4. Click **Accept & Apply to Receipt**. The validated receipt is applied to the SQLite draft.
 
-### Step 3: Human Verification & Sealing
+#### Step 3: Human Verification & Sealing
 1. Under **HUMAN RECEIPT REVIEW**, review the draft item lines against the paper bill.
 2. Check the box: `[x] I confirm totals match the physical bill`.
 3. Click **Approve & Seal Receipt**. The receipt digest is cryptographically sealed in SQLite.
 
-### Step 4: Diner Invitation & Onboarding
+#### Step 4: Diner Invitation & Onboarding (Two Methods)
+
+SettleTable provides two complementary diner invitation flows:
+
+##### Method 1: Personal One-Time Links
 1. Under **Diner Invitations**, locate `Bob`.
 2. Click **Create Link**. The button changes to **📋 Copy Link**.
 3. Click **📋 Copy Link** (copies URL like `http://127.0.0.1:8000/invite/<43-char-token>`).
-4. Open a **separate browser window** (e.g. Incognito or Chrome/Firefox) to simulate Bob's mobile phone:
-   > ⚠️ **Important Multi-User Testing Notice**:  
-   > SettleTable sessions are stored in host-only HTTP cookies (`settletable_session`). Always open diner invitation links in a **separate browser profile** (or Private/Incognito window). If you open and accept a diner invitation in the *same* browser profile, the browser cookie will be overwritten with the diner's session.
-5. Paste and navigate to the invitation URL:
-   - The unauthenticated landing page confirms: `Joining as: Bob`.
-   - Token inspection is read-only and non-mutating.
-   - Prominently displays the Same-Browser Profile notice warning against accidental session replacement.
+4. Open an **isolated browser window / Incognito profile** to simulate Bob's phone.
+5. Navigate to the invitation URL:
+   - Notice the **Same-Browser Profile Notice** warning against overwriting active organizer sessions.
+   - The token is verified in SQLite without revealing other diner tokens.
 6. Click **Accept & Join Meal**:
    - The single-use token is atomically consumed.
-   - Bob's browser receives a diner session cookie and redirects to `/#/meal/dinner-friday` with the `🍽️ Diner` badge.
-   - Header and room nav bar clearly display participant identification: `🍽️ Diner: Bob` and provide a **Leave Room** button.
+   - Bob's browser receives a diner session cookie and enters `/#/meal/dinner-friday` with the `🍽️ Diner: Bob` badge.
 
-### Step 5: Portion Claiming & Real-Time Sync
+##### Method 2: General Meal Join Link with Organizer Approval
+1. Under **General Meal Join Link**, click **📋 Copy General Join Link** (copies `http://127.0.0.1:8000/join/dinner-friday`).
+2. Open a separate browser profile and navigate to the link.
+3. The landing page displays the meal room identifier and a name entry field, without disclosing the participant list.
+4. Enter `Bob` and submit:
+   - Bob enters a pending approval waiting state with live polling.
+   - Bob's browser does not receive a session cookie yet.
+5. In Alice's organizer window, a **🔔 Pending Diner Join Requests** banner appears.
+6. Alice verifies Bob's identity and clicks **Approve**:
+   - Bob's polling window detects the approval, atomically claims the session via a one-time cryptographic claim token, and navigates into the meal as Bob.
+
+#### Step 5: Portion Claiming & Real-Time Sync
 1. In Bob's window, click **+1** under **Ice Lemon Tea**:
    - Bob's claim registers immediately with green chip `Bob: 1`.
-2. In Alice's window, click **⟳ Refresh** (or wait for the 2-second background poll):
+2. In Alice's window, click **⟳ Refresh** (or observe the 2-second background poll):
    - Alice sees Bob's claim reflected in real time.
 3. In Alice's window, click **+1** under **Chicken Rice**:
    - All items are now 100% claimed (progress bars reach 100%).
 
-### Step 6: Finalization & Result Inspection
+#### Step 6: Finalization & Result Inspection
 1. In Alice's window, the **Seal & Finalize Meal** card turns green.
 2. Click **Finalize & Calculate Bill**.
 3. Both Alice's and Bob's windows update with the authoritative **Final Apportionment Summary**:
    - Alice: **RM 13.18**
    - Bob: **RM 3.52**
-   - Grand Total: **RM 16.70**
+   - Grand Total: **RM 16.70** (Exact cent conservation)
 
-### Step 7: Optional Notion Export
+#### Step 7: Optional Notion Export
 1. As Alice, locate the **📤 Notion Archive & Reporting** section at the bottom.
 2. Enter any dummy parent UUID (e.g., `11111111-2222-3333-4444-555555555555`).
 3. Click **Export Finalized Report to Notion**.
 4. The server dispatches the export to an asynchronous background worker and immediately returns HTTP 202 Accepted.
 5. The UI polls status and displays:
    `✓ Export Successful! Open Report in Notion ↗`
+
+---
+
+### 5.2 Walkthrough B: Organizer-Managed Dining Scenario (Alice, David, Emma)
+
+This scenario demonstrates **zero-session dining**: the organizer manages the entire receipt allocation on behalf of all diners without requiring any diner to log in, accept links, or create sessions.
+
+#### Slip & Allocation Fixture (Mathematically Verified)
+| Item | Quantity | Unit Price | Line Total | Allocation | Participant Share |
+|:---|:---:|:---:|:---:|:---|:---:|
+| **Nasi Lemak** | 3 | RM 12.00 | RM 36.00 | Alice (1), David (1), Emma (1) | RM 12.00 each |
+| **Teh Tarik** | 2 | RM 3.00 | RM 6.00 | Emma (2) | RM 6.00 |
+| **Grand Total** | **5** | | **RM 42.00** | **Alice RM 12.00, David RM 12.00, Emma RM 18.00** | **RM 42.00** |
+
+*(Deterministic cent-conserving calculation: Alice 1200 sen + David 1200 sen + Emma 1800 sen = 4200 sen. Zero unallocated residue).*
+
+#### Step 1: Provisioning the Managed Table
+1. Open browser at `http://127.0.0.1:8000/`.
+2. Fill out **Create New Meal**:
+   - **Meal ID**: `lunch-managed`
+   - **Your Name (Organizer)**: `Alice`
+   - **Diners**: `David, Emma`
+3. Click **Create & Provision Meal**.
+4. Alice opens the meal room as Organizer. David and Emma are registered participants, but have zero active sessions.
+
+#### Step 2: Receipt Entry & Sealing
+1. Add items via manual entry or OCR scan:
+   - Line 1: `Nasi Lemak`, Qty: `3`, Line Total: `RM 36.00`
+   - Line 2: `Teh Tarik`, Qty: `2`, Line Total: `RM 6.00`
+   - Total: `RM 42.00`
+2. Under **HUMAN RECEIPT REVIEW**, check confirmation and click **Approve & Seal Receipt**.
+
+#### Step 3: Organizer-Authorized Allocation (`AssignParticipantQuantity`)
+1. In the **Items & Portions** card, locate the **Allocate on behalf of participant:** selector.
+2. **Assign Alice's portion**:
+   - Select `Alice (Organizer)`.
+   - On **Nasi Lemak**, click **+1**. The chip displays `Alice: 1` (Allocated: 1/3).
+3. **Assign David's portion**:
+   - Change selector to `David`.
+   - On **Nasi Lemak**, click **+1**. The chip displays `David: 1 (by Alice)` (Allocated: 2/3).
+4. **Assign Emma's portions**:
+   - Change selector to `Emma`.
+   - On **Nasi Lemak**, click **+1**. The chip displays `Emma: 1 (by Alice)` (Allocated: 3/3 - Complete!).
+   - On **Teh Tarik**, click **+1** twice. The chip displays `Emma: 2 (by Alice)` (Allocated: 2/2 - Complete!).
+5. Notice that:
+   - All 5 portions across both items are 100% allocated.
+   - Claims clearly distinguish organizer assignments (`assigned_by: Alice`) from diner claims, preventing impersonation while ensuring auditability.
+   - David and Emma never had to join or log in.
+
+#### Step 4: Finalization & Result Inspection
+1. Click **Finalize & Calculate Bill**.
+2. The authoritative calculation engine computes individual totals:
+   - **Alice (Organizer)**: **RM 12.00** (1200 sen)
+   - **David**: **RM 12.00** (1200 sen)
+   - **Emma**: **RM 18.00** (1800 sen)
+   - **Grand Total**: **RM 42.00** (4200 sen)
+3. Notice that all invariants hold: exact integer cent conservation, zero diner login overhead.
+
+#### Step 5: Notion Export Without Diner Sessions
+1. Under **Notion Archive & Reporting**, enter any parent page UUID.
+2. Click **Export Finalized Report to Notion**.
+3. The report exports cleanly with the exact authoritative figures (Alice RM 12.00, David RM 12.00, Emma RM 18.00).
 
 ---
 
@@ -226,6 +308,12 @@ Under the conserved integer-sen calculation engine (`settletable.calculation`):
   2. **Participant Identification**: The header and room navigation bar clearly state the active user identity (e.g. `🍽️ Diner: WKX`).
   3. **Safe Session Exit**: The header and room navigation bar both provide a **Leave Room** button. Clicking it issues a `POST /api/session/clear` call, instructing the browser to delete the cookie via `Max-Age=0` and cleanly routing back to the Home screen (`#/`).
   4. **Resuming Organizer Testing**: Once the cookie is wiped, the evaluator can bootstrap a new meal room or access meals where they hold session grants.
+
+### Scenario G: General Meal Join Request Abuse Mitigations
+- **Participant Enumeration Protection**: An unauthenticated attacker attempting to probe participant presence, organizer identity, or diner status by guessing names returns the exact same indistinguishable error response (`Unable to request access for "<Name>"`, HTTP 400 `invalid_join_target`). There is zero differential leakage between unknown names, organizer names, ambiguous names, and inactive participants.
+- **Pending Request Invalidation Protection**: If an active request is already awaiting organizer review for a participant, submitting a duplicate request is rejected with HTTP 409 (`active_join_request_exists`). An external attacker cannot cancel or overwrite a legitimate diner's pending request.
+- **Table Flooding & Resource Exhaustion Defense**: Each meal table enforces a strict upper bound of at most 20 active pending requests and at most 100 total requests lifetime. Excess requests are rejected with HTTP 429 (`resource_limit`).
+- **Revision Conflict DoS Neutralization**: Unauthenticated join requests do not mutate meal state or increment meal revisions. External request flooding cannot induce HTTP 409 `revision_conflict` on live diners making legitimate claim updates.
 
 ---
 

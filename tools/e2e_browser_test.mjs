@@ -787,25 +787,25 @@ async function main() {
     }
     console.log('   ✓ General join landing rendered with security notice and name input');
 
-    // Test rejection: unknown guest
+    // Test rejection: unknown guest (uniform anti-enumeration error)
     await pageB.evaluate(`
       document.getElementById('join-name-input').value = 'UnknownGuest';
       document.getElementById('submit-join-req-btn').click();
     `);
     await pageB.waitFor("document.getElementById('join-error-box').style.display !== 'none' && !document.getElementById('submit-join-req-btn').disabled");
     const unknownError = await pageB.evaluate("document.getElementById('join-error-box').innerText");
-    if (!unknownError.includes('No diner named "UnknownGuest" was found')) {
+    if (!unknownError.includes('Unable to request access for "UnknownGuest"')) {
       throw new Error(`Unexpected unknown guest error: ${unknownError}`);
     }
-    console.log('   ✓ Security check passed: Unregistered guest rejected');
+    console.log('   ✓ Security check passed: Unregistered guest rejected with uniform anti-enumeration message');
 
-    // Test rejection: cannot join as organizer (Alice)
+    // Test rejection: cannot join as organizer (Alice) - also returns uniform anti-enumeration error
     await pageB.evaluate(`
       document.getElementById('join-name-input').value = 'Alice';
       document.getElementById('submit-join-req-btn').click();
     `);
-    await pageB.waitFor("document.getElementById('join-error-box').innerText.includes('organizer') && !document.getElementById('submit-join-req-btn').disabled");
-    console.log('   ✓ Security check passed: Organizer backdoor prohibited');
+    await pageB.waitFor("document.getElementById('join-error-box').innerText.includes('Unable to request access for \"Alice\"') && !document.getElementById('submit-join-req-btn').disabled");
+    console.log('   ✓ Security check passed: Organizer backdoor prohibited with indistinguishable anti-enumeration message');
 
     // Valid join request for Charlie
     await pageB.evaluate(`

@@ -723,15 +723,15 @@ class TransportTests(unittest.TestCase):
         })
         org_cred = boot['json']['sessions'][0]['credential']
 
-        # 1. Unauthenticated creation: Organizer cannot be joined via diner join request
+        # 1. Unauthenticated creation: Organizer cannot be joined via diner join request (uniform anti-enumeration 400)
         res_org = self.client.post('/api/meals/m_join/join-requests', body={'display_name': 'Host'})
-        self.assertEqual(res_org['status'], 403)
-        self.assertEqual(res_org['json']['error'], 'organizer_join_prohibited')
+        self.assertEqual(res_org['status'], 400)
+        self.assertEqual(res_org['json']['error'], 'invalid_join_target')
 
-        # 2. Unknown participant returns 404
+        # 2. Unknown participant returns 400 (uniform anti-enumeration response)
         res_unk = self.client.post('/api/meals/m_join/join-requests', body={'display_name': 'Unknown'})
-        self.assertEqual(res_unk['status'], 404)
-        self.assertEqual(res_unk['json']['error'], 'participant_not_found')
+        self.assertEqual(res_unk['status'], 400)
+        self.assertEqual(res_unk['json']['error'], 'invalid_join_target')
 
         # 3. Valid creation for Guest
         res_guest = self.client.post('/api/meals/m_join/join-requests', body={'display_name': 'Guest'})
@@ -740,6 +740,11 @@ class TransportTests(unittest.TestCase):
         token = res_guest['json']['claim_token']
         self.assertEqual(res_guest['json']['participant_id'], 'D')
         self.assertEqual(res_guest['json']['status'], 'pending')
+
+        # 3b. Duplicate request while pending is rejected (409 active_join_request_exists)
+        res_dup = self.client.post('/api/meals/m_join/join-requests', body={'display_name': 'Guest'})
+        self.assertEqual(res_dup['status'], 409)
+        self.assertEqual(res_dup['json']['error'], 'active_join_request_exists')
 
         # 4. Inspect request
         inspect_res = self.client.get(f'/api/meals/m_join/join-requests/{req_id}?claim_token={token}')
