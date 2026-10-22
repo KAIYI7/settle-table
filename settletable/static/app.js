@@ -232,12 +232,19 @@ async function fetchSnapshot(force = false) {
       state.currentUserId = snap.current_participant_id;
       state.isOrganizer = snap.is_organizer;
 
+      const prevJrJson = JSON.stringify(prevSnap?.join_requests || []);
+      const currJrJson = JSON.stringify(snap.join_requests || []);
+      const prevInvJson = JSON.stringify(prevSnap?.invitations || []);
+      const currInvJson = JSON.stringify(snap.invitations || []);
+
       const hasChanged = !prevSnap 
         || snap.revision !== prevRev 
         || snap.financial_revision !== prevFinRev
         || snap.finalized !== prevFinalized
         || snap.current_participant_id !== prevUser
-        || snap.is_organizer !== prevIsOrg;
+        || snap.is_organizer !== prevIsOrg
+        || prevJrJson !== currJrJson
+        || prevInvJson !== currInvJson;
 
       if (force || hasChanged) {
         updateMealUI();
@@ -543,14 +550,12 @@ async function renderGeneralJoinLanding(mealId) {
       errorBox.className = 'alert alert-error';
       errorBox.style.display = 'block';
       const msg = err.message || '';
-      if (msg.includes('participant_not_found') || msg.includes('404')) {
-        errorBox.textContent = `No diner named "${name}" was found for this meal. Please check the spelling or ask the organizer to add you.`;
-      } else if (msg.includes('organizer_join_prohibited') || msg.includes('403')) {
-        errorBox.textContent = 'The table organizer cannot join via diner requests. Please use your organizer session.';
-      } else if (msg.includes('ambiguous_participant_name')) {
-        errorBox.textContent = 'Multiple diners share this name. Please ask the organizer for a personal invite link.';
-      } else if (msg.includes('participant_inactive')) {
-        errorBox.textContent = 'This participant is currently marked inactive.';
+      if (msg.includes('active_join_request_exists') || msg.includes('409')) {
+        errorBox.textContent = 'A join request is already pending for this diner. Please wait for the table organizer to approve your request.';
+      } else if (msg.includes('resource_limit') || msg.includes('429')) {
+        errorBox.textContent = 'Too many join requests have been made for this meal table. Please speak to the organizer directly.';
+      } else if (msg.includes('invalid_join_target') || msg.includes('400') || msg.includes('404')) {
+        errorBox.textContent = `Unable to request access for "${name}". Please check the spelling or ask the table organizer to add you.`;
       } else {
         errorBox.textContent = `Could not submit request: ${msg}`;
       }

@@ -338,28 +338,64 @@ class InvitationLifecycleTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 'invalid_join_request')
 
     def test_join_request_prohibits_organizer(self):
-        # Visitor attempting to join as organizer 'Alice' must be rejected
+        # Visitor attempting to join as organizer 'Alice' must be rejected with uniform invalid_join_target
         with self.assertRaises(AuthorityError) as ctx:
             self.authority.create_join_request('meal-1', 'Alice')
-        self.assertEqual(ctx.exception.code, 'organizer_join_prohibited')
+        self.assertEqual(ctx.exception.code, 'invalid_join_target')
 
         # Case-insensitive whitespace strip test for organizer
         with self.assertRaises(AuthorityError) as ctx:
             self.authority.create_join_request('meal-1', '  alice  ')
-        self.assertEqual(ctx.exception.code, 'organizer_join_prohibited')
+        self.assertEqual(ctx.exception.code, 'invalid_join_target')
 
     def test_join_request_nonexistent_or_inactive_participant(self):
+        # Unknown guest rejected with uniform anti-enumeration error
         with self.assertRaises(AuthorityError) as ctx:
             self.authority.create_join_request('meal-1', 'UnknownGuest')
-        self.assertEqual(ctx.exception.code, 'participant_not_found')
+        self.assertEqual(ctx.exception.code, 'invalid_join_target')
 
         # Inactivate Bob
         rev = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
         self.authority.apply(self.organizer_cred, 'meal-1', RevokeMembership('rev-b-mem', rev, 'B'))
 
+        # Inactive diner also rejected with uniform anti-enumeration error
         with self.assertRaises(AuthorityError) as ctx:
             self.authority.create_join_request('meal-1', 'Bob')
-        self.assertEqual(ctx.exception.code, 'participant_inactive')
+        self.assertEqual(ctx.exception.code, 'invalid_join_target')
+
+    def test_unauthenticated_join_does_not_bump_meal_revision(self):
+        rev_before = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        rev_after = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
+        self.assertEqual(rev_before, rev_after, "Unauthenticated join request must not bump meal revision")
+
+    def test_duplicate_pending_join_request_rejected(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        # Submitting again while first is pending must be rejected with active_join_request_exists
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.create_join_request('meal-1', 'Charlie')
+        self.assertEqual(ctx.exception.code, 'active_join_request_exists')
+
+        # Original request remains pending and valid
+        inspect_data = self.authority.inspect_join_request('meal-1', req_id, token)
+        self.assertEqual(inspect_data['status'], 'pending')
+
+    def test_join_request_resource_limits_enforced(self):
+        # Test active requests ceiling (< 20)
+        # We have Bob and Charlie. Let's add more participants to hit the 20 active limit
+        with closing(sqlite3.connect(self.path)) as db:
+            for i in range(30):
+                db.execute("INSERT INTO participants VALUES ('meal-1', ?, ?, 0, 1)", (f'P{i}', f'Person{i}'))
+            db.commit()
+
+        # Create 20 requests
+        for i in range(20):
+            self.authority.create_join_request('meal-1', f'Person{i}')
+
+        # 21st active request must raise resource_limit
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.create_join_request('meal-1', 'Person20')
+        self.assertEqual(ctx.exception.code, 'resource_limit')
 
     def test_join_request_reject_flow(self):
         req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')

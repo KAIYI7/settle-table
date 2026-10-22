@@ -873,18 +873,30 @@ class Authority:
             self._db.execute('BEGIN IMMEDIATE')
             meal_row = self._db.execute('SELECT 1 FROM meals WHERE id=?', (meal_id,)).fetchone()
             _require(meal_row is not None, 'meal_not_found')
-            parts = self._db.execute('SELECT id, name, organizer, active FROM participants WHERE meal_id=?', (meal_id,)).fetchall()
-            matching = [p for p in parts if p[1].strip().lower() == cleaned.lower()]
-            _require(len(matching) > 0, 'participant_not_found')
-            _require(len(matching) == 1, 'ambiguous_participant_name')
-            target_id, target_name, is_organizer, is_active = matching[0]
-            _require(not is_organizer, 'organizer_join_prohibited')
-            _require(is_active == 1, 'participant_inactive')
 
             now = self._now()
-            self._db.execute('''UPDATE join_requests SET status='rejected'
+            # Bounded resource defense against table flooding
+            active_count = self._db.execute('''SELECT COUNT(*) FROM join_requests
+                WHERE meal_id=? AND status='pending' AND expires>?''', (meal_id, now)).fetchone()[0]
+            _require(active_count < 20, 'resource_limit')
+            total_count = self._db.execute('SELECT COUNT(*) FROM join_requests WHERE meal_id=?', (meal_id,)).fetchone()[0]
+            _require(total_count < 100, 'resource_limit')
+
+            # Anti-enumeration defense: all invalid targets (non-existent, organizer, inactive, ambiguous)
+            # return the exact same generic AuthorityError('invalid_join_target') to prevent enumeration.
+            parts = self._db.execute('SELECT id, name, organizer, active FROM participants WHERE meal_id=?', (meal_id,)).fetchall()
+            matching = [p for p in parts if p[1].strip().lower() == cleaned.lower()]
+            _require(len(matching) == 1, 'invalid_join_target')
+            target_id, target_name, is_organizer, is_active = matching[0]
+            _require(not is_organizer and is_active == 1, 'invalid_join_target')
+
+            # DoS defense: An attacker cannot repeatedly submit requests to invalidate pending requests.
+            # If an active pending request already exists for this participant, reject duplicate creation.
+            existing_pending = self._db.execute('''SELECT 1 FROM join_requests
                 WHERE meal_id=? AND participant_id=? AND status='pending' AND expires>?''',
-                (meal_id, target_id, now))
+                (meal_id, target_id, now)).fetchone()
+            _require(existing_pending is None, 'active_join_request_exists')
+
             token = secrets.token_urlsafe(32)
             verifier = _join_claim_verifier(token)
             req_id = f'req-{secrets.token_urlsafe(16)}'
@@ -892,10 +904,10 @@ class Authority:
             self._db.execute('''INSERT INTO join_requests (id, meal_id, participant_id, display_name, verifier, status, created_at, expires)
                 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)''',
                 (req_id, meal_id, target_id, target_name, verifier, now, expires))
-            state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
-            state['revision'] += 1
-            _revision(state['revision'])
-            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+            # Note: We deliberately DO NOT increment state['revision'] on unauthenticated join requests.
+            # Unauthenticated submissions do not alter meal state, draft receipt, or claims.
+            # Bumping meal revision on unauthenticated requests would allow external callers to cause
+            # revision_conflict on active diners and the organizer.
             self._db.execute('COMMIT')
             return req_id, token, target_id, target_name
         except AuthorityError:
