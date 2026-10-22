@@ -288,6 +288,50 @@ class InvitationAdversarialTests(unittest.TestCase):
             self.authority.apply(self.organizer_cred, 'meal-adv', RevokeSession('overflow-rev', rev, 'B'))
         self.assertEqual(err.exception.code, 'resource_limit')
 
+    def test_two_connections_racing_same_join_request_claim(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-adv', 'Charlie')
+        self.authority.review_join_request(self.organizer_cred, 'meal-adv', req_id, 'approve')
+
+        barrier = threading.Barrier(2)
+        results = [None, None]
+        errors = [None, None]
+
+        def worker(index):
+            conn = Authority(self.path, clock=lambda: self.current_time)
+            try:
+                barrier.wait()
+                results[index] = conn.claim_join_request('meal-adv', req_id, token)
+            except Exception as e:
+                errors[index] = e
+            finally:
+                conn.close()
+
+        t1 = threading.Thread(target=worker, args=(0,))
+        t2 = threading.Thread(target=worker, args=(1,))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        successes = [r for r in results if r is not None]
+        failures = [e for e in errors if e is not None]
+        self.assertEqual(len(successes), 1, "Exactly one claim must succeed")
+        self.assertEqual(len(failures), 1, "Exactly one claim must fail")
+        self.assertIsInstance(failures[0], AuthorityError)
+        self.assertEqual(failures[0].code, 'invalid_join_request')
+
+    def test_join_request_tokens_never_stored_in_plaintext(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-adv', 'Charlie')
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT verifier FROM join_requests WHERE id=?", (req_id,)).fetchone()
+            self.assertIsNotNone(row)
+            verifier_blob = row[0]
+            self.assertNotEqual(verifier_blob, token.encode('ascii'))
+            self.assertEqual(len(verifier_blob), 32)
+            # Verify database contains SHA-256 verifier, not raw token
+            expected_verifier = hashlib.sha256(b'settletable-join-claim-v1\0' + token.encode('ascii')).digest()
+            self.assertEqual(verifier_blob, expected_verifier)
+
 
 if __name__ == '__main__':
     unittest.main()

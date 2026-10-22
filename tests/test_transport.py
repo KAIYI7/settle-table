@@ -18,9 +18,14 @@ class TransportTestClient:
 
     def request(self, method, path, body=None, headers=None, remote_addr='127.0.0.1'):
         hdrs = headers.copy() if headers else {}
+        if '?' in path:
+            path_part, query_part = path.split('?', 1)
+        else:
+            path_part, query_part = path, ''
         environ = {
             'REQUEST_METHOD': method,
-            'PATH_INFO': path,
+            'PATH_INFO': path_part,
+            'QUERY_STRING': query_part,
             'REMOTE_ADDR': remote_addr,
             'HTTP_HOST': self.host,
             'wsgi.version': (1, 0),
@@ -695,6 +700,74 @@ class TransportTests(unittest.TestCase):
         claim = snap['json']['claims'][0]
         self.assertEqual(claim['participant_id'], 'D')
         self.assertEqual(claim['assigned_by'], 'O')
+
+    def test_static_join_shell_serving(self):
+        res = self.client.get('/join/meal-abc')
+        self.assertEqual(res['status'], 200)
+        self.assertEqual(res['headers']['Content-Type'], 'text/html; charset=utf-8')
+        self.assertIn(b'<!DOCTYPE html>', res['body'])
+
+    def test_join_request_endpoints_flow(self):
+        boot = self.client.post('/api/meals/m_join/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Host', 'organizer': True},
+                {'id': 'D', 'name': 'Guest', 'organizer': False},
+            ]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # 1. Unauthenticated creation: Organizer cannot be joined via diner join request
+        res_org = self.client.post('/api/meals/m_join/join-requests', body={'display_name': 'Host'})
+        self.assertEqual(res_org['status'], 403)
+        self.assertEqual(res_org['json']['error'], 'organizer_join_prohibited')
+
+        # 2. Unknown participant returns 404
+        res_unk = self.client.post('/api/meals/m_join/join-requests', body={'display_name': 'Unknown'})
+        self.assertEqual(res_unk['status'], 404)
+        self.assertEqual(res_unk['json']['error'], 'participant_not_found')
+
+        # 3. Valid creation for Guest
+        res_guest = self.client.post('/api/meals/m_join/join-requests', body={'display_name': 'Guest'})
+        self.assertEqual(res_guest['status'], 201)
+        req_id = res_guest['json']['request_id']
+        token = res_guest['json']['claim_token']
+        self.assertEqual(res_guest['json']['participant_id'], 'D')
+        self.assertEqual(res_guest['json']['status'], 'pending')
+
+        # 4. Inspect request
+        inspect_res = self.client.get(f'/api/meals/m_join/join-requests/{req_id}?claim_token={token}')
+        self.assertEqual(inspect_res['status'], 200)
+        self.assertEqual(inspect_res['json']['status'], 'pending')
+
+        # 5. Organizer lists join requests
+        list_res = self.client.get('/api/meals/m_join/join-requests',
+                                   headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(list_res['status'], 200)
+        self.assertEqual(len(list_res['json']['join_requests']), 1)
+        self.assertEqual(list_res['json']['join_requests'][0]['id'], req_id)
+
+        # 6. Organizer approves
+        approve_res = self.client.post(f'/api/meals/m_join/join-requests/{req_id}/review',
+                                       body={'action': 'approve'},
+                                       headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(approve_res['status'], 200)
+        self.assertEqual(approve_res['json']['status'], 'approved')
+
+        # 7. Guest claims approved request and receives session cookie
+        claim_res = self.client.post(f'/api/meals/m_join/join-requests/{req_id}/claim',
+                                     body={'claim_token': token})
+        self.assertEqual(claim_res['status'], 200)
+        self.assertEqual(claim_res['json']['participant_id'], 'D')
+        self.assertEqual(claim_res['json']['status'], 'claimed')
+        set_cookie = claim_res['headers'].get('Set-Cookie', '')
+        self.assertIn('settletable_session=', set_cookie)
+        self.assertIn('HttpOnly', set_cookie)
+
+        # 8. Replay claim fails
+        replay_res = self.client.post(f'/api/meals/m_join/join-requests/{req_id}/claim',
+                                      body={'claim_token': token})
+        self.assertEqual(replay_res['status'], 400)
+        self.assertEqual(replay_res['json']['error'], 'invalid_join_request')
 
 
 

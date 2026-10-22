@@ -61,6 +61,16 @@ class InvitationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class JoinRequestRecord:
+    id: str
+    participant_id: str
+    display_name: str
+    status: str
+    created_at: float | int
+    expires: float | int
+
+
+@dataclass(frozen=True, slots=True)
 class BootstrapResult:
     meal_id: str
     sessions: tuple[SessionGrant, ...] = field(repr=False)
@@ -207,6 +217,7 @@ class DraftSnapshot:
     participants: tuple[Participant, ...]
     inactive_participant_ids: tuple[str, ...]
     invitations: tuple[InvitationRecord, ...] = ()
+    join_requests: tuple[JoinRequestRecord, ...] = ()
 
 
 def _require(condition, code='invalid_input'):
@@ -248,6 +259,13 @@ def _invitation_verifier(token):
              and re.fullmatch(r'[A-Za-z0-9_-]{43}', token) is not None,
              'invalid_invitation')
     return hashlib.sha256(b'settletable-invitation-v1\0' + token.encode('ascii')).digest()
+
+
+def _join_claim_verifier(token):
+    _require(type(token) is str and len(token) == 43
+             and re.fullmatch(r'[A-Za-z0-9_-]{43}', token) is not None,
+             'invalid_token')
+    return hashlib.sha256(b'settletable-join-claim-v1\0' + token.encode('ascii')).digest()
 
 
 def _revision(value):
@@ -456,6 +474,18 @@ class Authority:
                     export_digest TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'completed',
                     PRIMARY KEY(meal_id, finalized_revision));
+                CREATE TABLE IF NOT EXISTS join_requests (
+                    id TEXT PRIMARY KEY,
+                    meal_id TEXT NOT NULL,
+                    participant_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    verifier BLOB NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires REAL NOT NULL,
+                    FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id),
+                    FOREIGN KEY(meal_id) REFERENCES meals(id) ON DELETE CASCADE);
+                CREATE INDEX IF NOT EXISTS idx_join_requests_meal_status ON join_requests (meal_id, status);
             ''')
         except sqlite3.Error:
             self.close()
@@ -568,12 +598,19 @@ class Authority:
         try:
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN')
-            self._authenticate(verifier, meal_id)
+            auth_user, is_organizer = self._authenticate(verifier, meal_id)
             state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
             people = self._db.execute('SELECT id,name,organizer,active FROM participants WHERE meal_id=? ORDER BY id', (meal_id,)).fetchall()
             inv_rows = self._db.execute('''SELECT participant_id,created_at,expires,consumed,revoked,issue_id
                 FROM invitations WHERE meal_id=? ORDER BY participant_id,created_at,issue_id''', (meal_id,)).fetchall()
             invitations = tuple(InvitationRecord(r[0], r[1], r[2], bool(r[3]), bool(r[4]), r[5]) for r in inv_rows)
+            join_requests = ()
+            if is_organizer:
+                now = self._now()
+                jr_rows = self._db.execute('''SELECT id,participant_id,display_name,status,created_at,expires
+                    FROM join_requests WHERE meal_id=? AND expires>? AND status IN ('pending', 'approved')
+                    ORDER BY created_at DESC''', (meal_id, now)).fetchall()
+                join_requests = tuple(JoinRequestRecord(r[0], r[1], r[2], r[3], r[4], r[5]) for r in jr_rows)
             result = DraftSnapshot(meal_id, state['revision'], state['financial_revision'],
                                    _receipt_digest(state['receipt']), _decode_receipt(state['receipt']),
                                    tuple(ItemState(i, revision) for i, revision in sorted(state['item_revisions'].items())),
@@ -582,7 +619,8 @@ class Authority:
                                    self._issues(state),
                                    tuple(Participant(p[0], p[1], bool(p[2])) for p in people),
                                    tuple(p[0] for p in people if not p[3]),
-                                   invitations)
+                                   invitations,
+                                   join_requests)
             self._db.execute('COMMIT')
             return result
         except AuthorityError:
@@ -824,6 +862,220 @@ class Authority:
             self._rollback()
             raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
 
+    def create_join_request(self, meal_id, display_name, *, ttl=900):
+        _id(meal_id)
+        _text(display_name, 64)
+        _require(type(ttl) is int and 60 <= ttl <= 86400, 'invalid_input')
+        cleaned = display_name.strip()
+        _require(len(cleaned) > 0, 'invalid_input')
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            meal_row = self._db.execute('SELECT 1 FROM meals WHERE id=?', (meal_id,)).fetchone()
+            _require(meal_row is not None, 'meal_not_found')
+            parts = self._db.execute('SELECT id, name, organizer, active FROM participants WHERE meal_id=?', (meal_id,)).fetchall()
+            matching = [p for p in parts if p[1].strip().lower() == cleaned.lower()]
+            _require(len(matching) > 0, 'participant_not_found')
+            _require(len(matching) == 1, 'ambiguous_participant_name')
+            target_id, target_name, is_organizer, is_active = matching[0]
+            _require(not is_organizer, 'organizer_join_prohibited')
+            _require(is_active == 1, 'participant_inactive')
+
+            now = self._now()
+            self._db.execute('''UPDATE join_requests SET status='rejected'
+                WHERE meal_id=? AND participant_id=? AND status='pending' AND expires>?''',
+                (meal_id, target_id, now))
+            token = secrets.token_urlsafe(32)
+            verifier = _join_claim_verifier(token)
+            req_id = f'req-{secrets.token_urlsafe(16)}'
+            expires = now + ttl
+            self._db.execute('''INSERT INTO join_requests (id, meal_id, participant_id, display_name, verifier, status, created_at, expires)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)''',
+                (req_id, meal_id, target_id, target_name, verifier, now, expires))
+            state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
+            state['revision'] += 1
+            _revision(state['revision'])
+            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+            self._db.execute('COMMIT')
+            return req_id, token, target_id, target_name
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def list_join_requests(self, organizer_credential, meal_id):
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN')
+            row = self._authenticate(verifier, meal_id)
+            _require(bool(row[1]), 'forbidden')
+            now = self._now()
+            rows = self._db.execute('''SELECT id, participant_id, display_name, status, created_at, expires
+                FROM join_requests WHERE meal_id=? AND expires>? AND status IN ('pending', 'approved')
+                ORDER BY created_at DESC''', (meal_id, now)).fetchall()
+            result = tuple(JoinRequestRecord(r[0], r[1], r[2], r[3], r[4], r[5]) for r in rows)
+            self._db.execute('COMMIT')
+            return result
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def review_join_request(self, organizer_credential, meal_id, request_id, action):
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        _id(request_id)
+        _require(action in ('approve', 'reject'), 'invalid_input')
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            row = self._authenticate(verifier, meal_id)
+            _require(bool(row[1]), 'forbidden')
+            now = self._now()
+            req = self._db.execute('''SELECT participant_id, status, expires
+                FROM join_requests WHERE id=? AND meal_id=?''',
+                (request_id, meal_id)).fetchone()
+            _require(req is not None, 'join_request_not_found')
+            part_id, status, expires = req
+            _require(expires > now, 'join_request_expired')
+            _require(status == 'pending', 'join_request_conflict')
+
+            if action == 'approve':
+                target = self._db.execute('SELECT organizer, active FROM participants WHERE meal_id=? AND id=?',
+                                          (meal_id, part_id)).fetchone()
+                _require(target is not None and not target[0] and target[1] == 1, 'participant_inactive')
+                new_status = 'approved'
+            else:
+                new_status = 'rejected'
+
+            up = self._db.execute('''UPDATE join_requests SET status=? WHERE id=? AND status='pending' ''',
+                                  (new_status, request_id)).rowcount
+            _require(up == 1, 'join_request_conflict')
+            state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
+            state['revision'] += 1
+            _revision(state['revision'])
+            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+            self._db.execute('COMMIT')
+            return new_status
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def inspect_join_request(self, meal_id, request_id, claim_token):
+        _id(meal_id)
+        _id(request_id)
+        verifier = _join_claim_verifier(claim_token)
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN')
+            now = self._now()
+            row = self._db.execute('''SELECT participant_id, display_name, status, expires
+                FROM join_requests WHERE id=? AND meal_id=? AND verifier=?''',
+                (request_id, meal_id, verifier)).fetchone()
+            _require(row is not None, 'invalid_join_request')
+            part_id, name, status, expires = row
+            if expires <= now and status == 'pending':
+                status = 'expired'
+            self._db.execute('COMMIT')
+            return {
+                'request_id': request_id,
+                'participant_id': part_id,
+                'display_name': name,
+                'status': status
+            }
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def claim_join_request(self, meal_id, request_id, claim_token, *, session_ttl=3600):
+        _id(meal_id)
+        _id(request_id)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
+        verifier = _join_claim_verifier(claim_token)
+        committed = False
+        commit_attempted = False
+        try:
+            credential = secrets.token_urlsafe(32)
+            sess_verifier = _verifier(credential)
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            now = self._now()
+            row = self._db.execute('''SELECT participant_id, status, expires
+                FROM join_requests WHERE id=? AND meal_id=? AND verifier=?''',
+                (request_id, meal_id, verifier)).fetchone()
+            _require(row is not None and row[1] == 'approved' and row[2] > now, 'invalid_join_request')
+            participant_id = row[0]
+
+            target = self._db.execute('SELECT organizer, active FROM participants WHERE meal_id=? AND id=?',
+                                      (meal_id, participant_id)).fetchone()
+            _require(target is not None and not target[0] and target[1] == 1, 'invalid_join_request')
+
+            gen_row = self._db.execute('SELECT generation FROM participant_lifecycle WHERE meal_id=? AND participant_id=?',
+                                       (meal_id, participant_id)).fetchone()
+            current_gen = 1 if gen_row is None else gen_row[0]
+            _require(current_gen < 64, 'resource_limit')
+            next_gen = current_gen + 1
+            self._db.execute('''INSERT INTO participant_lifecycle (meal_id,participant_id,generation)
+                VALUES (?,?,?) ON CONFLICT(meal_id,participant_id) DO UPDATE SET generation=?''',
+                (meal_id, participant_id, next_gen, next_gen))
+
+            self._db.execute('''UPDATE join_requests SET status='consumed' WHERE id=?''', (request_id,))
+
+            sess_expires = now + session_ttl
+            self._db.execute('''INSERT INTO sessions (verifier,meal_id,participant_id,expires,revoked)
+                VALUES (?,?,?,?,0)
+                ON CONFLICT(meal_id,participant_id) DO UPDATE SET verifier=?,expires=?,revoked=0''',
+                (sess_verifier, meal_id, participant_id, sess_expires, sess_verifier, sess_expires))
+
+            state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
+            state['revision'] += 1
+            _revision(state['revision'])
+            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+            self._hook('before_commit')
+            commit_attempted = True
+            self._db.execute('COMMIT')
+            committed = True
+            self._hook('after_commit')
+            return SessionGrant(participant_id, credential)
+        except AuthorityError:
+            self._rollback()
+            if committed:
+                raise AuthorityError('commit_uncertain') from None
+            raise
+        except sqlite3.Error as error:
+            try:
+                transaction_open = self._db is not None and self._db.in_transaction
+            except Exception:
+                transaction_open = None
+            uncertain = committed or (commit_attempted and transaction_open is not True)
+            if uncertain:
+                self._rollback()
+                raise AuthorityError('commit_uncertain') from None
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
+
     @staticmethod
     def _receipt_issues(state):
         receipt = state['receipt']
@@ -988,6 +1240,8 @@ class Authority:
                              (meal_id, data['participant_id']))
             self._db.execute('UPDATE invitations SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0 AND consumed=0 AND expires>?',
                              (meal_id, data['participant_id'], now))
+            self._db.execute('''UPDATE join_requests SET status='rejected' WHERE meal_id=? AND participant_id=? AND status IN ('pending', 'approved')''',
+                             (meal_id, data['participant_id']))
             _require(part_up == 1, 'already_revoked')
         elif data['kind'] == 'RevokeInvitation':
             inv_up = self._db.execute('UPDATE invitations SET revoked=1 WHERE meal_id=? AND participant_id=? AND revoked=0 AND consumed=0 AND expires>?',

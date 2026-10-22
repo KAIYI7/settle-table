@@ -744,8 +744,105 @@ async function main() {
     await pageA.waitFor("document.getElementById('notion-page-link') !== null");
     console.log('   ✓ Organizer-managed Notion report exported successfully');
 
+    // =========================================================================
+    // 11. Dual Invitation & General Meal Join Request Workflow
+    // =========================================================================
+    console.log('[11/11] Testing Dual Diner Invitation & General Meal Join Request Workflow...');
+    // Alice creates meal "dual-join-e2e" with Diners Bob and Charlie
+    await pageA.navigate('http://127.0.0.1:8089/#/');
+    await pageA.waitFor("document.getElementById('create-meal-form') !== null");
+    await pageA.evaluate(`
+      document.getElementById('create-meal-id').value = 'dual-join-e2e';
+      document.getElementById('create-org-name').value = 'Alice';
+      document.getElementById('create-diners').value = 'Bob, Charlie';
+      document.getElementById('create-meal-form').requestSubmit();
+    `);
+    await pageA.waitFor("window.location.hash.includes('#/meal/dual-join-e2e') && document.getElementById('add-item-form') !== null");
+    console.log('   ✓ Room dual-join-e2e created with Alice (Organizer), Bob (Diner), and Charlie (Diner)');
+
+    // Add item: Laksa (2 @ RM 20.00)
+    await pageA.evaluate(`
+      document.getElementById('new-item-label').value = 'Laksa';
+      document.getElementById('new-item-qty').value = '2';
+      document.getElementById('new-item-price').value = '20.00';
+      document.getElementById('add-item-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    `);
+    await pageA.waitFor("document.body.innerText.includes('Laksa')");
+
+    // Verify Copy General Join Link button exists in Organizer view
+    const copyJoinBtnExists = await pageA.evaluate("document.getElementById('copy-general-join-btn') !== null");
+    if (!copyJoinBtnExists) throw new Error('Missing copy-general-join-btn in Organizer UI');
+    console.log('   ✓ General Meal Join Link control verified in Organizer view');
+
+    // Clear Diner session in browser B
+    await pageB.evaluate(`apiCall('/api/session/clear', 'POST', {}).catch(() => {})`);
+
+    // Diner visits general meal join landing: /join/dual-join-e2e
+    console.log('   Testing general join landing in diner browser...');
+    await pageB.navigate('http://127.0.0.1:8089/join/dual-join-e2e');
+    await pageB.waitFor("document.getElementById('join-name-input') !== null");
+    const joinLandingText = await pageB.evaluate("document.body.innerText");
+    if (!joinLandingText.includes('Join Dining Table') || !joinLandingText.includes('Same-Browser Profile Notice')) {
+      throw new Error('General join landing missing header or same-browser notice');
+    }
+    console.log('   ✓ General join landing rendered with security notice and name input');
+
+    // Test rejection: unknown guest
+    await pageB.evaluate(`
+      document.getElementById('join-name-input').value = 'UnknownGuest';
+      document.getElementById('submit-join-req-btn').click();
+    `);
+    await pageB.waitFor("document.getElementById('join-error-box').style.display !== 'none'");
+    const unknownError = await pageB.evaluate("document.getElementById('join-error-box').innerText");
+    if (!unknownError.includes('No diner named "UnknownGuest" was found')) {
+      throw new Error(`Unexpected unknown guest error: ${unknownError}`);
+    }
+    console.log('   ✓ Security check passed: Unregistered guest rejected');
+
+    // Test rejection: cannot join as organizer (Alice)
+    await pageB.evaluate(`
+      document.getElementById('join-name-input').value = 'Alice';
+      document.getElementById('submit-join-req-btn').click();
+    `);
+    await pageB.waitFor("document.getElementById('join-error-box').innerText.includes('organizer')");
+    console.log('   ✓ Security check passed: Organizer backdoor prohibited');
+
+    // Valid join request for Charlie
+    await pageB.evaluate(`
+      document.getElementById('join-name-input').value = 'Charlie';
+      document.getElementById('submit-join-req-btn').click();
+    `);
+    await pageB.waitFor("document.body.innerText.includes('Join Request Submitted')");
+    console.log('   ✓ Join request submitted for Charlie; diner entered polling state');
+
+    // In Organizer browser, verify pending join request appears
+    await pageA.waitFor("document.querySelector('.approve-join-req-btn') !== null");
+    const pendingText = await pageA.evaluate("document.body.innerText");
+    if (!pendingText.includes('Charlie')) throw new Error('Pending request for Charlie not found in Organizer UI');
+    console.log('   ✓ Organizer received pending join request for Charlie');
+
+    // Organizer clicks Approve
+    await pageA.evaluate(`document.querySelector('.approve-join-req-btn').click()`);
+    console.log('   ✓ Organizer clicked Approve');
+
+    // In Diner browser, polling auto-detects approval, claims session, and loads meal room
+    await pageB.waitFor("window.location.hash.includes('#/meal/dual-join-e2e') && document.body.innerText.includes('Charlie')");
+    console.log('   ✓ Diner browser automatically claimed session and entered meal as Charlie');
+
+    // Charlie claims portion of Laksa
+    await pageB.evaluate(`document.querySelector('.claim-inc-btn[data-id="item-1"]').click()`);
+    await pageB.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D2' && c.item_id === 'item-1')");
+    console.log('   ✓ Charlie successfully claimed portion on the receipt');
+
+    // Verify Bob personal invite link remains fully functional in parallel
+    await pageA.evaluate(`document.querySelector('.issue-invite-btn[data-id="D1"]').click()`);
+    await pageA.waitFor("state.issuedTokens['D1'] !== undefined");
+    const bobToken = await pageA.evaluate("state.issuedTokens['D1']");
+    if (!bobToken.includes('/invite/')) throw new Error('Personal invite link creation failed');
+    console.log('   ✓ Verified Personal One-Time Invite Link for Bob remains 100% operational in parallel');
+
     console.log('\n===========================================================');
-    console.log(' ALL 10 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
+    console.log(' ALL 11 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
     console.log('===========================================================');
   } finally {
     if (orgChrome) {
