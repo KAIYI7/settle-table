@@ -293,6 +293,125 @@ class InvitationLifecycleTests(unittest.TestCase):
         self.assertFalse(res_consumed.valid)
         self.assertEqual(res_consumed.reason, 'consumed')
 
+    def test_join_request_full_lifecycle(self):
+        req_id, token, part_id, part_name = self.authority.create_join_request('meal-1', 'Charlie')
+        self.assertEqual(part_id, 'C')
+        self.assertEqual(part_name, 'Charlie')
+        self.assertEqual(len(token), 43)
+
+        # Organizer snapshot sees the pending join request
+        snap_org = self.authority.snapshot(self.organizer_cred, 'meal-1')
+        self.assertEqual(len(snap_org.join_requests), 1)
+        self.assertEqual(snap_org.join_requests[0].id, req_id)
+        self.assertEqual(snap_org.join_requests[0].display_name, 'Charlie')
+        self.assertEqual(snap_org.join_requests[0].status, 'pending')
+
+        # Diner snapshot does NOT see join requests (no privacy leak)
+        snap_diner = self.authority.snapshot(self.bob_cred, 'meal-1')
+        self.assertEqual(snap_diner.join_requests, ())
+
+        # Inspect join request
+        inspect_data = self.authority.inspect_join_request('meal-1', req_id, token)
+        self.assertEqual(inspect_data['status'], 'pending')
+        self.assertEqual(inspect_data['display_name'], 'Charlie')
+
+        # Organizer reviews and approves
+        new_status = self.authority.review_join_request(self.organizer_cred, 'meal-1', req_id, 'approve')
+        self.assertEqual(new_status, 'approved')
+
+        # Diner inspects and sees approved
+        inspect_data = self.authority.inspect_join_request('meal-1', req_id, token)
+        self.assertEqual(inspect_data['status'], 'approved')
+
+        # Diner claims session
+        grant = self.authority.claim_join_request('meal-1', req_id, token)
+        self.assertIsInstance(grant, SessionGrant)
+        self.assertEqual(grant.participant_id, 'C')
+
+        # Charlie can now use this session to snapshot
+        snap_c = self.authority.snapshot(grant.credential, 'meal-1')
+        self.assertEqual(snap_c.meal_id, 'meal-1')
+
+        # Replay claim is rejected (consumed)
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.claim_join_request('meal-1', req_id, token)
+        self.assertEqual(ctx.exception.code, 'invalid_join_request')
+
+    def test_join_request_prohibits_organizer(self):
+        # Visitor attempting to join as organizer 'Alice' must be rejected
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.create_join_request('meal-1', 'Alice')
+        self.assertEqual(ctx.exception.code, 'organizer_join_prohibited')
+
+        # Case-insensitive whitespace strip test for organizer
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.create_join_request('meal-1', '  alice  ')
+        self.assertEqual(ctx.exception.code, 'organizer_join_prohibited')
+
+    def test_join_request_nonexistent_or_inactive_participant(self):
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.create_join_request('meal-1', 'UnknownGuest')
+        self.assertEqual(ctx.exception.code, 'participant_not_found')
+
+        # Inactivate Bob
+        rev = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
+        self.authority.apply(self.organizer_cred, 'meal-1', RevokeMembership('rev-b-mem', rev, 'B'))
+
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.create_join_request('meal-1', 'Bob')
+        self.assertEqual(ctx.exception.code, 'participant_inactive')
+
+    def test_join_request_reject_flow(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        new_status = self.authority.review_join_request(self.organizer_cred, 'meal-1', req_id, 'reject')
+        self.assertEqual(new_status, 'rejected')
+
+        inspect_data = self.authority.inspect_join_request('meal-1', req_id, token)
+        self.assertEqual(inspect_data['status'], 'rejected')
+
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.claim_join_request('meal-1', req_id, token)
+        self.assertEqual(ctx.exception.code, 'invalid_join_request')
+
+    def test_join_request_non_organizer_cannot_review(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.review_join_request(self.bob_cred, 'meal-1', req_id, 'approve')
+        self.assertEqual(ctx.exception.code, 'forbidden')
+
+    def test_join_request_expiration(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie', ttl=60)
+        self.current_time += 120
+
+        inspect_data = self.authority.inspect_join_request('meal-1', req_id, token)
+        self.assertEqual(inspect_data['status'], 'expired')
+
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.review_join_request(self.organizer_cred, 'meal-1', req_id, 'approve')
+        self.assertEqual(ctx.exception.code, 'join_request_expired')
+
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.claim_join_request('meal-1', req_id, token)
+        self.assertEqual(ctx.exception.code, 'invalid_join_request')
+
+    def test_join_request_token_integrity(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        tampered_token = ('A' if token[0] != 'A' else 'B') + token[1:]
+
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.inspect_join_request('meal-1', req_id, tampered_token)
+        self.assertEqual(ctx.exception.code, 'invalid_join_request')
+
+    def test_membership_revocation_cancels_pending_join_request(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        rev = self.authority.snapshot(self.organizer_cred, 'meal-1').revision
+        self.authority.apply(self.organizer_cred, 'meal-1', RevokeMembership('rev-c-mem', rev, 'C'))
+
+        with closing(sqlite3.connect(self.path)) as db:
+            row = db.execute("SELECT status FROM join_requests WHERE id=?", (req_id,)).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], 'rejected')
+
 
 if __name__ == '__main__':
     unittest.main()

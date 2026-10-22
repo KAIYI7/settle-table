@@ -14,7 +14,7 @@ import sqlite3
 import threading
 import time
 import unicodedata
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from settletable.authority import (
     Authority, AuthorityError, Participant,
@@ -27,6 +27,10 @@ from settletable.authority import (
 STATUS_MAP = {
     # 400 Bad Request
     'invalid_input': 400,
+    'participant_inactive': 400,
+    'join_request_expired': 400,
+    'invalid_join_request': 400,
+    'invalid_token': 400,
     'malformed_json': 400,
     'duplicate_key': 400,
     'invalid_number': 400,
@@ -56,7 +60,14 @@ STATUS_MAP = {
     # 403 Forbidden
     'forbidden': 403,
     'origin_mismatch': 403,
+    'organizer_join_prohibited': 403,
+    # 404 Not Found
+    'participant_not_found': 404,
+    'join_request_not_found': 404,
+    'meal_not_found': 404,
     # 409 Conflict
+    'ambiguous_participant_name': 409,
+    'join_request_conflict': 409,
     'command_conflict': 409,
     'revision_conflict': 409,
     'financial_revision_conflict': 409,
@@ -113,6 +124,8 @@ def redact_log_string(s: str) -> str:
     s = re.sub(r'(settletable_session=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s)
     s = re.sub(r'(secret_|ntn_)[A-Za-z0-9_-]{10,}', r'\1[REDACTED]', s)
     s = re.sub(r'"token"\s*:\s*"[^"]+"', r'"token":"[REDACTED]"', s)
+    s = re.sub(r'([?&]claim_token=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s)
+    s = re.sub(r'"claim_token"\s*:\s*"[^"]+"', r'"claim_token":"[REDACTED]"', s)
     return s
 
 
@@ -325,6 +338,10 @@ class SettleTableApp:
     def _dispatch(self, environ):
         method = environ.get('REQUEST_METHOD', 'GET').upper()
         raw_path = environ.get('PATH_INFO', '/')
+        if '?' in raw_path:
+            raw_path, qs_extra = raw_path.split('?', 1)
+            if not environ.get('QUERY_STRING'):
+                environ['QUERY_STRING'] = qs_extra
         path = raw_path.rstrip('/') or '/'
 
         # 0. Request Header boundaries (single line <= 4KB, total block <= 16KB)
@@ -444,6 +461,14 @@ class SettleTableApp:
                     return 200, self._static_headers('text/html; charset=utf-8', 'no-store, no-cache, must-revalidate'), index_path.read_bytes()
                 raise TransportError('not_found', 404)
 
+            # GET /join/{meal_id} serves HTML shell for general meal join landing
+            m_join_shell = re.fullmatch(r'/join/([A-Za-z0-9_-]+)', path)
+            if m_join_shell:
+                index_path = STATIC_DIR / 'index.html'
+                if index_path.exists():
+                    return 200, self._static_headers('text/html; charset=utf-8', 'no-store, no-cache, must-revalidate'), index_path.read_bytes()
+                raise TransportError('not_found', 404)
+
             # GET /static/{filename}
             m_stat = re.fullmatch(r'/static/([A-Za-z0-9_.-]+)', path)
             if m_stat:
@@ -492,6 +517,56 @@ class SettleTableApp:
                 'ok': True,
                 'meal_id': meal_id,
                 'participant_id': session_grant.participant_id,
+            }
+            return 200, headers, serialize_json(out)
+
+        # Create Join Request POST /api/meals/{meal_id}/join-requests
+        m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/join-requests', path)
+        if m and method == 'POST':
+            meal_id = m.group(1)
+            display_name = body_data.get('display_name')
+            if not isinstance(display_name, str):
+                raise TransportError('invalid_input', 400)
+            req_id, token, part_id, name = authority.create_join_request(meal_id, display_name)
+            headers = self._default_headers()
+            out = {
+                'ok': True,
+                'request_id': req_id,
+                'claim_token': token,
+                'participant_id': part_id,
+                'display_name': name,
+                'status': 'pending',
+            }
+            return 201, headers, serialize_json(out)
+
+        # Inspect Join Request GET /api/meals/{meal_id}/join-requests/{request_id}
+        m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/join-requests/([A-Za-z0-9_-]+)', path)
+        if m and method == 'GET':
+            meal_id, request_id = m.group(1), m.group(2)
+            qs = environ.get('QUERY_STRING', '')
+            parsed_qs = parse_qs(qs)
+            claim_token = parsed_qs.get('claim_token', [''])[0] or environ.get('HTTP_X_CLAIM_TOKEN', '')
+            if not claim_token:
+                raise TransportError('invalid_input', 400)
+            info = authority.inspect_join_request(meal_id, request_id, claim_token)
+            headers = self._default_headers()
+            return 200, headers, serialize_json({'ok': True, **info})
+
+        # Claim Join Request POST /api/meals/{meal_id}/join-requests/{request_id}/claim
+        m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/join-requests/([A-Za-z0-9_-]+)/claim', path)
+        if m and method == 'POST':
+            meal_id, request_id = m.group(1), m.group(2)
+            claim_token = body_data.get('claim_token')
+            if not isinstance(claim_token, str):
+                raise TransportError('invalid_input', 400)
+            session_grant = authority.claim_join_request(meal_id, request_id, claim_token)
+            headers = self._default_headers()
+            headers.append(('Set-Cookie', f'settletable_session={session_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/'))
+            out = {
+                'ok': True,
+                'meal_id': meal_id,
+                'participant_id': session_grant.participant_id,
+                'status': 'claimed',
             }
             return 200, headers, serialize_json(out)
 
@@ -588,6 +663,36 @@ class SettleTableApp:
                 'expires': grant.expires,
             }
             return 201, self._default_headers(), serialize_json(out)
+
+        # List Join Requests GET /api/meals/{meal_id}/join-requests
+        m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/join-requests', path)
+        if m and method == 'GET':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m.group(1)
+            reqs = authority.list_join_requests(active_cred, meal_id)
+            out = {
+                'ok': True,
+                'join_requests': [asdict(r) for r in reqs],
+            }
+            return 200, self._default_headers(), serialize_json(out)
+
+        # Review Join Request POST /api/meals/{meal_id}/join-requests/{request_id}/review
+        m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/join-requests/([A-Za-z0-9_-]+)/review', path)
+        if m and method == 'POST':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id, request_id = m.group(1), m.group(2)
+            action = body_data.get('action')
+            if not isinstance(action, str):
+                raise TransportError('invalid_input', 400)
+            status = authority.review_join_request(active_cred, meal_id, request_id, action)
+            out = {
+                'ok': True,
+                'request_id': request_id,
+                'status': status,
+            }
+            return 200, self._default_headers(), serialize_json(out)
 
         # Apply Command POST /api/meals/{meal_id}/apply
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/apply', path)

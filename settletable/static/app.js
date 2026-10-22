@@ -106,11 +106,13 @@ function clearAlerts() {
 }
 
 // --- API Layer ---
-async function apiCall(endpoint, method = 'GET', body = null) {
-  const headers = {};
+async function apiCall(endpoint, method = 'GET', body = null, extraHeaders = {}) {
+  const headers = Object.assign({}, extraHeaders);
   if (method === 'POST') {
     headers['X-SettleTable-Action'] = '1';
-    headers['Content-Type'] = 'application/json';
+    if (!headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
   }
 
   const opts = {
@@ -139,8 +141,18 @@ async function apiCall(endpoint, method = 'GET', body = null) {
 }
 
 // --- Router ---
+let joinPollTimer = null;
+
+function clearJoinPolling() {
+  if (joinPollTimer) {
+    clearInterval(joinPollTimer);
+    joinPollTimer = null;
+  }
+}
+
 function route() {
   clearAlerts();
+  clearJoinPolling();
   const path = window.location.pathname;
   const hash = window.location.hash;
 
@@ -151,11 +163,26 @@ function route() {
     return;
   }
 
+  // 1b. Check path for general meal join landing /join/{mealId}
+  const joinMatch = path.match(/^\/join\/([A-Za-z0-9_-]+)$/);
+  if (joinMatch) {
+    renderGeneralJoinLanding(joinMatch[1]);
+    return;
+  }
+
   // 2. Hash routing
   if (hash.startsWith('#/meal/')) {
     const mealId = hash.replace('#/meal/', '').trim();
     if (mealId) {
       loadMeal(mealId);
+      return;
+    }
+  }
+
+  if (hash.startsWith('#/join/')) {
+    const mealId = hash.replace('#/join/', '').trim();
+    if (mealId) {
+      renderGeneralJoinLanding(mealId);
       return;
     }
   }
@@ -442,6 +469,182 @@ async function renderInviteLanding(token) {
       </div>
     `;
   }
+}
+
+// --- View 2b: General Table Join Landing ---
+async function renderGeneralJoinLanding(mealId) {
+  clearJoinPolling();
+  const app = document.getElementById('app');
+
+  app.innerHTML = `
+    <div class="card" style="max-width: 500px; margin: 40px auto;">
+      <h2 class="card-title">Join Dining Table</h2>
+      <p class="card-desc">Request to join meal room <strong>${escapeHtml(mealId)}</strong></p>
+
+      <div style="margin-bottom: 20px;">
+        <label for="join-name-input" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-heading);">
+          Your Name at the Table
+        </label>
+        <input id="join-name-input" type="text" placeholder="e.g. Charlie" class="input" style="width: 100%; box-sizing: border-box; font-size: 1rem; padding: 10px 12px;" />
+        <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">
+          Enter your name as added by the table organizer. The organizer will approve your access.
+        </div>
+      </div>
+
+      <div class="alert alert-conflict" style="margin-bottom: 20px; font-size: 0.85rem; line-height: 1.45;">
+        <div>
+          <strong>⚠️ Same-Browser Profile Notice:</strong><br>
+          Joining will assign this browser window to your Diner session.
+          If you are testing as the Organizer in this same browser, this will <strong>replace your Organizer session</strong>.
+          <div style="margin-top: 6px; color: #fef08a;">
+            💡 <em>To test as a diner while keeping your Organizer view open, open this join link in a <strong>Private / Incognito window</strong>.</em>
+          </div>
+        </div>
+      </div>
+
+      <div id="join-error-box" style="display: none; margin-bottom: 16px;"></div>
+
+      <button id="submit-join-req-btn" class="btn btn-primary btn-block" style="font-size: 1.05rem; margin-bottom: 10px; min-height: 44px;">
+        Request to Join
+      </button>
+
+      <a href="#/" class="btn btn-secondary btn-block" style="text-align: center; min-height: 44px; display: flex; align-items: center; justify-content: center;">
+        Cancel & Return to Home
+      </a>
+    </div>
+  `;
+
+  const nameInput = document.getElementById('join-name-input');
+  const submitBtn = document.getElementById('submit-join-req-btn');
+  const errorBox = document.getElementById('join-error-box');
+
+  nameInput.focus();
+
+  const handleSubmit = async () => {
+    const name = nameInput.value.trim();
+    if (!name) {
+      errorBox.className = 'alert alert-error';
+      errorBox.textContent = 'Please enter your name.';
+      errorBox.style.display = 'block';
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting Request...';
+    errorBox.style.display = 'none';
+
+    try {
+      const res = await apiCall(`/api/meals/${mealId}/join-requests`, 'POST', { display_name: name });
+      if (res?.ok) {
+        renderJoinWaitingState(mealId, res.request_id, res.claim_token, res.display_name);
+      }
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Request to Join';
+      errorBox.className = 'alert alert-error';
+      errorBox.style.display = 'block';
+      const msg = err.message || '';
+      if (msg.includes('participant_not_found') || msg.includes('404')) {
+        errorBox.textContent = `No diner named "${name}" was found for this meal. Please check the spelling or ask the organizer to add you.`;
+      } else if (msg.includes('organizer_join_prohibited') || msg.includes('403')) {
+        errorBox.textContent = 'The table organizer cannot join via diner requests. Please use your organizer session.';
+      } else if (msg.includes('ambiguous_participant_name')) {
+        errorBox.textContent = 'Multiple diners share this name. Please ask the organizer for a personal invite link.';
+      } else if (msg.includes('participant_inactive')) {
+        errorBox.textContent = 'This participant is currently marked inactive.';
+      } else {
+        errorBox.textContent = `Could not submit request: ${msg}`;
+      }
+    }
+  };
+
+  submitBtn.addEventListener('click', handleSubmit);
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleSubmit();
+  });
+}
+
+function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
+  clearJoinPolling();
+  const app = document.getElementById('app');
+
+  app.innerHTML = `
+    <div class="card" style="max-width: 500px; margin: 40px auto;">
+      <h2 class="card-title">Join Request Submitted</h2>
+      <p class="card-desc">Waiting for the organizer to approve access for <strong>${escapeHtml(displayName)}</strong>.</p>
+
+      <div class="loading-state" style="padding: 24px 0; text-align: center;">
+        <div class="spinner"></div>
+        <p style="margin-top: 14px; font-weight: 600; color: #a7f3d0;" id="join-poll-status-text">
+          Awaiting table organizer confirmation...
+        </p>
+      </div>
+
+      <div style="font-size: 0.85rem; color: var(--text-dim); text-align: center; margin-bottom: 20px; line-height: 1.4;">
+        Please ask the organizer at the table to tap <strong>Approve</strong> on their screen.
+      </div>
+
+      <div id="join-status-alert" style="display: none; margin-bottom: 16px;"></div>
+
+      <button id="cancel-join-btn" class="btn btn-secondary btn-block" style="min-height: 44px;">
+        Cancel Request
+      </button>
+    </div>
+  `;
+
+  document.getElementById('cancel-join-btn').addEventListener('click', () => {
+    clearJoinPolling();
+    window.location.hash = '#/';
+  });
+
+  const pollStatus = async () => {
+    try {
+      const inspectRes = await apiCall(`/api/meals/${mealId}/join-requests/${requestId}`, 'GET', null, {
+        'X-Claim-Token': claimToken,
+      });
+      if (!inspectRes?.ok) return;
+
+      if (inspectRes.status === 'approved') {
+        clearJoinPolling();
+        const statusText = document.getElementById('join-poll-status-text');
+        if (statusText) {
+          statusText.textContent = 'Approved! Connecting to table...';
+          statusText.style.color = 'var(--accent-emerald)';
+        }
+
+        const claimRes = await apiCall(`/api/meals/${mealId}/join-requests/${requestId}/claim`, 'POST', {
+          claim_token: claimToken,
+        });
+        if (claimRes?.ok) {
+          window.history.replaceState(null, '', `/#/meal/${mealId}`);
+          loadMeal(mealId);
+        }
+      } else if (inspectRes.status === 'rejected') {
+        clearJoinPolling();
+        const alertBox = document.getElementById('join-status-alert');
+        if (alertBox) {
+          alertBox.className = 'alert alert-error';
+          alertBox.textContent = 'The organizer declined your request to join.';
+          alertBox.style.display = 'block';
+        }
+        const spinner = document.querySelector('.spinner');
+        if (spinner) spinner.style.display = 'none';
+        const statusText = document.getElementById('join-poll-status-text');
+        if (statusText) statusText.textContent = 'Request Declined';
+      } else if (inspectRes.status === 'expired') {
+        clearJoinPolling();
+        const alertBox = document.getElementById('join-status-alert');
+        if (alertBox) {
+          alertBox.className = 'alert alert-error';
+          alertBox.textContent = 'This join request has expired.';
+          alertBox.style.display = 'block';
+        }
+      }
+    } catch (err) {
+      // transient network retry
+    }
+  };
+
+  joinPollTimer = setInterval(pollStatus, 1500);
 }
 
 // --- View 3: Meal Room ---
@@ -895,11 +1098,64 @@ function renderOrganizerSection(snap) {
     </div>
 
     <!-- Invitation Hub -->
-    <div class="card">
-      <div class="card-title">Diner Invitations</div>
-      <p class="card-desc">Send single-use invite links to your dining companions so they can claim portions.</p>
+    <div class="card" id="invitation-hub-card">
+      <div class="card-title">Diner Invitations & Joining</div>
+      <p class="card-desc">Invite dining companions using personal one-time links or share the table join link.</p>
+
+      <!-- General Table Join Link Box -->
+      <div style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-heading);">🔗 General Table Join Link</div>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Share with any diner; they enter their name and wait for your one-click approval.</div>
+          </div>
+          <button id="copy-general-join-btn" class="btn btn-secondary btn-sm" data-meal="${escapeHtml(snap.meal_id)}">
+            📋 Copy Join Link
+          </button>
+        </div>
+      </div>
+
+      <!-- Pending Join Requests Queue -->
+      ${renderPendingJoinRequests(snap)}
+
+      <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-heading); margin-bottom: 6px;">
+        Personal One-Time Invitation Links
+      </div>
       <div id="invitation-list">
         ${renderInvitationList(snap)}
+      </div>
+    </div>
+  `;
+}
+
+function renderPendingJoinRequests(snap) {
+  const pending = snap.join_requests?.filter(r => r.status === 'pending') || [];
+  if (pending.length === 0) {
+    return '';
+  }
+
+  return `
+    <div id="pending-join-requests-container" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px;">
+      <div style="font-weight: 700; font-size: 0.85rem; color: #f59e0b; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+        <span>🔔 Pending Diner Join Requests (${pending.length})</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        ${pending.map(r => `
+          <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); flex-wrap: wrap; gap: 8px;">
+            <div>
+              <span style="font-weight: 600;">${escapeHtml(r.display_name)}</span>
+              <span style="font-size: 0.75rem; color: var(--text-dim); margin-left: 6px;">wants to join as diner</span>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-success btn-sm approve-join-req-btn" data-req="${escapeHtml(r.id)}" style="padding: 4px 10px; font-size: 0.8rem; min-height: 32px;">
+                Approve
+              </button>
+              <button class="btn btn-secondary btn-sm reject-join-req-btn" data-req="${escapeHtml(r.id)}" style="padding: 4px 10px; font-size: 0.8rem; min-height: 32px;">
+                Decline
+              </button>
+            </div>
+          </div>
+        `).join('')}
       </div>
     </div>
   `;
@@ -1643,6 +1899,54 @@ function bindEvents(snap) {
         });
       } else {
         showAlert(`Invite is already active for ${partId}. Raw tokens are not stored across page reloads. If the link was lost, revoke it and create a new one.`, 'info');
+      }
+    });
+  });
+
+  // 4a. Copy General Table Join Link
+  const copyGenBtn = document.getElementById('copy-general-join-btn');
+  if (copyGenBtn) {
+    copyGenBtn.addEventListener('click', () => {
+      const mealId = copyGenBtn.getAttribute('data-meal');
+      const joinUrl = `${window.location.origin}/join/${mealId}`;
+      navigator.clipboard.writeText(joinUrl).then(() => {
+        showAlert('General table join link copied to clipboard!', 'success');
+        copyGenBtn.textContent = 'Copied! ✓';
+        setTimeout(() => { copyGenBtn.textContent = '📋 Copy Join Link'; }, 2000);
+      }).catch(() => {
+        prompt('Copy this table join link:', joinUrl);
+      });
+    });
+  }
+
+  // 4a2. Approve Join Request Buttons
+  document.querySelectorAll('.approve-join-req-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reqId = btn.getAttribute('data-req');
+      btn.disabled = true;
+      btn.textContent = 'Approving...';
+      try {
+        await apiCall(`/api/meals/${state.mealId}/join-requests/${reqId}/review`, 'POST', { action: 'approve' });
+        showAlert('Diner join request approved!', 'success');
+        await fetchSnapshot(true);
+      } catch (err) {
+        handleApiError(err);
+      }
+    });
+  });
+
+  // 4a3. Reject Join Request Buttons
+  document.querySelectorAll('.reject-join-req-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reqId = btn.getAttribute('data-req');
+      btn.disabled = true;
+      btn.textContent = 'Declining...';
+      try {
+        await apiCall(`/api/meals/${state.mealId}/join-requests/${reqId}/review`, 'POST', { action: 'reject' });
+        showAlert('Join request declined.', 'info');
+        await fetchSnapshot(true);
+      } catch (err) {
+        handleApiError(err);
       }
     });
   });
