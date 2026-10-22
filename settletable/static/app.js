@@ -85,13 +85,31 @@ function extractNotionUuid(val) {
   return null;
 }
 
-function showAlert(message, type = 'error') {
+function showAlert(message, type = 'error', dismissible = true) {
   const container = document.getElementById('alert-container');
   if (!container) return;
   container.innerHTML = '';
   const div = document.createElement('div');
   div.className = `alert-banner alert-${type}`;
-  div.textContent = message;
+
+  const msgSpan = document.createElement('span');
+  msgSpan.className = 'alert-message';
+  msgSpan.textContent = message;
+  div.appendChild(msgSpan);
+
+  if (dismissible) {
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'alert-close-btn';
+    closeBtn.setAttribute('aria-label', 'Dismiss notification');
+    closeBtn.setAttribute('title', 'Dismiss notification');
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => {
+      if (div.parentNode) div.parentNode.removeChild(div);
+    });
+    div.appendChild(closeBtn);
+  }
+
   container.appendChild(div);
   if (type !== 'conflict') {
     setTimeout(() => {
@@ -751,8 +769,8 @@ function updateMealUI() {
   const user = snap.participants?.find(p => p.id === state.currentUserId);
   const userName = user ? user.name : 'Unknown';
   const roleBadge = state.isOrganizer 
-    ? '<span class="badge badge-organizer">👑 Organizer</span>' 
-    : '<span class="badge badge-diner">🍽️ Diner</span>';
+    ? '<span class="badge badge-organizer" title="Organizer">👑 <span class="badge-role-text">Organizer</span></span>' 
+    : '<span class="badge badge-diner" title="Diner">🍽️ <span class="badge-role-text">Diner</span></span>';
   
   document.getElementById('header-user-status').innerHTML = `
     <div class="header-participant-info">
@@ -1606,9 +1624,9 @@ function bindEvents(snap) {
         updateMealUI();
 
         if (candidate.route === 'manual_correction' || (candidate.issues && candidate.issues.length > 0)) {
-          showAlert(`Extracted ${candidate.items.length} candidate items (${formatSen(candidate.total_sen)}). Please inspect and verify before accepting.`, 'conflict');
+          showAlert(`⚠️ Scanned ${candidate.items.length} items (${formatSen(candidate.total_sen)}) — Review needed`, 'conflict', true);
         } else {
-          showAlert(`Extracted ${candidate.items.length} candidate items (${formatSen(candidate.total_sen)}). Please inspect and accept below.`, 'success');
+          showAlert(`✓ Scanned ${candidate.items.length} items (${formatSen(candidate.total_sen)})`, 'success', true);
         }
       } catch (err) {
         state.mutationActive = false;
