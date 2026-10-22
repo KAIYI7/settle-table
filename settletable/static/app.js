@@ -938,14 +938,14 @@ function renderOrganizerSection(snap) {
           <div class="ocr-candidate-header">
             <span class="ocr-candidate-title">📋 SCANNED CANDIDATE (STAGED)</span>
             ${state.ocrCandidate.route === 'manual_correction'
-              ? '<span class="badge" style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">⚠️ Needs Correction</span>'
-              : '<span class="badge" style="background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;">✓ Ready for Review</span>'}
+              ? '<span class="badge ocr-badge-correction">⚠️ Needs Correction</span>'
+              : '<span class="badge ocr-badge-ready">✓ Ready for Review</span>'}
           </div>
-          <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 12px; line-height: 1.4;">
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
             Staged in browser memory outside SQLite. Edit any misread items, quantities, line totals, taxes, discounts, or BNM cash rounding below before applying to authoritative receipt.
           </p>
           ${state.ocrCandidate.issues && state.ocrCandidate.issues.length > 0 ? `
-            <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 12px; font-size: 0.82rem; color: #92400e;">
+            <div class="ocr-verification-note">
               <strong>Verification Note:</strong> ${escapeHtml(state.ocrCandidate.issues.join('; '))}
             </div>
           ` : ''}
@@ -965,10 +965,9 @@ function renderOrganizerSection(snap) {
             <table class="ocr-items-table">
               <thead>
                 <tr>
-                  <th>Item Name</th>
+                  <th class="col-item-name">Item Name</th>
                   <th class="col-qty">Qty</th>
-                  <th class="col-amount">Line Total (RM)</th>
-                  <th class="col-unit">Unit Price (est.)</th>
+                  <th class="col-amount">Line Total</th>
                   <th class="col-action"></th>
                 </tr>
               </thead>
@@ -986,21 +985,24 @@ function renderOrganizerSection(snap) {
 
                     <td class="cell-qty">
                       <div class="ocr-mobile-only ocr-field-label">Qty</div>
-                      <input type="number" id="ocr-item-qty-${idx}" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${qtyVal}" />
+                      <div class="ocr-qty-stepper" role="group" aria-label="Item quantity">
+                        <button type="button" class="ocr-qty-btn ocr-qty-dec" data-idx="${idx}" aria-label="Decrease quantity" ${qtyVal <= 1 ? 'disabled aria-disabled="true"' : ''}>−</button>
+                        <input type="number" id="ocr-item-qty-${idx}" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${qtyVal}" inputmode="numeric" />
+                        <button type="button" class="ocr-qty-btn ocr-qty-inc" data-idx="${idx}" aria-label="Increase quantity">+</button>
+                      </div>
                     </td>
 
                     <td class="cell-amount">
                       <div class="ocr-mobile-only ocr-field-label">Line Total (RM)</div>
-                      <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" />
-                      <div class="ocr-mobile-only ocr-cand-item-unit-mobile ocr-cand-item-unit" data-idx="${idx}">@ RM ${(unitSen / 100).toFixed(2)} ea</div>
-                    </td>
-
-                    <td class="cell-unit ocr-desktop-only">
-                      <span class="ocr-cand-item-unit" data-idx="${idx}">@ RM ${(unitSen / 100).toFixed(2)}</span>
+                      <div class="ocr-amount-wrapper">
+                        <span class="ocr-currency-prefix">RM</span>
+                        <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" inputmode="decimal" />
+                      </div>
+                      <div class="cell-unit ocr-unit-container"><span class="ocr-cand-item-unit ${qtyVal > 1 ? '' : 'ocr-unit-hidden'}" data-idx="${idx}">@ RM ${(unitSen / 100).toFixed(2)} ea</span></div>
                     </td>
 
                     <td class="cell-action">
-                      <button type="button" class="ocr-del-btn ocr-del-item-btn" data-idx="${idx}" title="Remove item" aria-label="Remove item">✕</button>
+                      <button type="button" class="ocr-del-btn ocr-del-item-btn" data-idx="${idx}" title="Remove item" aria-label="Remove ${escapeHtml(it.label || 'item')}">✕</button>
                     </td>
                   </tr>
                 `;}).join('')}
@@ -1008,55 +1010,75 @@ function renderOrganizerSection(snap) {
             </table>
             <div class="ocr-table-footer">
               <button type="button" id="ocr-add-item-btn" class="btn btn-secondary btn-sm">+ Add Missing Item</button>
-              <span style="font-size: 0.8rem; color: var(--text-dim);">${state.ocrCandidate.items.length} item(s)</span>
+              <span style="font-size: 0.8rem; color: var(--text-muted);">${state.ocrCandidate.items.length} item(s)</span>
             </div>
           </div>
 
           <!-- Section: Adjustments, Taxes & BNM Rounding -->
-          <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); margin-bottom: 14px;">
+          <div class="ocr-adjustments-section">
             <div class="ocr-section-title">
               <span>Adjustments, Taxes & Discounts</span>
               <span class="ocr-section-hint">Signed minor units (e.g. -0.02 BNM rounding)</span>
             </div>
+            <div class="ocr-adj-grid-header ocr-desktop-only">
+              <span>Adjustment Label</span>
+              <span>Type</span>
+              <span style="text-align: right;">Amount (RM)</span>
+              <span></span>
+            </div>
             <div id="ocr-cand-adjustments-list">
               ${(state.ocrCandidate.adjustments || []).map((adj, idx) => `
                 <div class="ocr-cand-adj-row" data-adj-idx="${idx}">
-                  <input type="text" id="ocr-adj-label-${idx}" class="ocr-edit-adj-label form-input" data-adj-idx="${idx}" value="${escapeHtml(adj.label || '')}" placeholder="Label (e.g. Service Charge)" style="flex: 2; min-height: 44px;" />
-                  <div class="ocr-adj-controls-mobile">
-                    <select id="ocr-adj-kind-${idx}" class="ocr-edit-adj-kind form-input" data-adj-idx="${idx}" style="min-height: 44px;">
-                      <option value="service" ${adj.kind === 'service' ? 'selected' : ''}>Service Charge</option>
-                      <option value="tax" ${adj.kind === 'tax' ? 'selected' : ''}>SST / Tax</option>
-                      <option value="discount" ${adj.kind === 'discount' ? 'selected' : ''}>Discount</option>
-                      <option value="rounding" ${adj.kind === 'rounding' ? 'selected' : ''}>BNM Rounding</option>
-                    </select>
-                    <input type="text" id="ocr-adj-amount-${idx}" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" style="width: 100px; text-align: right; font-family: monospace; min-height: 44px;" />
-                    <button type="button" class="ocr-del-btn ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove charge" aria-label="Remove adjustment">✕</button>
+                  <div class="ocr-adj-field ocr-adj-field-label">
+                    <div class="ocr-mobile-only ocr-field-label">Adjustment Label</div>
+                    <input type="text" id="ocr-adj-label-${idx}" class="ocr-edit-adj-label form-input" data-adj-idx="${idx}" value="${escapeHtml(adj.label || '')}" placeholder="Label (e.g. Service Charge)" />
+                  </div>
+                  <div class="ocr-adj-field-details">
+                    <div class="ocr-adj-field ocr-adj-field-kind">
+                      <div class="ocr-mobile-only ocr-field-label">Type</div>
+                      <select id="ocr-adj-kind-${idx}" class="ocr-edit-adj-kind form-input" data-adj-idx="${idx}">
+                        <option value="service" ${adj.kind === 'service' ? 'selected' : ''}>Service Charge</option>
+                        <option value="tax" ${adj.kind === 'tax' ? 'selected' : ''}>SST / Tax</option>
+                        <option value="discount" ${adj.kind === 'discount' ? 'selected' : ''}>Discount</option>
+                        <option value="rounding" ${adj.kind === 'rounding' ? 'selected' : ''}>BNM Rounding</option>
+                      </select>
+                    </div>
+                    <div class="ocr-adj-field ocr-adj-field-amount">
+                      <div class="ocr-mobile-only ocr-field-label">Amount (RM)</div>
+                      <div class="ocr-amount-wrapper">
+                        <span class="ocr-currency-prefix">RM</span>
+                        <input type="text" id="ocr-adj-amount-${idx}" class="ocr-edit-adj-amount form-input" data-adj-idx="${idx}" value="${adj.kind === 'discount' ? (Math.abs(adj.amount_sen || 0) / 100).toFixed(2) : ((adj.amount_sen || 0) / 100).toFixed(2)}" placeholder="0.00" inputmode="decimal" />
+                      </div>
+                    </div>
+                  </div>
+                  <div class="ocr-adj-field ocr-adj-field-action">
+                    <button type="button" class="ocr-del-btn ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove adjustment" aria-label="Remove adjustment ${escapeHtml(adj.label || '')}">✕</button>
                   </div>
                 </div>
               `).join('')}
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-              <button type="button" id="ocr-add-adj-btn" class="btn btn-secondary btn-sm" style="min-height: 44px;">+ Add Fee / Tax / Rounding</button>
+            <div class="ocr-adj-add-bar">
+              <button type="button" id="ocr-add-adj-btn" class="btn btn-secondary btn-sm">+ Add Fee / Tax / Rounding</button>
             </div>
 
             <!-- Tax-inclusive Included SST -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-subtle); font-size: 0.85rem; color: var(--text-dim); flex-wrap: wrap; gap: 6px;">
+            <div class="ocr-included-tax-bar">
               <span>Included SST (tax-inclusive, informational):</span>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <span>RM</span>
-                <input type="text" id="ocr-edit-included-tax" class="form-input" value="${((state.ocrCandidate.included_tax_sen || 0) / 100).toFixed(2)}" style="width: 80px; text-align: right; min-height: 44px; font-family: monospace;" />
+              <div class="ocr-amount-wrapper" style="width: 120px;">
+                <span class="ocr-currency-prefix">RM</span>
+                <input type="text" id="ocr-edit-included-tax" class="form-input" value="${((state.ocrCandidate.included_tax_sen || 0) / 100).toFixed(2)}" placeholder="0.00" inputmode="decimal" />
               </div>
             </div>
 
             <!-- Dynamic Recalculated Totals Display -->
-            <div style="border-top: 1px solid var(--border-subtle); margin-top: 12px; padding-top: 10px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.9rem;">
-                <span style="color: var(--text-muted);">Candidate Subtotal (sum of line totals):</span>
-                <span id="ocr-cand-subtotal-val" style="font-weight: 600; font-family: monospace;">${formatSen(state.ocrCandidate.subtotal_sen)}</span>
+            <div class="ocr-totals-card">
+              <div class="ocr-total-row">
+                <span class="ocr-total-label">Candidate Subtotal (sum of line totals):</span>
+                <span id="ocr-cand-subtotal-val" class="ocr-total-val">${formatSen(state.ocrCandidate.subtotal_sen)}</span>
               </div>
-              <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.05rem;">
+              <div class="ocr-total-row ocr-total-final">
                 <span>Candidate Final Total:</span>
-                <span id="ocr-cand-total-val" style="color: #a5b4fc; font-family: monospace;">${formatSen(state.ocrCandidate.total_sen)}</span>
+                <span id="ocr-cand-total-val" class="ocr-total-val-highlight">${formatSen(state.ocrCandidate.total_sen)}</span>
               </div>
             </div>
           </div>
@@ -1623,9 +1645,20 @@ function bindEvents(snap) {
       // Update unit price estimate displays live
       const unitSen = qty > 0 ? Math.round(lineSen / qty) : lineSen;
       row.querySelectorAll('.ocr-cand-item-unit').forEach(unitEl => {
-        const isMobile = unitEl.classList.contains('ocr-cand-item-unit-mobile');
-        unitEl.textContent = `@ RM ${(unitSen / 100).toFixed(2)}${isMobile ? ' ea' : ''}`;
+        unitEl.textContent = `@ RM ${(unitSen / 100).toFixed(2)} ea`;
+        if (qty > 1) {
+          unitEl.classList.remove('ocr-unit-hidden');
+        } else {
+          unitEl.classList.add('ocr-unit-hidden');
+        }
       });
+
+      // Update minus stepper button state
+      const decBtn = row.querySelector('.ocr-qty-dec');
+      if (decBtn) {
+        decBtn.disabled = qty <= 1;
+        decBtn.setAttribute('aria-disabled', qty <= 1 ? 'true' : 'false');
+      }
     });
 
     // Read adjustments from candidate list
@@ -1705,6 +1738,83 @@ function bindEvents(snap) {
     document.querySelectorAll('.ocr-edit-item-label, .ocr-edit-item-qty, .ocr-edit-item-price, .ocr-edit-adj-label, .ocr-edit-adj-kind, .ocr-edit-adj-amount, #ocr-edit-included-tax').forEach(el => {
       el.addEventListener('input', syncCandidateInputs);
       el.addEventListener('change', syncCandidateInputs);
+    });
+
+    // Stepper Decrement Button
+    document.querySelectorAll('.ocr-qty-dec').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = btn.getAttribute('data-idx');
+        const input = document.getElementById(`ocr-item-qty-${idx}`);
+        if (input) {
+          let val = parseInt(input.value, 10) || 1;
+          if (val > 1) {
+            val -= 1;
+            input.value = val;
+            btn.disabled = val <= 1;
+            btn.setAttribute('aria-disabled', val <= 1 ? 'true' : 'false');
+            syncCandidateInputs();
+          }
+        }
+      });
+    });
+
+    // Stepper Increment Button
+    document.querySelectorAll('.ocr-qty-inc').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = btn.getAttribute('data-idx');
+        const input = document.getElementById(`ocr-item-qty-${idx}`);
+        if (input) {
+          let val = parseInt(input.value, 10) || 1;
+          val += 1;
+          input.value = val;
+          const decBtn = document.querySelector(`.ocr-qty-dec[data-idx="${idx}"]`);
+          if (decBtn) {
+            decBtn.disabled = false;
+            decBtn.setAttribute('aria-disabled', 'false');
+          }
+          syncCandidateInputs();
+        }
+      });
+    });
+
+    // Stepper Numeric Input Blur Sanitization
+    document.querySelectorAll('.ocr-edit-item-qty').forEach(input => {
+      input.addEventListener('blur', () => {
+        let val = parseInt(input.value, 10);
+        if (isNaN(val) || val < 1) {
+          val = 1;
+          input.value = 1;
+        }
+        const idx = input.getAttribute('data-idx');
+        const decBtn = document.querySelector(`.ocr-qty-dec[data-idx="${idx}"]`);
+        if (decBtn) {
+          decBtn.disabled = val <= 1;
+          decBtn.setAttribute('aria-disabled', val <= 1 ? 'true' : 'false');
+        }
+        syncCandidateInputs();
+      });
+    });
+
+    // Category Selector change: auto-suggest default label if untouched
+    document.querySelectorAll('.ocr-edit-adj-kind').forEach(select => {
+      select.addEventListener('change', () => {
+        const idx = select.getAttribute('data-adj-idx');
+        const labelInput = document.getElementById(`ocr-adj-label-${idx}`);
+        if (labelInput) {
+          const currentLabel = labelInput.value.trim();
+          const defaultLabels = ['Service Charge', 'SST Tax', 'SST / Tax', 'Discount', 'Rounding Adjustment', 'Adjustment'];
+          if (defaultLabels.includes(currentLabel) || currentLabel === '') {
+            const kindDefaults = {
+              service: 'Service Charge',
+              tax: 'SST Tax',
+              discount: 'Discount',
+              rounding: 'Rounding Adjustment',
+            };
+            labelInput.value = kindDefaults[select.value] || 'Adjustment';
+          }
+        }
+        syncCandidateInputs();
+      });
     });
 
     document.getElementById('ocr-add-item-btn')?.addEventListener('click', () => {
