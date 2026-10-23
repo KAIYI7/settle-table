@@ -85,12 +85,45 @@ function extractNotionUuid(val) {
   return null;
 }
 
+let alertTimer = null;
+let alertKeyHandler = null;
+
+function dismissAlert() {
+  if (alertTimer) {
+    clearTimeout(alertTimer);
+    alertTimer = null;
+  }
+  if (alertKeyHandler) {
+    window.removeEventListener('keydown', alertKeyHandler);
+    alertKeyHandler = null;
+  }
+  const container = document.getElementById('alert-container');
+  if (container) {
+    container.innerHTML = '';
+  }
+}
+
 function showAlert(message, type = 'error', dismissible = true) {
   const container = document.getElementById('alert-container');
   if (!container) return;
-  container.innerHTML = '';
+
+  // Prevent duplicate flash if identical message & type are already showing
+  const existingMsg = container.querySelector('.alert-message')?.textContent;
+  const existingDiv = container.querySelector('.alert-banner');
+  if (existingDiv && existingMsg === message && existingDiv.classList.contains(`alert-${type}`)) {
+    if (type !== 'conflict') {
+      if (alertTimer) clearTimeout(alertTimer);
+      alertTimer = setTimeout(dismissAlert, 5000);
+    }
+    return;
+  }
+
+  dismissAlert();
+
   const div = document.createElement('div');
   div.className = `alert-banner alert-${type}`;
+  div.setAttribute('role', type === 'error' || type === 'conflict' ? 'alert' : 'status');
+  div.setAttribute('aria-live', type === 'error' || type === 'conflict' ? 'assertive' : 'polite');
 
   const msgSpan = document.createElement('span');
   msgSpan.className = 'alert-message';
@@ -102,25 +135,30 @@ function showAlert(message, type = 'error', dismissible = true) {
     closeBtn.type = 'button';
     closeBtn.className = 'alert-close-btn';
     closeBtn.setAttribute('aria-label', 'Dismiss notification');
-    closeBtn.setAttribute('title', 'Dismiss notification');
+    closeBtn.setAttribute('title', 'Dismiss notification (Esc)');
     closeBtn.textContent = '✕';
-    closeBtn.addEventListener('click', () => {
-      if (div.parentNode) div.parentNode.removeChild(div);
-    });
+    closeBtn.addEventListener('click', dismissAlert);
     div.appendChild(closeBtn);
+
+    alertKeyHandler = (e) => {
+      if (e.key === 'Escape') {
+        dismissAlert();
+      }
+    };
+    window.addEventListener('keydown', alertKeyHandler);
   }
 
   container.appendChild(div);
+
   if (type !== 'conflict') {
-    setTimeout(() => {
-      if (div.parentNode) div.parentNode.removeChild(div);
+    alertTimer = setTimeout(() => {
+      dismissAlert();
     }, 5000);
   }
 }
 
 function clearAlerts() {
-  const container = document.getElementById('alert-container');
-  if (container) container.innerHTML = '';
+  dismissAlert();
 }
 
 // --- API Layer ---
@@ -384,13 +422,22 @@ function renderWelcome() {
       });
     }
 
+    const submitBtn = e.target.querySelector('button[type="submit"]');
     try {
-      showAlert('Creating meal...', 'success');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating meal...';
+      }
+      showAlert('Creating meal...', 'info');
       const res = await apiCall(`/api/meals/${mealId}/bootstrap`, 'POST', { participants });
       if (res?.ok) {
         window.location.hash = `#/meal/${mealId}`;
       }
     } catch (err) {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Meal Room';
+      }
       showAlert(`Failed to create meal: ${err.message}`, 'error');
     }
   });
@@ -887,6 +934,9 @@ function renderOrganizerSection(snap) {
   const receipt = snap.receipt;
   const items = receipt?.items || [];
   const reviewConfirmed = Boolean(snap.review);
+  const reviewer = snap.review ? snap.participants?.find(p => p.id === snap.review.participant_id) : null;
+  const reviewerName = reviewer ? reviewer.name : 'Organizer';
+  const shortDigest = snap.review?.receipt_digest ? snap.review.receipt_digest.slice(0, 8) : '';
   
   let itemsRowsHtml = items.map((it, idx) => `
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
@@ -1148,7 +1198,17 @@ function renderOrganizerSection(snap) {
           <button id="review-submit-btn" class="btn btn-primary btn-sm btn-block" style="margin-top: 10px;" ${state.ocrCandidate ? 'disabled' : ''}>
             Approve & Seal Receipt
           </button>
-        ` : ''}
+        ` : `
+          <div id="receipt-verified-status" class="receipt-verified-banner" role="status" aria-live="polite">
+            <span class="verified-icon" aria-hidden="true">✓</span>
+            <div class="verified-details">
+              <div class="verified-heading">Receipt Verified & Sealed</div>
+              <div class="verified-subtext">
+                Physical totals confirmed by ${escapeHtml(reviewerName)} &bull; Digest <code>${escapeHtml(shortDigest)}</code>
+              </div>
+            </div>
+          </div>
+        `}
       </div>
     </div>
 

@@ -641,14 +641,59 @@ async function main() {
     }
     console.log('   ✓ Verified items subtotal & total match: RM 30.00');
 
-    // Organizer completes Human Receipt Review
+    // Organizer completes Human Receipt Review while scrolled down
+    console.log('   Testing Human Receipt Review verification while scrolled below header...');
+    await pageA.evaluate("document.getElementById('review-submit-btn').scrollIntoView({ block: 'center' })");
+    const initialScrollY = await pageA.evaluate("window.scrollY");
+    if (initialScrollY < 100) {
+      throw new Error(`Expected page to be scrolled down below header (scrollY > 100), got ${initialScrollY}`);
+    }
+
     await pageA.evaluate(`
       const check = document.getElementById('review-confirm-check');
       check.checked = true;
       check.dispatchEvent(new Event('change'));
       document.getElementById('review-submit-btn').click();
     `);
-    await pageA.waitFor("document.body.innerText.includes('Review Verified ✓')");
+    await pageA.waitFor("document.getElementById('receipt-verified-status') !== null");
+    await pageA.waitFor("document.querySelector('.alert-banner') !== null");
+
+    // 1. Assert scroll position did NOT jump to top
+    const postScrollY = await pageA.evaluate("window.scrollY");
+    if (Math.abs(postScrollY - initialScrollY) > 60) {
+      throw new Error(`Expected scroll position to be preserved near ${initialScrollY}px, but jumped to ${postScrollY}px`);
+    }
+
+    // 2. Assert in-situ persistent confirmation in Human Receipt Review card
+    const verifiedStatusText = await pageA.evaluate("document.getElementById('receipt-verified-status').innerText");
+    if (!verifiedStatusText.includes('Receipt Verified & Sealed') || !verifiedStatusText.includes('Alice')) {
+      throw new Error(`Expected persistent verification banner with reviewer Alice, got: ${verifiedStatusText}`);
+    }
+    console.log('   ✓ Persistent in-situ confirmation verified in Human Receipt Review card');
+
+    // 3. Assert fixed-position toast alert is visible within user's current viewport
+    const toastInViewport = await pageA.evaluate(`(() => {
+      const banner = document.querySelector('.alert-banner');
+      if (!banner) return false;
+      const r = banner.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= window.innerHeight && r.width > 0 && r.height > 0;
+    })()`);
+    if (!toastInViewport) {
+      throw new Error('Expected fixed-position alert toast to be visible in current scrolled viewport');
+    }
+    console.log('   ✓ Viewport toast verified: visible in current viewport while scrolled down');
+
+    // Capture Scrolled Verification Screenshot showing both in-situ confirmation and floating toast
+    if (artifactDir) {
+      await pageA.screenshot(path.join(artifactDir, 'screenshot_scrolled_receipt_verification.png'));
+      console.log('   ✓ Scrolled receipt verification screenshot captured');
+    }
+
+    // 4. Test accessible keyboard dismissal with Escape key
+    await pageA.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', windowsVirtualKeyCode: 27 });
+    await pageA.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', windowsVirtualKeyCode: 27 });
+    await pageA.waitFor("document.querySelector('.alert-banner') === null");
+    console.log('   ✓ Accessible keyboard dismissal verified: pressing Escape dismisses toast');
     console.log('   ✓ Human Receipt Review submitted and verified');
 
     // 6. Organizer creates invitation for Bob
