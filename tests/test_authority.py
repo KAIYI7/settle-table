@@ -8,7 +8,8 @@ import sqlite3
 import time
 
 from settletable.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
-                               ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize, ReceiptAdjustment,
+                               ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, AllocationSpec,
+                               ReviewReceipt, Finalize, ReceiptAdjustment,
                                RevokeSession, RevokeMembership)
 
 
@@ -373,6 +374,267 @@ class AuthorityTests(unittest.TestCase):
         self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('remove-1', 'B', 'dish', None, 2, 1))
         snap2 = self.authority.snapshot(credentials['A'], 'meal')
         self.assertEqual(len(snap2.claims), 0)
+
+    def test_set_item_allocations_equal_split_and_largest_remainder_sen(self):
+        result = self.authority.bootstrap('meal', (
+            Participant('A', 'Alice', True),
+            Participant('B', 'Bob'),
+            Participant('C', 'Carol'),
+        ))
+        creds = {s.participant_id: s.credential for s in result.sessions}
+        receipt = Receipt((ReceiptItem('pizza', 'Margherita', 1, 1000),), 1000, 1000)
+        self.authority.apply(creds['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        # Atomic equal split across 3 diners (1/3 each)
+        alloc_cmd = SetItemAllocations(
+            'split-pizza-3way',
+            'pizza',
+            (
+                AllocationSpec('A', Fraction(1, 3)),
+                AllocationSpec('B', Fraction(1, 3)),
+                AllocationSpec('C', Fraction(1, 3)),
+            ),
+            expected_item_revision=1,
+            expected_financial_revision=1,
+        )
+        res = self.authority.apply(creds['A'], 'meal', alloc_cmd)
+        self.assertEqual(len(res.changed_claims), 3)
+        for claim in res.changed_claims:
+            self.assertEqual(claim.item_id, 'pizza')
+            self.assertEqual(claim.quantity, Fraction(1, 3))
+            self.assertEqual(claim.assigned_by, 'A')
+            self.assertEqual(claim.status, 'confirmed')
+
+        snap = self.authority.snapshot(creds['A'], 'meal')
+        self.assertEqual(snap.issues, ())
+        self.assertEqual(len(snap.claims), 3)
+
+        # Seal and finalize to verify exact largest remainder sen apportionment (334, 333, 333)
+        digest = snap.receipt_digest
+        self.authority.apply(creds['A'], 'meal', ReviewReceipt('seal', 2, 1, digest))
+        fin = self.authority.apply(creds['A'], 'meal', Finalize('fin', 3, 1))
+        self.assertIsNotNone(fin.calculation)
+        consumption = {p.participant_id: p.sen for p in fin.calculation.consumption}
+        self.assertEqual(sum(consumption.values()), 1000)
+        self.assertEqual(consumption, {'A': 333, 'B': 333, 'C': 334})
+
+    def test_set_item_allocations_custom_fractions_and_overwrites(self):
+        result = self.authority.bootstrap('meal', (
+            Participant('A', 'Alice', True),
+            Participant('B', 'Bob'),
+            Participant('C', 'Carol'),
+        ))
+        creds = {s.participant_id: s.credential for s in result.sessions}
+        receipt = Receipt((ReceiptItem('pasta', 'Truffle Pasta', 2, 2400),), 2400, 2400)
+        self.authority.apply(creds['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        # Diner B claims 1 portion using SetOwnQuantity
+        self.authority.apply(creds['B'], 'meal', SetOwnQuantity('b-claim', 'pasta', 1, 1, 1))
+        snap1 = self.authority.snapshot(creds['A'], 'meal')
+        self.assertEqual(len(snap1.claims), 1)
+        self.assertEqual(snap1.claims[0].participant_id, 'B')
+        self.assertIsNone(snap1.claims[0].assigned_by)
+
+        # Organizer A overwrites item claims atomically with custom fractions:
+        # A takes 1 portion, B takes 1/2, C takes 1/2 (total = 2 portions)
+        alloc_cmd = SetItemAllocations(
+            'custom-alloc-pasta',
+            'pasta',
+            (
+                AllocationSpec('A', 1),
+                AllocationSpec('B', Fraction(1, 2)),
+                AllocationSpec('C', Fraction(1, 2)),
+            ),
+            expected_item_revision=2,
+            expected_financial_revision=1,
+        )
+        res = self.authority.apply(creds['A'], 'meal', alloc_cmd)
+        self.assertEqual(len(res.changed_claims), 3)
+
+        snap2 = self.authority.snapshot(creds['A'], 'meal')
+        claims_by_p = {c.participant_id: c for c in snap2.claims}
+        self.assertEqual(claims_by_p['A'].quantity, 1)
+        self.assertEqual(claims_by_p['A'].assigned_by, 'A')
+        self.assertEqual(claims_by_p['B'].quantity, Fraction(1, 2))
+        self.assertEqual(claims_by_p['B'].assigned_by, 'A')
+        self.assertEqual(claims_by_p['C'].quantity, Fraction(1, 2))
+        self.assertEqual(claims_by_p['C'].assigned_by, 'A')
+
+        # Organizer A clears all claims on pasta by providing empty allocations
+        clear_cmd = SetItemAllocations(
+            'clear-pasta',
+            'pasta',
+            (),
+            expected_item_revision=3,
+            expected_financial_revision=1,
+        )
+        res_clear = self.authority.apply(creds['A'], 'meal', clear_cmd)
+        self.assertEqual(len(res_clear.changed_claims), 0)
+        snap3 = self.authority.snapshot(creds['A'], 'meal')
+        self.assertEqual(len(snap3.claims), 0)
+
+    def test_set_item_allocations_adversarial_rejections(self):
+        result = self.authority.bootstrap('meal', (
+            Participant('A', 'Alice', True),
+            Participant('B', 'Bob'),
+        ))
+        creds = {s.participant_id: s.credential for s in result.sessions}
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 2, 1000),), 1000, 1000)
+        self.authority.apply(creds['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        # 1. Non-organizer caller (Diner B) is forbidden
+        with self.assertRaises(AuthorityError) as forbidden:
+            self.authority.apply(creds['B'], 'meal', SetItemAllocations(
+                'bad-actor', 'dish', (AllocationSpec('B', 1),), 1, 1
+            ))
+        self.assertEqual(forbidden.exception.code, 'forbidden')
+
+        # 2. Non-existent participant is forbidden
+        with self.assertRaises(AuthorityError) as missing_p:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'ghost-target', 'dish', (AllocationSpec('Z_UNKNOWN', 1),), 1, 1
+            ))
+        self.assertEqual(missing_p.exception.code, 'forbidden')
+
+        # 3. Inactive participant is forbidden
+        self.authority.apply(creds['A'], 'meal', RevokeMembership('revoke-b', 1, 'B'))
+        with self.assertRaises(AuthorityError) as inactive_p:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'inactive-target', 'dish', (AllocationSpec('B', 1),), 1, 1
+            ))
+        self.assertEqual(inactive_p.exception.code, 'forbidden')
+
+        # 4. Duplicate participants in allocation list is rejected as invalid_input
+        with self.assertRaises(AuthorityError) as dup_p:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'dup-target', 'dish', (AllocationSpec('A', 1), AllocationSpec('A', 1)), 1, 1
+            ))
+        self.assertEqual(dup_p.exception.code, 'invalid_input')
+
+        # 5. Capacity overflow (sum > 2) is rejected as quantity_capacity
+        with self.assertRaises(AuthorityError) as over_cap:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'over-cap', 'dish', (AllocationSpec('A', 3),), 1, 1
+            ))
+        self.assertEqual(over_cap.exception.code, 'quantity_capacity')
+
+        # 6. Invalid quantities (zero, negative) rejected as invalid_input
+        with self.assertRaises(AuthorityError) as zero_qty:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'zero-qty', 'dish', (AllocationSpec('A', 0),), 1, 1
+            ))
+        self.assertEqual(zero_qty.exception.code, 'invalid_input')
+
+        with self.assertRaises(AuthorityError) as neg_qty:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'neg-qty', 'dish', (AllocationSpec('A', -1),), 1, 1
+            ))
+        self.assertEqual(neg_qty.exception.code, 'invalid_input')
+
+        with self.assertRaises(AuthorityError) as neg_frac:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'neg-frac', 'dish', (AllocationSpec('A', Fraction(-1, 2)),), 1, 1
+            ))
+        self.assertEqual(neg_frac.exception.code, 'invalid_input')
+
+        # 7. Stale item revision conflict
+        with self.assertRaises(AuthorityError) as stale_item:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'stale-item', 'dish', (AllocationSpec('A', 1),), 99, 1
+            ))
+        self.assertEqual(stale_item.exception.code, 'item_revision_conflict')
+
+        # 8. Stale financial revision conflict
+        with self.assertRaises(AuthorityError) as stale_fin:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'stale-fin', 'dish', (AllocationSpec('A', 1),), 1, 99
+            ))
+        self.assertEqual(stale_fin.exception.code, 'financial_revision_conflict')
+
+        # 9. Unknown item ID
+        with self.assertRaises(AuthorityError) as unk_item:
+            self.authority.apply(creds['A'], 'meal', SetItemAllocations(
+                'ghost-item', 'nonexistent_item', (AllocationSpec('A', 1),), 1, 1
+            ))
+        self.assertEqual(unk_item.exception.code, 'unknown_item')
+
+    def test_set_item_allocations_idempotency_and_replay(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 2, 1000),), 1000, 1000)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        cmd = SetItemAllocations(
+            'cmd-idemp-alloc',
+            'dish',
+            (AllocationSpec('A', 1), AllocationSpec('B', 1)),
+            expected_item_revision=1,
+            expected_financial_revision=1,
+        )
+        res1 = self.authority.apply(credentials['A'], 'meal', cmd)
+        snap1 = self.authority.snapshot(credentials['A'], 'meal')
+
+        # Re-apply identical command with same command_id
+        res2 = self.authority.apply(credentials['A'], 'meal', cmd)
+        snap2 = self.authority.snapshot(credentials['A'], 'meal')
+
+        # Result is exact cached replay, revisions did not advance
+        self.assertEqual(res1.revision, res2.revision)
+        self.assertEqual(res1.changed_claims, res2.changed_claims)
+        self.assertEqual(snap1.revision, snap2.revision)
+
+    def test_set_item_allocations_rollback_on_failure(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 2, 1000),), 1000, 1000)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+        # Initial diner claim
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('b-init', 'dish', 1, 1, 1))
+        snap_before = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(len(snap_before.claims), 1)
+
+        # Inject failure right before commit
+        def fail_hook(stage):
+            if stage == 'before_commit':
+                raise sqlite3.OperationalError('simulated disk failure')
+
+        self.authority._failure_hook = fail_hook
+        with self.assertRaises(AuthorityError) as err:
+            self.authority.apply(credentials['A'], 'meal', SetItemAllocations(
+                'failing-alloc', 'dish', (AllocationSpec('A', 2),), 2, 1
+            ))
+        self.assertEqual(err.exception.code, 'storage_error')
+
+        # Reset hook and verify database state was completely rolled back
+        self.authority._failure_hook = None
+        snap_after = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(snap_after.revision, snap_before.revision)
+        self.assertEqual(snap_after.claims, snap_before.claims)
+        self.assertEqual(snap_after.claims[0].participant_id, 'B')
+        self.assertEqual(snap_after.claims[0].quantity, 1)
+
+    def test_set_item_allocations_persistence_across_reopen(self):
+        credentials = self.bootstrap()
+        receipt = Receipt((ReceiptItem('dish', 'Rice', 2, 1000),), 1000, 1000)
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        cmd = SetItemAllocations(
+            'persist-alloc',
+            'dish',
+            (AllocationSpec('A', Fraction(1, 2)), AllocationSpec('B', Fraction(3, 2))),
+            expected_item_revision=1,
+            expected_financial_revision=1,
+        )
+        self.authority.apply(credentials['A'], 'meal', cmd)
+        snap_before = self.authority.snapshot(credentials['A'], 'meal')
+
+        # Close authority and reopen from same SQLite database file
+        self.authority.close()
+        reopened = Authority(self.path, clock=lambda: 1000)
+        snap_after = reopened.snapshot(credentials['A'], 'meal')
+        reopened.close()
+
+        self.assertEqual(snap_after.revision, snap_before.revision)
+        self.assertEqual(snap_after.claims, snap_before.claims)
+        self.assertEqual(len(snap_after.claims), 2)
 
 
 if __name__ == '__main__':

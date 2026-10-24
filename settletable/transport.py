@@ -18,7 +18,7 @@ from urllib.parse import urlparse, parse_qs
 
 from settletable.authority import (
     Authority, AuthorityError, Participant,
-    ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize,
+    ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, AllocationSpec, ReviewReceipt, Finalize,
     RevokeInvitation, RevokeSession, RevokeMembership,
     Receipt, ReceiptItem, ReceiptAdjustment,
 )
@@ -1009,6 +1009,45 @@ class SettleTableApp:
                     participant_id=part_id,
                     item_id=data.get('item_id'),
                     quantity=qty,
+                    expected_item_revision=data.get('expected_item_revision'),
+                    expected_financial_revision=data.get('expected_financial_revision'),
+                )
+            elif kind == 'SetItemAllocations':
+                item_id = data.get('item_id')
+                if not item_id or not isinstance(item_id, str):
+                    raise TransportError('invalid_input', 400)
+                raw_allocs = data.get('allocations')
+                if not isinstance(raw_allocs, (list, tuple)):
+                    raise TransportError('invalid_input', 400)
+                allocs = []
+                for entry in raw_allocs:
+                    if isinstance(entry, AllocationSpec):
+                        allocs.append(entry)
+                        continue
+                    if not isinstance(entry, dict):
+                        raise TransportError('invalid_input', 400)
+                    part_id = entry.get('participant_id')
+                    if not part_id or not isinstance(part_id, str):
+                        raise TransportError('invalid_input', 400)
+                    qty = entry.get('quantity')
+                    if isinstance(qty, list) and len(qty) == 2:
+                        if not isinstance(qty[0], int) or not isinstance(qty[1], int) or qty[1] <= 0:
+                            raise TransportError('invalid_input', 400)
+                        try:
+                            qty = Fraction(qty[0], qty[1])
+                        except (ValueError, ZeroDivisionError):
+                            raise TransportError('invalid_input', 400)
+                    elif isinstance(qty, int):
+                        pass
+                    elif isinstance(qty, Fraction):
+                        pass
+                    else:
+                        raise TransportError('invalid_input', 400)
+                    allocs.append(AllocationSpec(participant_id=part_id, quantity=qty))
+                return SetItemAllocations(
+                    command_id=cmd_id,
+                    item_id=item_id,
+                    allocations=tuple(allocs),
                     expected_item_revision=data.get('expected_item_revision'),
                     expected_financial_revision=data.get('expected_financial_revision'),
                 )

@@ -131,6 +131,21 @@ class AssignParticipantQuantity:
 
 
 @dataclass(frozen=True, slots=True)
+class AllocationSpec:
+    participant_id: str
+    quantity: int | Fraction
+
+
+@dataclass(frozen=True, slots=True)
+class SetItemAllocations:
+    command_id: str
+    item_id: str
+    allocations: tuple[AllocationSpec, ...]
+    expected_item_revision: int
+    expected_financial_revision: int
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewReceipt:
     command_id: str
     expected_revision: int
@@ -344,7 +359,7 @@ def _receipt_digest(receipt):
 
 
 def _command_data(command):
-    _require(type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize,
+    _require(type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, ReviewReceipt, Finalize,
                                RevokeSession, RevokeMembership, RevokeInvitation))
     _id(command.command_id)
     data = {'contract': 'settletable-command-v1', 'kind': type(command).__name__, 'command_id': command.command_id}
@@ -360,10 +375,31 @@ def _command_data(command):
         data.update(participant_id=command.participant_id, item_id=command.item_id,
                     quantity=None if command.quantity is None else _rational(command.quantity),
                     expected_item_revision=command.expected_item_revision)
+    elif type(command) is SetItemAllocations:
+        _id(command.item_id)
+        _revision(command.expected_item_revision)
+        _require(isinstance(command.allocations, (tuple, list)))
+        _require(len(command.allocations) <= 500)
+        alloc_data = []
+        for a in command.allocations:
+            if isinstance(a, AllocationSpec):
+                pid = a.participant_id
+                qty = a.quantity
+            elif isinstance(a, (tuple, list)) and len(a) == 2:
+                pid, qty = a
+            elif isinstance(a, dict) and 'participant_id' in a and 'quantity' in a:
+                pid, qty = a['participant_id'], a['quantity']
+            else:
+                _require(False, 'invalid_input')
+            _id(pid)
+            alloc_data.append({'participant_id': pid, 'quantity': _rational(qty)})
+        data.update(item_id=command.item_id,
+                    allocations=alloc_data,
+                    expected_item_revision=command.expected_item_revision)
     else:
         _revision(command.expected_revision)
         data['expected_revision'] = command.expected_revision
-    if type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, ReviewReceipt, Finalize):
+    if type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, ReviewReceipt, Finalize):
         _revision(command.expected_financial_revision)
         data['expected_financial_revision'] = command.expected_financial_revision
     if type(command) is ReplaceReceipt:
@@ -1209,6 +1245,35 @@ class Authority:
         _revision(state['item_revisions'][item_id])
         return tuple(c for c in _claims(state) if c.item_id == item_id and c.participant_id == target_id)
 
+    def _set_item_allocations(self, meal_id, state, actor, data):
+        item_id = data['item_id']
+        _require(item_id in state['item_revisions'], 'unknown_item')
+        _require(data['expected_item_revision'] == state['item_revisions'][item_id], 'item_revision_conflict')
+        _require(state['receipt'] is not None, 'unknown_item')
+        item = next((i for i in state['receipt']['items'] if i['id'] == item_id), None)
+        _require(item is not None, 'unknown_item')
+        allocations = data['allocations']
+        part_ids = [a['participant_id'] for a in allocations]
+        _require(len(part_ids) == len(set(part_ids)), 'invalid_input')
+        for pid in part_ids:
+            target = self._db.execute('SELECT active FROM participants WHERE meal_id=? AND id=?',
+                                      (meal_id, pid)).fetchone()
+            _require(target is not None and target[0] == 1, 'forbidden')
+        requested_total = sum((Fraction(*a['quantity']) for a in allocations), Fraction())
+        _require(requested_total <= Fraction(*item['quantity']), 'quantity_capacity')
+        state['claims'] = [c for c in state['claims'] if c['item_id'] != item_id]
+        for a in allocations:
+            state['claims'].append({
+                'item_id': item_id,
+                'participant_id': a['participant_id'],
+                'quantity': a['quantity'],
+                'financial_revision': state['financial_revision'],
+                'assigned_by': actor,
+            })
+        state['item_revisions'][item_id] += 1
+        _revision(state['item_revisions'][item_id])
+        return tuple(c for c in _claims(state) if c.item_id == item_id)
+
     def _review_receipt(self, state, actor, data):
         _require(data['receipt_digest'] == _receipt_digest(state['receipt']), 'receipt_digest_conflict')
         issues = self._receipt_issues(state)
@@ -1301,6 +1366,8 @@ class Authority:
                 changed = self._set_own_quantity(state, actor, data)
             elif data['kind'] == 'AssignParticipantQuantity':
                 changed = self._assign_participant_quantity(meal_id, state, actor, data)
+            elif data['kind'] == 'SetItemAllocations':
+                changed = self._set_item_allocations(meal_id, state, actor, data)
             elif data['kind'] == 'ReviewReceipt':
                 self._review_receipt(state, actor, data)
                 changed = ()
