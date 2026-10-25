@@ -6,20 +6,54 @@ import path, { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const ARTIFACT_DIR = 'C:\\Users\\alpha\\.gemini\\antigravity\\brain\\8551baa0-7cf7-4f83-91eb-19824df0c298';
+const conversationArtifactDir = 'C:\\Users\\alpha\\.gemini\\antigravity\\brain\\8551baa0-7cf7-4f83-91eb-19824df0c298';
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || (existsSync(conversationArtifactDir) ? conversationArtifactDir : join(REPO_ROOT, 'artifacts'));
+if (!existsSync(ARTIFACT_DIR)) {
+  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+}
 
 function resolveChromePath() {
-  const envPath = process.env.CHROME_BIN || process.env.CHROME_PATH;
+  const envPath = process.env.CHROME_BIN || process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
   if (envPath && existsSync(envPath)) return envPath;
-  const candidates = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-  ];
+  const platform = process.platform;
+  const candidates = [];
+  if (platform === 'win32') {
+    candidates.push(
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    );
+  } else if (platform === 'darwin') {
+    candidates.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium'
+    );
+  } else {
+    candidates.push(
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+    );
+  }
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
   throw new Error('Chrome binary not found');
+}
+
+function resolvePythonPath() {
+  if (process.env.PYTHON && existsSync(process.env.PYTHON)) return process.env.PYTHON;
+  const candidates = [
+    'C:\\Python314\\python.exe',
+    'C:\\Python312\\python.exe',
+    'python',
+    'python3'
+  ];
+  for (const c of candidates) {
+    if (c.includes('\\') && existsSync(c)) return c;
+  }
+  return 'python';
 }
 
 class CDPPage {
@@ -135,7 +169,8 @@ async function main() {
   const serverOrigin = `http://127.0.0.1:${serverPort}`;
 
   // Start local server
-  const serverProc = spawn('C:\\Python314\\python.exe', ['tools/run_demo.py', '--port', `${serverPort}`, '--db', dbPath, '--mock-ocr', '--mock-notion'], {
+  const pythonPath = resolvePythonPath();
+  const serverProc = spawn(pythonPath, ['tools/run_demo.py', '--port', `${serverPort}`, '--db', dbPath, '--mock-ocr', '--mock-notion'], {
     env: { ...process.env, SETTLETABLE_MOCK_OCR: '1', SETTLETABLE_MOCK_NOTION: '1' },
     stdio: 'inherit'
   });
@@ -197,7 +232,16 @@ async function main() {
       document.getElementById('add-item-form').dispatchEvent(new Event('submit', { cancelable: true }));
     }`);
     await pageDesktop.waitFor("document.body.innerText.includes('Garlic Bread')");
-    console.log('   ✓ 4 items added to receipt');
+
+    // Item 5: "Gourmet Dessert" qty 1, RM 26.00 (used to verify exact 3-way rational split previews)
+    await pageDesktop.evaluate(`{
+      document.getElementById('new-item-label').value = 'Gourmet Dessert';
+      document.getElementById('new-item-qty').value = '1';
+      document.getElementById('new-item-price').value = '26.00';
+      document.getElementById('add-item-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    }`);
+    await pageDesktop.waitFor("document.body.innerText.includes('Gourmet Dessert')");
+    console.log('   ✓ 5 items added to receipt');
 
     // Verify receipt items against merchant bill (Human Receipt Review)
     console.log('[3/10] Verifying receipt total before allocations...');
@@ -287,6 +331,128 @@ async function main() {
     const pathSelectiveSplit = join(ARTIFACT_DIR, 'screenshot_concept_c_selective_split.png');
     await pageDesktop.captureScreenshot(pathSelectiveSplit);
     console.log(`   ✓ Saved: ${pathSelectiveSplit}`);
+
+    // Verify Finding 1: RM 26.00 3-way split preview deterministic apportionment and labels
+    console.log('[6b/10] Verifying Finding 1 (RM 26.00 split 3 ways deterministic previews) & Finding 2 (All shortcut guard)...');
+    // Expand Gourmet Dessert (item-5) Details / Split drawer
+    await pageDesktop.evaluate(`{
+      const btn = document.querySelector('.hybrid-item-card[data-item-id="item-5"] .hybrid-details-btn');
+      if (btn) btn.click();
+    }`);
+    await pageDesktop.waitFor("document.getElementById('hybrid-drawer-item-5') !== null");
+
+    // Deselect Diana (D3) so only Alice, Bob, Charlie (3 diners) are selected
+    await pageDesktop.evaluate(`{
+      const dianaCb = document.querySelector('input[data-action="toggle-split-diner"][data-item="item-5"][data-target="D3"]');
+      if (dianaCb && dianaCb.checked) dianaCb.click();
+    }`);
+    await new Promise(r => setTimeout(r, 200));
+
+    // Verify formula preview shows base amount note
+    const f5Text = await pageDesktop.evaluate(`
+      document.querySelector('#hybrid-drawer-item-5 .subset-split-formula')?.innerText
+    `);
+    console.log(`   Gourmet Dessert formula preview: "${f5Text}"`);
+    if (!f5Text.includes('base')) {
+      throw new Error(`Expected formula preview to indicate base amount, got: ${f5Text}`);
+    }
+
+    // Apply Equal Split to Gourmet Dessert (RM 26.00 among 3 diners)
+    await pageDesktop.evaluate(`{
+      const applyBtn = document.querySelector('[data-action="apply-equal-split"][data-item="item-5"]');
+      if (applyBtn) applyBtn.click();
+    }`);
+    await pageDesktop.waitFor("state.snapshot?.claims?.some(c => c.item_id === 'item-5' && c.participant_id === 'O' && JSON.stringify(c.quantity) === '[1,3]')");
+
+    // Inspect the per-diner previews in drawer
+    const previews = await pageDesktop.evaluate(() => {
+      const drawer = document.getElementById('hybrid-drawer-item-5');
+      const rows = Array.from(drawer.querySelectorAll('.diner-allocation-row'));
+      return rows.map(r => {
+        const name = r.querySelector('.diner-name-col')?.innerText.trim();
+        const badge = r.querySelector('.diner-portion-badge')?.innerText.trim();
+        const previewEl = r.querySelector('.diner-share-preview');
+        const previewText = previewEl?.innerText.trim();
+        const previewTitle = previewEl?.getAttribute('title');
+        const allBtn = r.querySelector('[data-action="hybrid-fraction"][data-frac="all"]');
+        return {
+          name,
+          badge,
+          previewText,
+          previewTitle,
+          isAllDisabled: allBtn ? allBtn.disabled : false,
+          allBtnTitle: allBtn ? allBtn.getAttribute('title') : null,
+        };
+      });
+    });
+
+    console.log('   Gourmet Dessert Diner Rows:', previews);
+
+    // Finding 1 Verification:
+    // Alice, Bob, Charlie must show ~RM 8.67 base or ~RM 8.66 base
+    const activePreviews = previews.filter(p => p.badge.includes('⅓'));
+    if (activePreviews.length !== 3) {
+      throw new Error(`Expected 3 active claimants with ⅓ portion, got: ${activePreviews.length}`);
+    }
+    for (const ap of activePreviews) {
+      if (!ap.previewText.includes('base') || !ap.previewText.startsWith('~RM 8.6')) {
+        throw new Error(`Expected deterministic preview ~RM 8.66 base or ~RM 8.67 base, got: ${ap.previewText}`);
+      }
+      if (!ap.previewTitle || !ap.previewTitle.includes('Provisional item base share')) {
+        throw new Error(`Expected descriptive tooltip on preview, got: ${ap.previewTitle}`);
+      }
+    }
+
+    // Parse the numbers and sum them:
+    const senValues = activePreviews.map(p => {
+      const match = p.previewText.match(/RM\s*([0-9]+\.[0-9]{2})/);
+      return Math.round(parseFloat(match[1]) * 100);
+    });
+    const previewSumSen = senValues.reduce((a, b) => a + b, 0);
+    console.log(`   Preview sen values: ${senValues.join(' + ')} = ${previewSumSen} sen (RM ${(previewSumSen / 100).toFixed(2)})`);
+    if (previewSumSen !== 2600) {
+      throw new Error(`Provisional preview sum drift! Expected exactly 2600 sen (RM 26.00), got ${previewSumSen} sen`);
+    }
+    console.log('   ✓ Finding 1 passed: Previews use deterministic apportionment summing to exactly RM 26.00 (no RM 26.01 drift)');
+
+    // Finding 2 Verification:
+    // Diana (D3) has 0 portions. Remaining capacity on item-5 is 0.
+    // Verify Diana's "All" button is disabled and titled "No unassigned portion remains".
+    const dianaRow = previews.find(p => p.name.includes('Diana'));
+    if (!dianaRow) throw new Error('Diana row not found');
+    if (!dianaRow.isAllDisabled) {
+      throw new Error("Expected Diana's 'All' button to be disabled when remaining capacity is 0");
+    }
+    if (dianaRow.allBtnTitle !== 'No unassigned portion remains') {
+      throw new Error(`Expected title 'No unassigned portion remains', got: ${dianaRow.allBtnTitle}`);
+    }
+    console.log("   ✓ Finding 2 passed: Diana's 'All' button is disabled when item has zero remaining capacity");
+
+    // Test that if disabled is bypassed, the click handler guard still prevents over-allocation and alerts
+    await pageDesktop.evaluate(() => {
+      const dianaAllBtn = document.querySelector('#hybrid-drawer-item-5 [data-action="hybrid-fraction"][data-frac="all"][data-target="D3"]');
+      if (dianaAllBtn) {
+        dianaAllBtn.removeAttribute('disabled');
+        dianaAllBtn.click();
+      }
+    });
+    await pageDesktop.waitFor("document.getElementById('alert-container')?.innerText.includes('No unassigned portion remains')");
+
+    // Verify snapshot did not add Diana to item-5 and no HTTP 400 occurred
+    const claimsItem5 = await pageDesktop.evaluate("state.snapshot?.claims?.filter(c => c.item_id === 'item-5')");
+    if (claimsItem5.some(c => c.participant_id === 'D3')) {
+      throw new Error('Click guard failed: Diana was allocated portions when no capacity remained');
+    }
+    const alertText = await pageDesktop.evaluate("document.getElementById('alert-container')?.innerText");
+    console.log(`   Alert after guarded 'All' click: "${alertText}"`);
+    console.log("   ✓ Finding 2 passed: Click guard prevented over-allocation and notified organizer cleanly");
+
+    // Close Gourmet Dessert drawer
+    await pageDesktop.evaluate(`{
+      const doneBtn = document.querySelector('#hybrid-drawer-item-5 [data-action="hybrid-close-details"]');
+      if (doneBtn) doneBtn.click();
+    }`);
+    await pageDesktop.waitFor("document.getElementById('hybrid-drawer-item-5') === null");
 
     // Verify Scenario 4 & 6: Overwrite warning and stepper adjustments / clearing
     console.log('[7/10] Verifying Scenario 4 & 6: Overwrite confirmation and item clearing...');
