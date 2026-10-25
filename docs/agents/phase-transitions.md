@@ -311,5 +311,20 @@ The next local scope targets invitations and sessions for already declared diner
 | **Zero Floating-Point Drift & Wire Compliance** | PASS — Rational arithmetic functions (`makeReducedFraction`, `toRat`, `addFractions`, `subtractFractions`, `formatRat`) ensure quantities submitted over the wire strictly match backend integer and fraction pair types, preventing `float_number_rejected` HTTP 400 errors. Apportionment reconciles down to the sen. |
 | **Diner Self-Claiming Boundary Intact** | PASS — Diner self-claiming view (`!snap.is_organizer`) remains 100% intact with stepper increments, decrements, and claim-all buttons. |
 
-**Next scope:** Stakeholder User Acceptance Testing (UAT) of Concept C allocation across mobile and desktop devices.
+**Next scope:** Remediation and verification of allocation preview rounding and "All" shortcut zero-capacity guard.
+
+## 2026-10-25 — PR #19 Merge: Concept C Preview Alignment & "All" Shortcut Guard Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `3699dd4efeeaa520101ec2b53bf9467301cbfca9` merged autonomously under orchestrator governance policy into `main` at `b4cf4e8`. GitHub PR #19 ([#19](https://github.com/KAIYI7/settle-table/pull/19)) verified on hosted CI before merge. Post-implementation independent code review completed with unconditional PASS (Zero findings); 192/192 Python test suite methods passed in 171.4s; 11/11 automated real-browser CDP test stages passed in `tools/e2e_browser_test.mjs`; dedicated 10-scenario production verification passed with high-resolution CDP evidence in `tools/verify_concept_c_production.mjs`; hosted GitHub Actions CI run `40197038604` succeeded on the exact reviewed head in `ubuntu-24.04` (Python 3.14).
+
+| Gate | Disposition / Evidence |
+|---|---|
+| **Deterministic Apportionment Previews (Finding 1)** | PASS — In `settletable/static/app.js`, implemented `apportionItemBase` using Largest Remainder (Hamilton-Hare) apportionment with pure-JS SHA-256 tie-breaker matching `settletable/calculation.py` (`_apportion`). Completely resolves RM 26.01 drift when RM 26.00 is split 3 ways (`867 sen + 867 sen + 866 sen = 2600 sen = RM 26.00` exactly). Output parity verified against Python calculator across test scenarios. |
+| **Provisional Item Base Labeling & Hints** | PASS — Per-diner row previews explicitly label amounts as provisional base shares (`~RM X.XX base`), with descriptive tooltips (`title="Provisional item base share. Taxes, service charge, discounts, and rounding are apportioned at finalization."`) and persistent section subtitle (`Provisional item base • Taxes and service charge apportioned at finalization`). Distinctly differentiates unadjusted item base from finalized totals (which incorporate taxes, service charges, discounts, and rounding). Backend calculation engine preserved 100% untouched. |
+| **"All" Shortcut Zero-Capacity Guard (Finding 2)** | PASS — When remaining capacity is 0 (`remRat === 0`), "All" button is rendered with `disabled` attribute and descriptive tooltip (`No unassigned portion remains`). Click listener guards against execution when `ratToNum(remRat) <= 0`, displaying a non-destructive info alert without submitting to the API. Other participants' allocations and exact rational arithmetic are strictly preserved. Verified via CDP live injection. |
+| **Cross-Platform Verification Path Portability** | PASS — `tools/verify_concept_c_production.mjs` enhanced to dynamically resolve Python binary, Chrome/Chromium executable across Windows, macOS, and Linux, and configurable artifact directory (`process.env.ARTIFACT_DIR`) with automatic directory creation and fallback. |
+| **Financial & System Invariants Intact** | PASS — Zero backend changes (`settletable/calculation.py` and `settletable/authority.py` untouched); sen-level exactness and zero floating-point math preserved; 192/192 unit tests pass; 11-stage real browser CDP test passes; Impeccable detect reports 0 anti-patterns. |
+
+**Next scope:** Formal closure of the organizer allocation milestone and local stakeholder UAT.
+
 
