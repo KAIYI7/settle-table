@@ -89,6 +89,169 @@ function formatRat(q) {
   return `${q}`;
 }
 
+// Pure-JS SHA-256 for synchronous tie-breaking matching Python hashlib.sha256
+function sha256Hex(ascii) {
+  function rightRotate(value, amount) {
+    return (value >>> amount) | (value << (32 - amount));
+  }
+  const words = [];
+  const asciiBitLength = ascii.length * 8;
+  let hash = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+  ];
+  const k = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+
+  for (let i = 0; i < ascii.length; i++) {
+    words[i >> 2] |= (ascii.charCodeAt(i) & 0xff) << (24 - (i % 4) * 8);
+  }
+  words[asciiBitLength >> 5] |= 0x80 << (24 - (asciiBitLength % 32));
+  words[(((asciiBitLength + 64) >> 9) << 4) + 15] = asciiBitLength;
+
+  for (let i = 0; i < words.length; i += 16) {
+    const w = [];
+    for (let j = 0; j < 16; j++) w[j] = words[i + j] || 0;
+    for (let j = 16; j < 64; j++) {
+      const s0 = rightRotate(w[j - 15], 7) ^ rightRotate(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+      const s1 = rightRotate(w[j - 2], 17) ^ rightRotate(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+      w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+    }
+
+    let [a, b, c, d, e, f, g, h] = hash;
+    for (let j = 0; j < 64; j++) {
+      const s1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);
+      const ch = (e & f) ^ ((~e) & g);
+      const temp1 = (h + s1 + ch + k[j] + w[j]) | 0;
+      const s0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (s0 + maj) | 0;
+
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) | 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) | 0;
+    }
+
+    hash[0] = (hash[0] + a) | 0;
+    hash[1] = (hash[1] + b) | 0;
+    hash[2] = (hash[2] + c) | 0;
+    hash[3] = (hash[3] + d) | 0;
+    hash[4] = (hash[4] + e) | 0;
+    hash[5] = (hash[5] + f) | 0;
+    hash[6] = (hash[6] + g) | 0;
+    hash[7] = (hash[7] + h) | 0;
+  }
+
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    for (let j = 3; j >= 0; j--) {
+      const b = (hash[i] >> (j * 8)) & 0xff;
+      result += (b < 16 ? '0' : '') + b.toString(16);
+    }
+  }
+  return result;
+}
+
+/**
+ * Apportions an item's base amount (lineSen) deterministically among claimants
+ * using the Largest Remainder (Hamilton-Hare) method with SHA-256 tie-breaker,
+ * exactly matching the backend calculator (_apportion in calculation.py).
+ */
+function apportionItemBase(lineSen, claims, itemId, itemTotalQty) {
+  const result = new Map();
+  if (!lineSen || lineSen <= 0) {
+    if (Array.isArray(claims)) {
+      for (const c of claims) result.set(c.participant_id, 0);
+    }
+    return result;
+  }
+
+  const [totN, totD] = toRat(itemTotalQty);
+  const totalQtyRat = { n: BigInt(totN), d: BigInt(totD) };
+  if (totalQtyRat.n <= 0n) return result;
+
+  let sumClaimed = { n: 0n, d: 1n };
+  const participants = [];
+  if (Array.isArray(claims)) {
+    for (const c of claims) {
+      const [n, d] = toRat(c.quantity);
+      if (n > 0) {
+        const weight = { n: BigInt(n), d: BigInt(d) };
+        participants.push({ id: c.participant_id, weight });
+        const num = sumClaimed.n * weight.d + weight.n * sumClaimed.d;
+        const den = sumClaimed.d * weight.d;
+        sumClaimed = { n: num, d: den };
+      } else {
+        result.set(c.participant_id, 0);
+      }
+    }
+  }
+
+  if (participants.length === 0) {
+    return result;
+  }
+
+  const unassignedNum = totalQtyRat.n * sumClaimed.d - sumClaimed.n * totalQtyRat.d;
+  const unassignedDen = totalQtyRat.d * sumClaimed.d;
+
+  const weights = [...participants];
+  if (unassignedNum > 0n) {
+    weights.push({ id: '__unassigned__', weight: { n: unassignedNum, d: unassignedDen } });
+  }
+
+  const quotas = [];
+  let floorSum = 0;
+  for (const w of weights) {
+    const num = BigInt(lineSen) * w.weight.n * totalQtyRat.d;
+    const den = w.weight.d * totalQtyRat.n;
+    const floor = Number(num / den);
+    const remNum = num % den;
+    floorSum += floor;
+    quotas.push({
+      id: w.id,
+      floor,
+      remNum,
+      remDen: den,
+      hash: sha256Hex(JSON.stringify(['tabwise-apportion-v1', itemId, w.id]))
+    });
+  }
+
+  const remainderCents = lineSen - floorSum;
+  quotas.sort((a, b) => {
+    const crossA = a.remNum * b.remDen;
+    const crossB = b.remNum * a.remDen;
+    if (crossA > crossB) return -1;
+    if (crossA < crossB) return 1;
+    if (a.hash < b.hash) return -1;
+    if (a.hash > b.hash) return 1;
+    return a.id < b.id ? -1 : 1;
+  });
+
+  for (let i = 0; i < remainderCents && i < quotas.length; i++) {
+    quotas[i].floor += 1;
+  }
+
+  for (const q of quotas) {
+    if (q.id !== '__unassigned__') {
+      result.set(q.id, q.floor);
+    }
+  }
+  return result;
+}
+
 function formatSen(sen) {
   if (sen === null || sen === undefined) return 'RM 0.00';
   const val = Number(sen) / 100;
@@ -1460,6 +1623,8 @@ function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
   const itemRevision = stateItem ? stateItem.item_revision : 0;
   const itemTotalQty = ratToNum(item.quantity);
 
+  const provisionalShares = apportionItemBase(item.line_sen, claims, item.id, item.quantity);
+
   if (!state.selectedSplitDiners.has(item.id)) {
     state.selectedSplitDiners.set(item.id, new Set(activeParts.map(p => p.id)));
   }
@@ -1470,7 +1635,7 @@ function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
   if (selectedCount > 0) {
     const shareRat = makeReducedFraction(itemTotalQty, selectedCount);
     const eachSen = Math.round(item.line_sen / selectedCount);
-    splitDesc = `Split among ${selectedCount} diners → <strong>${formatRat(shareRat)} portion</strong> each (~${formatSen(eachSen)})`;
+    splitDesc = `Split among ${selectedCount} diners → <strong>${formatRat(shareRat)} portion</strong> each (~${formatSen(eachSen)} base)`;
   } else {
     splitDesc = 'Select diners below to split equally';
   }
@@ -1502,7 +1667,13 @@ function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
     const claim = claims.find(c => c.participant_id === p.id);
     const currentRat = claim ? claim.quantity : [0, 1];
     const currentQty = ratToNum(currentRat);
-    const dinerSen = currentQty > 0 ? Math.round(item.line_sen * (currentQty / itemTotalQty)) : 0;
+    const dinerSen = currentQty > 0 ? (provisionalShares.get(p.id) || 0) : 0;
+
+    const otherClaimsForP = claims.filter(c => c.participant_id !== p.id);
+    const otherSumRatForP = otherClaimsForP.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+    const remForP = subtractFractions(item.quantity, otherSumRatForP);
+    const remQtyForP = ratToNum(remForP);
+    const isAllDisabled = remQtyForP <= 0 || (currentQty >= remQtyForP && currentQty > 0);
 
     return `
       <div class="diner-allocation-row">
@@ -1512,7 +1683,7 @@ function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
             <span>${escapeHtml(p.name)}</span>
           </div>
           <span class="diner-portion-badge ${currentQty > 0 ? 'is-active' : ''}">${formatRat(currentRat)} portion</span>
-          <span class="diner-share-preview">${currentQty > 0 ? formatSen(dinerSen) : 'RM 0.00'}</span>
+          <span class="diner-share-preview" title="Provisional item base share. Taxes, service charge, discounts, and rounding are apportioned at finalization.">${currentQty > 0 ? `~${formatSen(dinerSen)} base` : 'RM 0.00'}</span>
         </div>
         <div class="diner-row-controls">
           <div class="quantity-stepper">
@@ -1523,7 +1694,7 @@ function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
           <div class="fraction-btn-group">
             <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="1/3" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Set 1/3 portion" aria-label="Set 1/3 portion for ${escapeHtml(p.name)}">⅓</button>
             <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="1/2" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Set 1/2 portion" aria-label="Set 1/2 portion for ${escapeHtml(p.name)}">½</button>
-            <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="all" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Set remaining portion" aria-label="Set remaining portion for ${escapeHtml(p.name)}">All</button>
+            <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="all" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" ${isAllDisabled ? 'disabled' : ''} title="${isAllDisabled ? 'No unassigned portion remains' : 'Set remaining portion'}" aria-label="Set remaining portion for ${escapeHtml(p.name)}">All</button>
             <button type="button" class="btn-fraction btn-fraction-clear" data-action="hybrid-fraction" data-frac="0" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" ${currentQty <= 0 ? 'disabled' : ''} title="Remove assignment" aria-label="Remove assignment for ${escapeHtml(p.name)}">✕</button>
           </div>
         </div>
@@ -1555,7 +1726,10 @@ function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
       </div>
     </div>
 
-    <div class="diner-allocation-section-title">Per-Diner Exact Portions & Cost Share</div>
+    <div class="diner-allocation-section-title">
+      <span>Per-Diner Exact Portions &amp; Base Share</span>
+      <span class="diner-allocation-section-hint">Provisional item base • Taxes and service charge apportioned at finalization</span>
+    </div>
     <div class="diner-allocation-table">
       ${dinerRows}
     </div>
@@ -2678,8 +2852,11 @@ function bindEvents(snap) {
         } else if (frac === 'all') {
           const otherSumRat = otherClaims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
           const remRat = subtractFractions(item.quantity, otherSumRat);
-          const qtyToSet = (remRat && remRat !== 0) ? remRat : item.quantity;
-          allocations.push({ participant_id: targetPid, quantity: qtyToSet });
+          if (ratToNum(remRat) <= 0) {
+            showAlert('No unassigned portion remains for this item.', 'info');
+            return;
+          }
+          allocations.push({ participant_id: targetPid, quantity: remRat });
         } else if (frac === '0') {
           // Omitting targetPid unassigns them
         }
