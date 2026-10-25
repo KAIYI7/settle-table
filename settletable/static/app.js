@@ -44,6 +44,31 @@ function makeReducedFraction(num, den) {
   return [num / g, den / g];
 }
 
+function toRat(q) {
+  if (Array.isArray(q)) {
+    return [q[0], q[1] || 1];
+  }
+  const n = parseInt(q, 10) || 0;
+  return [n, 1];
+}
+
+function addFractions(q1, q2) {
+  const [n1, d1] = toRat(q1);
+  const [n2, d2] = toRat(q2);
+  const num = n1 * d2 + n2 * d1;
+  const den = d1 * d2;
+  return makeReducedFraction(num, den);
+}
+
+function subtractFractions(q1, q2) {
+  const [n1, d1] = toRat(q1);
+  const [n2, d2] = toRat(q2);
+  const num = n1 * d2 - n2 * d1;
+  const den = d1 * d2;
+  if (num <= 0) return 0;
+  return makeReducedFraction(num, den);
+}
+
 function ratToNum(q) {
   if (Array.isArray(q)) {
     return q[1] ? q[0] / q[1] : 0;
@@ -1647,11 +1672,12 @@ function renderClaimsSection(snap) {
     const itemRevision = stateItem ? stateItem.item_revision : 0;
     const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
 
-    const totalClaimed = claims.reduce((acc, c) => acc + ratToNum(c.quantity), 0);
+    const totalClaimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+    const totalClaimed = ratToNum(totalClaimedRat);
     const itemTotalQty = ratToNum(item.quantity);
     const isComplete = Math.abs(totalClaimed - itemTotalQty) < 0.0001;
     const isOver = totalClaimed > itemTotalQty;
-    const unassigned = Math.max(0, itemTotalQty - totalClaimed);
+    const unassignedRat = subtractFractions(item.quantity, totalClaimedRat);
     const pct = Math.min(100, Math.round((totalClaimed / itemTotalQty) * 100));
     const isExpanded = state.expandedHybridItemIds.has(item.id);
 
@@ -1664,8 +1690,7 @@ function renderClaimsSection(snap) {
       statusBadge = '<span class="badge badge-danger">⚠️ Over-allocated</span>';
       cardStatusClass = 'is-over';
     } else {
-      const unassignedStr = Number.isInteger(unassigned) ? `${unassigned}` : unassigned.toFixed(1);
-      statusBadge = `<span class="badge badge-pending">⚠️ ${unassignedStr} unassigned</span>`;
+      statusBadge = `<span class="badge badge-pending">⚠️ ${formatRat(unassignedRat)} unassigned</span>`;
       cardStatusClass = 'is-unassigned';
     }
 
@@ -1711,7 +1736,7 @@ function renderClaimsSection(snap) {
         <div class="item-header">
           <div>
             <div class="item-label">${escapeHtml(item.label)}</div>
-            <div class="item-meta">Total Qty: ${itemTotalQty} &bull; Allocated: ${formatRat(totalClaimed)} / ${itemTotalQty} &bull; ${statusBadge}</div>
+            <div class="item-meta">Total Qty: ${itemTotalQty} &bull; Allocated: ${formatRat(totalClaimedRat)} / ${itemTotalQty} &bull; ${statusBadge}</div>
           </div>
           <div class="item-price">${formatSen(item.line_sen)}</div>
         </div>
@@ -1737,12 +1762,13 @@ function renderClaimsSection(snap) {
     const sheetItem = items.find(it => it.id === state.activeMobileSheetItemId);
     if (sheetItem) {
       const claims = snap.claims?.filter(c => c.item_id === sheetItem.id) || [];
-      const totalClaimed = claims.reduce((acc, c) => acc + ratToNum(c.quantity), 0);
+      const totalClaimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+      const totalClaimed = ratToNum(totalClaimedRat);
       const itemTotalQty = ratToNum(sheetItem.quantity);
       let badgeHtml = '';
       if (Math.abs(totalClaimed - itemTotalQty) < 0.0001) badgeHtml = '<span class="badge badge-verified">✓ Fully Allocated</span>';
       else if (totalClaimed > itemTotalQty) badgeHtml = '<span class="badge badge-danger">⚠️ Over-allocated</span>';
-      else badgeHtml = `<span class="badge badge-pending">⚠️ ${Math.max(0, itemTotalQty - totalClaimed)} unassigned</span>`;
+      else badgeHtml = `<span class="badge badge-pending">⚠️ ${formatRat(subtractFractions(sheetItem.quantity, totalClaimedRat))} unassigned</span>`;
 
       mobileSheetHtml = `
         <div class="bottom-sheet-scrim" data-action="close-sheet"></div>
@@ -2491,18 +2517,24 @@ function bindEvents(snap) {
         const item = snap.receipt?.items?.find(i => i.id === itemId);
         if (!item) return;
 
-        const itemTotalQty = ratToNum(item.quantity);
         const claims = snap.claims?.filter(c => c.item_id === itemId) || [];
-        const claimedSum = claims.reduce((acc, c) => acc + ratToNum(c.quantity), 0);
-        const unassigned = Math.max(0, itemTotalQty - claimedSum);
+        const claimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+        const unassignedRat = subtractFractions(item.quantity, claimedRat);
+        const unassignedNum = ratToNum(unassignedRat);
 
-        if (unassigned <= 0) {
+        if (unassignedNum <= 0) {
           openItemEditor(itemId);
           showAlert('Item is already fully allocated. Adjust existing portions in Details / Split.', 'info');
           return;
         }
 
-        const assignQty = Math.min(1, unassigned);
+        if (unassignedNum < 1) {
+          openItemEditor(itemId);
+          showAlert('Item has a fractional remaining portion. Use Details / Split to allocate exact fractions.', 'info');
+          return;
+        }
+
+        const assignQty = 1;
         const otherClaims = claims
           .filter(c => c.participant_id !== targetPid)
           .map(c => ({ participant_id: c.participant_id, quantity: c.quantity }));
@@ -2599,9 +2631,19 @@ function bindEvents(snap) {
         const step = parseInt(btn.getAttribute('data-step'), 10);
 
         const claim = (snap.claims || []).find(c => c.item_id === itemId && c.participant_id === targetPid);
-        const currentRat = claim ? claim.quantity : [0, 1];
-        const currentQty = ratToNum(currentRat);
-        const newQty = Math.max(0, currentQty + step);
+        const currentRat = claim ? claim.quantity : 0;
+        let newQty;
+        if (step > 0) {
+          const num = ratToNum(currentRat);
+          newQty = Math.floor(num) + 1;
+        } else {
+          const num = ratToNum(currentRat);
+          if (Array.isArray(currentRat)) {
+            newQty = Math.floor(num);
+          } else {
+            newQty = Math.max(0, num - 1);
+          }
+        }
 
         const otherClaims = (snap.claims || [])
           .filter(c => c.item_id === itemId && c.participant_id !== targetPid)
@@ -2624,7 +2666,6 @@ function bindEvents(snap) {
         const item = snap.receipt?.items?.find(i => i.id === itemId);
         if (!item) return;
 
-        const itemTotalQty = ratToNum(item.quantity);
         const otherClaims = (snap.claims || [])
           .filter(c => c.item_id === itemId && c.participant_id !== targetPid)
           .map(c => ({ participant_id: c.participant_id, quantity: c.quantity }));
@@ -2635,9 +2676,9 @@ function bindEvents(snap) {
         } else if (frac === '1/2') {
           allocations.push({ participant_id: targetPid, quantity: [1, 2] });
         } else if (frac === 'all') {
-          const otherSum = otherClaims.reduce((acc, c) => acc + ratToNum(c.quantity), 0);
-          const rem = Math.max(0, itemTotalQty - otherSum);
-          const qtyToSet = rem > 0 ? makeReducedFraction(rem, 1) : itemTotalQty;
+          const otherSumRat = otherClaims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+          const remRat = subtractFractions(item.quantity, otherSumRat);
+          const qtyToSet = (remRat && remRat !== 0) ? remRat : item.quantity;
           allocations.push({ participant_id: targetPid, quantity: qtyToSet });
         } else if (frac === '0') {
           // Omitting targetPid unassigns them

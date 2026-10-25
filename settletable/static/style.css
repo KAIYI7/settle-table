@@ -1981,6 +1981,9 @@ input[type=number].ocr-edit-item-qty:focus {
 
 /* Mobile Responsiveness & Touch Target Enforcement */
 @media (max-width: 767px) {
+  .hybrid-pill {
+    min-height: 44px;
+  }
   .btn-fraction {
     min-height: 44px;
     min-width: 42px;
