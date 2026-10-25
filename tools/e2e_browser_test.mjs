@@ -734,8 +734,8 @@ async function main() {
 
     // Trigger manual refresh on Alice's page and confirm Alice sees Bob's claim
     await pageA.evaluate("fetchSnapshot(true)");
-    await pageA.waitFor("document.body.innerText.includes('Bob: 1')");
-    console.log('   ✓ Alice sees Bob: 1 in realtime chip list');
+    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === 'item-1') && document.querySelector('.hybrid-pill-allocated[data-item=\"item-1\"][data-target=\"D1\"]') !== null");
+    console.log('   ✓ Alice sees Bob · 1 in realtime pill list');
 
     // Test Stale Claim Conflict:
     // Alice intentionally submits an outdated claim at item_revision 0
@@ -759,43 +759,28 @@ async function main() {
     if (conflictResult.status !== 409) {
       throw new Error(`Expected 409 conflict, got: ${JSON.stringify(conflictResult)}`);
     }
-    await pageA.waitFor("document.body.innerText.includes('Stale Claim Conflict')");
-    console.log('   ✓ Stale claim cleanly rejected with 409 Conflict & amber banner displayed');
+    await pageA.waitFor("document.body.innerText.includes('Conflict')");
+    console.log('   ✓ Stale claim cleanly rejected with 409 Conflict & banner displayed');
 
-    // Test Organizer Allocation: Alice selects Bob in Allocation Target Selector and assists Bob with 1 Iced Tea
-    console.log('   Testing organizer-assisted allocation (Alice assigns portion to Bob)...');
+    // Test Organizer Allocation (Concept C item-first): Alice assigns 1 Iced Tea to Bob in 1 click
+    console.log('   Testing organizer-assisted allocation (Alice assigns portion to Bob via Concept C)...');
     await pageA.evaluate(`(() => {
-      const select = document.getElementById('allocation-target-select');
-      select.value = 'D1';
-      select.dispatchEvent(new Event('change'));
-    })()`);
-    await pageA.waitFor("document.body.innerText.includes('Portion for Bob:')");
-    // Alice assigns 1 Iced Tea to Bob via AssignParticipantQuantity
-    await pageA.evaluate(`(() => {
-      const incBtn = document.querySelector('.claim-inc-btn[data-id="item-2"]');
-      incBtn.click();
+      const btn = document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-2"][data-target="D1"]');
+      if (btn) btn.click();
     })()`);
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === 'item-2' && c.assigned_by === 'O')");
     console.log('   ✓ Organizer Alice allocated 1 Iced Tea to Bob (assigned_by: O verified in snapshot)');
 
-    // Alice switches allocation target back to herself (Alice)
-    await pageA.evaluate(`(() => {
-      const select = document.getElementById('allocation-target-select');
-      select.value = 'O';
-      select.dispatchEvent(new Event('change'));
-    })()`);
-    await pageA.waitFor("document.body.innerText.includes('Portion for Alice:')");
-
-    // Alice claims remaining portions: 1 Burger Set and 1 Iced Tea
+    // Alice claims remaining portions: 1 Burger Set and 1 Iced Tea via 1-click quick-assign
     await pageA.evaluate(`
-      const btnBurger = document.querySelector('.claim-inc-btn[data-id="item-1"]');
-      btnBurger.click();
+      const btnBurger = document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-1"][data-target="O"]');
+      if (btnBurger) btnBurger.click();
     `);
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-1')");
 
     await pageA.evaluate(`
-      const btnTea = document.querySelector('.claim-inc-btn[data-id="item-2"]');
-      btnTea.click();
+      const btnTea = document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-2"][data-target="O"]');
+      if (btnTea) btnTea.click();
     `);
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-2')");
     console.log('   ✓ All items fully allocated across Alice and Bob');
@@ -905,24 +890,12 @@ async function main() {
     `);
     await pageA.waitFor("document.body.innerText.includes('Satay Platter')");
 
-    // Alice assigns 1 Satay to Carol (who has never logged in)
-    await pageA.evaluate(`(() => {
-      const select = document.getElementById('allocation-target-select');
-      select.value = 'D1';
-      select.dispatchEvent(new Event('change'));
-    })()`);
-    await pageA.waitFor("document.body.innerText.includes('Portion for Carol:')");
-    await pageA.evaluate(`document.querySelector('.claim-inc-btn[data-id="item-1"]').click()`);
+    // Alice assigns 1 Satay to Carol (who has never logged in) via 1-click quick assign
+    await pageA.evaluate(`document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-1"][data-target="D1"]').click()`);
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === 'item-1')");
 
-    // Alice assigns 1 Satay to Dan (who has never logged in)
-    await pageA.evaluate(`(() => {
-      const select = document.getElementById('allocation-target-select');
-      select.value = 'D2';
-      select.dispatchEvent(new Event('change'));
-    })()`);
-    await pageA.waitFor("document.body.innerText.includes('Portion for Dan:')");
-    await pageA.evaluate(`document.querySelector('.claim-inc-btn[data-id="item-1"]').click()`);
+    // Alice assigns 1 Satay to Dan (who has never logged in) via 1-click quick assign
+    await pageA.evaluate(`document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-1"][data-target="D2"]').click()`);
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D2' && c.item_id === 'item-1')");
     await pageA.waitFor("document.body.innerText.includes('✓ Fully Allocated')");
     console.log('   ✓ Alice allocated entire receipt to Carol and Dan without diner sessions');
