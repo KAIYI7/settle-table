@@ -19,7 +19,75 @@ const state = {
   notionToken: '',
   notionExport: null,
   allocationTargetId: null,
+  expandedHybridItemIds: new Set(),
+  activeMobileSheetItemId: null,
+  selectedSplitDiners: new Map(),
 };
+
+function gcd(a, b) {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a || 1;
+}
+
+function makeReducedFraction(num, den) {
+  if (den === 0) return 0;
+  if (num % den === 0) {
+    return num / den;
+  }
+  const g = gcd(num, den);
+  return [num / g, den / g];
+}
+
+function toRat(q) {
+  if (Array.isArray(q)) {
+    return [q[0], q[1] || 1];
+  }
+  const n = parseInt(q, 10) || 0;
+  return [n, 1];
+}
+
+function addFractions(q1, q2) {
+  const [n1, d1] = toRat(q1);
+  const [n2, d2] = toRat(q2);
+  const num = n1 * d2 + n2 * d1;
+  const den = d1 * d2;
+  return makeReducedFraction(num, den);
+}
+
+function subtractFractions(q1, q2) {
+  const [n1, d1] = toRat(q1);
+  const [n2, d2] = toRat(q2);
+  const num = n1 * d2 - n2 * d1;
+  const den = d1 * d2;
+  if (num <= 0) return 0;
+  return makeReducedFraction(num, den);
+}
+
+function ratToNum(q) {
+  if (Array.isArray(q)) {
+    return q[1] ? q[0] / q[1] : 0;
+  }
+  return typeof q === 'number' ? q : 0;
+}
+
+function formatRat(q) {
+  if (Array.isArray(q)) {
+    if (q[1] === 1) return `${q[0]}`;
+    if (q[0] === 1 && q[1] === 2) return '½';
+    if (q[0] === 1 && q[1] === 3) return '⅓';
+    if (q[0] === 2 && q[1] === 3) return '⅔';
+    if (q[0] === 1 && q[1] === 4) return '¼';
+    if (q[0] === 3 && q[1] === 4) return '¾';
+    return `${q[0]}/${q[1]}`;
+  }
+  return `${q}`;
+}
 
 function formatSen(sen) {
   if (sen === null || sen === undefined) return 'RM 0.00';
@@ -248,6 +316,17 @@ function route() {
 
 window.addEventListener('hashchange', route);
 window.addEventListener('DOMContentLoaded', route);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (state.activeMobileSheetItemId) {
+      state.activeMobileSheetItemId = null;
+      updateMealUI();
+    } else if (state.expandedHybridItemIds && state.expandedHybridItemIds.size > 0) {
+      state.expandedHybridItemIds.clear();
+      updateMealUI();
+    }
+  }
+});
 
 // Document visibility to pause polling
 document.addEventListener('visibilitychange', () => {
@@ -336,6 +415,9 @@ async function handleLeaveRoom() {
   state.notionToken = '';
   state.notionExport = null;
   state.allocationTargetId = null;
+  state.expandedHybridItemIds.clear();
+  state.activeMobileSheetItemId = null;
+  state.selectedSplitDiners.clear();
   const headerStatus = document.getElementById('header-user-status');
   if (headerStatus) headerStatus.innerHTML = '';
   if (window.location.hash === '#/') {
@@ -724,6 +806,9 @@ async function loadMeal(mealId) {
   state.notionToken = '';
   state.notionExport = null;
   state.allocationTargetId = null;
+  state.expandedHybridItemIds.clear();
+  state.activeMobileSheetItemId = null;
+  state.selectedSplitDiners.clear();
   const app = document.getElementById('app');
   app.innerHTML = `
     <div class="loading-state">
@@ -1308,6 +1393,184 @@ function renderInvitationList(snap) {
   }).join('');
 }
 
+function openItemEditor(itemId) {
+  if (window.innerWidth < 768) {
+    state.activeMobileSheetItemId = itemId;
+  } else {
+    state.expandedHybridItemIds.add(itemId);
+  }
+  updateMealUI();
+}
+
+function toggleItemEditor(itemId) {
+  if (window.innerWidth < 768) {
+    if (state.activeMobileSheetItemId === itemId) {
+      state.activeMobileSheetItemId = null;
+    } else {
+      state.activeMobileSheetItemId = itemId;
+    }
+  } else {
+    if (state.expandedHybridItemIds.has(itemId)) {
+      state.expandedHybridItemIds.delete(itemId);
+    } else {
+      state.expandedHybridItemIds.add(itemId);
+    }
+  }
+  updateMealUI();
+}
+
+async function executeSetItemAllocations(itemId, allocations, expectedItemRevision) {
+  const snap = state.snapshot;
+  if (!snap || !snap.meal_id) return;
+
+  const payload = {
+    command_id: `alloc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    kind: 'SetItemAllocations',
+    item_id: itemId,
+    allocations: allocations,
+    expected_item_revision: expectedItemRevision,
+    expected_financial_revision: snap.financial_revision,
+  };
+
+  state.mutationActive = true;
+  try {
+    await apiCall(`/api/meals/${snap.meal_id}/apply`, 'POST', payload);
+    state.mutationActive = false;
+    await fetchSnapshot(true);
+  } catch (err) {
+    state.mutationActive = false;
+    if (err.status === 409 || err.code === 'item_revision_conflict' || err.code === 'financial_revision_conflict' || err.code === 'revision_conflict') {
+      showAlert('⚠️ Allocation Conflict: Another diner or organizer modified this item or receipt. Latest state reloaded.', 'conflict');
+      await fetchSnapshot(true);
+    } else if (err.code === 'quantity_capacity') {
+      showAlert('⚠️ Capacity Exceeded: Total allocated quantity cannot exceed item quantity.', 'error');
+    } else if (err.code === 'forbidden') {
+      showAlert('⚠️ Forbidden: Only the meal organizer can modify participant allocations.', 'error');
+    } else {
+      handleApiError(err, itemId);
+    }
+  } finally {
+    state.mutationActive = false;
+  }
+}
+
+function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
+  const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
+  const stateItem = snap.items?.find(i => i.item_id === item.id);
+  const itemRevision = stateItem ? stateItem.item_revision : 0;
+  const itemTotalQty = ratToNum(item.quantity);
+
+  if (!state.selectedSplitDiners.has(item.id)) {
+    state.selectedSplitDiners.set(item.id, new Set(activeParts.map(p => p.id)));
+  }
+  const splitSet = state.selectedSplitDiners.get(item.id);
+  const selectedCount = splitSet.size;
+
+  let splitDesc = '';
+  if (selectedCount > 0) {
+    const shareRat = makeReducedFraction(itemTotalQty, selectedCount);
+    const eachSen = Math.round(item.line_sen / selectedCount);
+    splitDesc = `Split among ${selectedCount} diners → <strong>${formatRat(shareRat)} portion</strong> each (~${formatSen(eachSen)})`;
+  } else {
+    splitDesc = 'Select diners below to split equally';
+  }
+
+  let overwriteWarningHtml = '';
+  if (claims.length > 0) {
+    const existingList = claims.map(c => {
+      const p = activeParts.find(part => part.id === c.participant_id);
+      return `${p ? p.name : c.participant_id} (${formatRat(c.quantity)})`;
+    }).join(', ');
+    overwriteWarningHtml = `
+      <div class="split-affected-warning">
+        <strong>⚠️ Note:</strong> Applying equal split will replace current allocations: <em>${escapeHtml(existingList)}</em>.
+      </div>
+    `;
+  }
+
+  const selectorToggles = activeParts.map(p => {
+    const isSel = splitSet.has(p.id);
+    return `
+      <label class="subset-diner-toggle ${isSel ? 'is-selected' : ''}">
+        <input type="checkbox" data-action="toggle-split-diner" data-item="${item.id}" data-target="${p.id}" ${isSel ? 'checked' : ''}>
+        <span>${p.organizer ? '👑' : '🍽️'} ${escapeHtml(p.name)}</span>
+      </label>
+    `;
+  }).join('');
+
+  const dinerRows = activeParts.map(p => {
+    const claim = claims.find(c => c.participant_id === p.id);
+    const currentRat = claim ? claim.quantity : [0, 1];
+    const currentQty = ratToNum(currentRat);
+    const dinerSen = currentQty > 0 ? Math.round(item.line_sen * (currentQty / itemTotalQty)) : 0;
+
+    return `
+      <div class="diner-allocation-row">
+        <div class="diner-row-header">
+          <div class="diner-name-col">
+            <span>${p.organizer ? '👑' : '🍽️'}</span>
+            <span>${escapeHtml(p.name)}</span>
+          </div>
+          <span class="diner-portion-badge ${currentQty > 0 ? 'is-active' : ''}">${formatRat(currentRat)} portion</span>
+          <span class="diner-share-preview">${currentQty > 0 ? formatSen(dinerSen) : 'RM 0.00'}</span>
+        </div>
+        <div class="diner-row-controls">
+          <div class="quantity-stepper">
+            <button type="button" class="btn btn-secondary btn-sm hybrid-step-btn" data-action="hybrid-step" data-step="-1" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" ${currentQty <= 0 ? 'disabled' : ''} aria-label="Decrease portion for ${escapeHtml(p.name)}">-</button>
+            <span class="step-val" aria-live="polite">${formatRat(currentRat)}</span>
+            <button type="button" class="btn btn-secondary btn-sm hybrid-step-btn" data-action="hybrid-step" data-step="1" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" aria-label="Increase portion for ${escapeHtml(p.name)}">+</button>
+          </div>
+          <div class="fraction-btn-group">
+            <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="1/3" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Set 1/3 portion" aria-label="Set 1/3 portion for ${escapeHtml(p.name)}">⅓</button>
+            <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="1/2" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Set 1/2 portion" aria-label="Set 1/2 portion for ${escapeHtml(p.name)}">½</button>
+            <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="all" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Set remaining portion" aria-label="Set remaining portion for ${escapeHtml(p.name)}">All</button>
+            <button type="button" class="btn-fraction btn-fraction-clear" data-action="hybrid-fraction" data-frac="0" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" ${currentQty <= 0 ? 'disabled' : ''} title="Remove assignment" aria-label="Remove assignment for ${escapeHtml(p.name)}">✕</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="subset-split-panel">
+      <div class="subset-split-header">
+        <div class="subset-split-title">⚡ Selective Equal Split</div>
+        <div class="subset-split-formula">${splitDesc}</div>
+      </div>
+
+      ${overwriteWarningHtml}
+
+      <div class="subset-diners-grid">
+        ${selectorToggles}
+      </div>
+
+      <div class="subset-action-bar">
+        <div class="subset-helpers">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="split-select-all" data-item="${item.id}">Select All</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="split-clear-all" data-item="${item.id}">Clear</button>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" data-action="apply-equal-split" data-item="${item.id}" data-rev="${itemRevision}" ${selectedCount === 0 ? 'disabled' : ''}>
+          ⚡ Apply Equal Split (${selectedCount})
+        </button>
+      </div>
+    </div>
+
+    <div class="diner-allocation-section-title">Per-Diner Exact Portions & Cost Share</div>
+    <div class="diner-allocation-table">
+      ${dinerRows}
+    </div>
+
+    <div class="hybrid-footer-actions">
+      <button type="button" class="btn btn-danger-ghost btn-sm" data-action="hybrid-clear-item" data-item="${item.id}" data-rev="${itemRevision}" ${claims.length === 0 ? 'disabled' : ''}>
+        🗑️ Clear All Claims
+      </button>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="${isModal ? 'close-sheet' : 'hybrid-close-details'}" data-item="${item.id}">
+        ✓ Done
+      </button>
+    </div>
+  `;
+}
+
 function renderClaimsSection(snap) {
   const receipt = snap.receipt;
   const items = receipt?.items || [];
@@ -1320,129 +1583,221 @@ function renderClaimsSection(snap) {
     `;
   }
 
-  // Active participants list
   const activeParts = snap.participants?.filter(p => !snap.inactive_participant_ids?.includes(p.id)) || [];
-  const validTarget = activeParts.some(p => p.id === state.allocationTargetId);
-  if (!validTarget && activeParts.length > 0) {
-    state.allocationTargetId = state.currentUserId || activeParts[0].id;
-  }
-  const currentTarget = activeParts.find(p => p.id === state.allocationTargetId) || activeParts[0];
 
-  let selectorBarHtml = '';
-  if (snap.is_organizer && activeParts.length > 0) {
-    selectorBarHtml = `
-      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-          <div>
-            <div style="font-weight: 700; font-size: 0.9rem; color: #a5b4fc;">ALLOCATION TARGET SELECTOR</div>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">Select who you are allocating items for. (Diners do not need to log in for organizer-managed meals).</div>
+  // 1. DINER VIEW: Preserved untouched
+  if (!snap.is_organizer) {
+    const itemsHtml = items.map(item => {
+      const stateItem = snap.items?.find(i => i.item_id === item.id);
+      const itemRevision = stateItem ? stateItem.item_revision : 0;
+      const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
+      const targetClaim = claims.find(c => c.participant_id === state.currentUserId);
+      const targetQty = targetClaim ? (Array.isArray(targetClaim.quantity) ? targetClaim.quantity[0]/targetClaim.quantity[1] : targetClaim.quantity) : 0;
+
+      const totalClaimed = claims.reduce((acc, c) => acc + ratToNum(c.quantity), 0);
+      const itemTotalQty = ratToNum(item.quantity);
+      const pct = Math.min(100, Math.round((totalClaimed / itemTotalQty) * 100));
+      const unassigned = Math.max(0, itemTotalQty - totalClaimed);
+
+      let statusBadge = '';
+      if (Math.abs(totalClaimed - itemTotalQty) < 0.0001) {
+        statusBadge = '<span class="badge badge-verified">✓ Fully Allocated</span>';
+      } else if (totalClaimed < itemTotalQty) {
+        statusBadge = `<span class="badge badge-pending">⚠️ ${unassigned} unassigned</span>`;
+      } else {
+        statusBadge = '<span class="badge" style="background: rgba(244,63,94,0.2); color: #fecdd3; border: 1px solid var(--accent-rose);">⚠️ Over-allocated</span>';
+      }
+
+      const chipsHtml = claims.map(c => {
+        const p = snap.participants?.find(part => part.id === c.participant_id);
+        const name = p ? p.name : c.participant_id;
+        const isSelected = c.participant_id === state.currentUserId;
+        const qStr = formatRat(c.quantity);
+        let badgeLabel = '';
+        if (c.assigned_by && c.assigned_by !== c.participant_id) {
+          badgeLabel = ' <span style="font-size: 0.68rem; color: #a5b4fc;">(Organizer Assigned)</span>';
+        } else if (!p?.organizer) {
+          badgeLabel = ' <span style="font-size: 0.68rem; color: #6ee7b7;">(Diner Claim)</span>';
+        }
+        return `<span class="chip ${isSelected ? 'own-chip' : ''}">${escapeHtml(name)}: ${qStr}${badgeLabel}</span>`;
+      }).join('');
+
+      return `
+        <div class="item-card" id="item-card-${item.id}" data-item-id="${item.id}" data-revision="${itemRevision}">
+          <div class="item-header">
+            <div>
+              <div class="item-label">${escapeHtml(item.label)}</div>
+              <div class="item-meta">Total: ${itemTotalQty} &bull; Allocated: ${totalClaimed} / ${itemTotalQty} &bull; ${statusBadge}</div>
+            </div>
+            <div class="item-price">${formatSen(item.line_sen)}</div>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <label for="allocation-target-select" style="font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin: 0; white-space: nowrap;">Allocating for:</label>
-            <select id="allocation-target-select" class="form-input" style="min-height: 40px; padding: 6px 12px; font-weight: 600; min-width: 170px;">
-              ${activeParts.map(p => `
-                <option value="${p.id}" ${p.id === currentTarget?.id ? 'selected' : ''}>
-                  ${p.organizer ? '👑' : '🍽️'} ${escapeHtml(p.name)}${p.id === state.currentUserId ? ' (You)' : ''}
-                </option>
-              `).join('')}
-            </select>
+
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill ${totalClaimed > itemTotalQty ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
           </div>
+
+          <div class="claim-actions">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Your Portion:</span>
+              <div class="quantity-stepper">
+                <button class="btn btn-secondary btn-sm claim-dec-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}">-</button>
+                <span class="step-val">${targetQty}</span>
+                <button class="btn btn-secondary btn-sm claim-inc-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}">+</button>
+              </div>
+            </div>
+            <div>
+              <button class="btn btn-secondary btn-sm claim-all-btn" data-id="${item.id}" data-target="${state.currentUserId}" data-rev="${itemRevision}" data-total="${itemTotalQty}" data-unassigned="${unassigned}">
+                Claim All
+              </button>
+            </div>
+          </div>
+
+          ${chipsHtml ? `<div class="chips-row">${chipsHtml}</div>` : ''}
         </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="card">
+        <h3 class="card-title">Claim Your Portions</h3>
+        <p class="card-desc">Tap + or - to set your claimed portion for each item. Overlapping claims split the cost.</p>
+        ${itemsHtml}
       </div>
     `;
   }
 
+  // 2. ORGANIZER VIEW: Concept C (Unified Expandable Hybrid)
   const itemsHtml = items.map(item => {
     const stateItem = snap.items?.find(i => i.item_id === item.id);
     const itemRevision = stateItem ? stateItem.item_revision : 0;
     const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
-    
-    // Target participant's claim (for organizer, currentTarget; for diner, currentUserId)
-    const activeUserId = snap.is_organizer ? (currentTarget?.id || state.currentUserId) : state.currentUserId;
-    const targetClaim = claims.find(c => c.participant_id === activeUserId);
-    const targetQty = targetClaim ? (Array.isArray(targetClaim.quantity) ? targetClaim.quantity[0]/targetClaim.quantity[1] : targetClaim.quantity) : 0;
 
-    // Total claimed & capacity
-    const totalClaimed = claims.reduce((acc, c) => acc + (Array.isArray(c.quantity) ? c.quantity[0]/c.quantity[1] : c.quantity), 0);
-    const itemTotalQty = Array.isArray(item.quantity) ? item.quantity[0]/item.quantity[1] : item.quantity;
+    const totalClaimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+    const totalClaimed = ratToNum(totalClaimedRat);
+    const itemTotalQty = ratToNum(item.quantity);
+    const isComplete = Math.abs(totalClaimed - itemTotalQty) < 0.0001;
+    const isOver = totalClaimed > itemTotalQty;
+    const unassignedRat = subtractFractions(item.quantity, totalClaimedRat);
     const pct = Math.min(100, Math.round((totalClaimed / itemTotalQty) * 100));
-    const unassigned = Math.max(0, itemTotalQty - totalClaimed);
+    const isExpanded = state.expandedHybridItemIds.has(item.id);
 
-    // Status badge
     let statusBadge = '';
-    if (totalClaimed === itemTotalQty) {
+    let cardStatusClass = 'is-unassigned';
+    if (isComplete) {
       statusBadge = '<span class="badge badge-verified">✓ Fully Allocated</span>';
-    } else if (totalClaimed < itemTotalQty) {
-      statusBadge = `<span class="badge badge-pending">⚠️ ${unassigned} unassigned</span>`;
+      cardStatusClass = 'is-complete';
+    } else if (isOver) {
+      statusBadge = '<span class="badge badge-danger">⚠️ Over-allocated</span>';
+      cardStatusClass = 'is-over';
     } else {
-      statusBadge = '<span class="badge" style="background: rgba(244,63,94,0.2); color: #fecdd3; border: 1px solid var(--accent-rose);">⚠️ Over-allocated</span>';
+      statusBadge = `<span class="badge badge-pending">⚠️ ${formatRat(unassignedRat)} unassigned</span>`;
+      cardStatusClass = 'is-unassigned';
     }
 
-    // Chips for diners with audit distinction
-    const chipsHtml = claims.map(c => {
-      const p = snap.participants?.find(part => part.id === c.participant_id);
-      const name = p ? p.name : c.participant_id;
-      const isSelected = c.participant_id === activeUserId;
-      const qStr = Array.isArray(c.quantity) ? `${c.quantity[0]}/${c.quantity[1]}` : c.quantity;
-      let badgeLabel = '';
-      if (c.assigned_by && c.assigned_by !== c.participant_id) {
-        badgeLabel = ' <span style="font-size: 0.68rem; color: #a5b4fc;">(Organizer Assigned)</span>';
-      } else if (!p?.organizer) {
-        badgeLabel = ' <span style="font-size: 0.68rem; color: #6ee7b7;">(Diner Claim)</span>';
+    const dinerPills = activeParts.map(p => {
+      const claim = claims.find(c => c.participant_id === p.id);
+      const claimedQty = claim ? ratToNum(claim.quantity) : 0;
+      const isClaimed = claimedQty > 0;
+      const qStr = claim ? formatRat(claim.quantity) : '0';
+
+      if (!isClaimed) {
+        return `
+          <button type="button" class="hybrid-pill hybrid-pill-available" data-action="hybrid-quick-assign" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Assign 1 portion to ${escapeHtml(p.name)}">
+            <span class="pill-plus">+</span>
+            <span class="pill-avatar">${p.organizer ? '👑' : '🍽️'}</span>
+            <span class="pill-name">${escapeHtml(p.name)}</span>
+          </button>
+        `;
+      } else {
+        const isOrgAssigned = Boolean(claim.assigned_by && claim.assigned_by !== claim.participant_id);
+        const title = `${escapeHtml(p.name)}: allocated ${qStr} portion${qStr === '1' ? '' : 's'}. Tap to edit in Details / Split`;
+        return `
+          <button type="button" class="hybrid-pill hybrid-pill-allocated ${isOrgAssigned ? 'is-org-assigned' : 'is-diner-claimed'}" data-action="hybrid-open-details" data-item="${item.id}" data-target="${p.id}" title="${title}">
+            <span class="pill-avatar">${p.organizer ? '👑' : '🍽️'}</span>
+            <span class="pill-name">${escapeHtml(p.name)}</span>
+            <span class="pill-sep">·</span>
+            <span class="pill-qty">${qStr}</span>
+          </button>
+        `;
       }
-      return `<span class="chip ${isSelected ? 'own-chip' : ''}">${escapeHtml(name)}: ${qStr}${badgeLabel}</span>`;
     }).join('');
 
-    const actionLabel = snap.is_organizer
-      ? `Portion for ${escapeHtml(currentTarget?.name || 'Selected')}:`
-      : 'Your Portion:';
+    let drawerHtml = '';
+    if (isExpanded) {
+      drawerHtml = `
+        <div class="hybrid-drawer" id="hybrid-drawer-${item.id}">
+          ${renderHybridDetailContent(item, snap, activeParts, false)}
+        </div>
+      `;
+    }
 
     return `
-      <div class="item-card" id="item-card-${item.id}" data-item-id="${item.id}" data-revision="${itemRevision}">
+      <div class="hybrid-item-card ${cardStatusClass}" id="item-card-${item.id}" data-item-id="${item.id}" data-revision="${itemRevision}">
         <div class="item-header">
           <div>
             <div class="item-label">${escapeHtml(item.label)}</div>
-            <div class="item-meta">Total: ${itemTotalQty} &bull; Allocated: ${totalClaimed} / ${itemTotalQty} &bull; ${statusBadge}</div>
+            <div class="item-meta">Total Qty: ${itemTotalQty} &bull; Allocated: ${formatRat(totalClaimedRat)} / ${itemTotalQty} &bull; ${statusBadge}</div>
           </div>
           <div class="item-price">${formatSen(item.line_sen)}</div>
         </div>
 
         <div class="progress-bar-wrap">
-          <div class="progress-bar-fill ${totalClaimed > itemTotalQty ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
+          <div class="progress-bar-fill ${isOver ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
         </div>
 
-        <div class="claim-actions">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">${actionLabel}</span>
-            <div class="quantity-stepper">
-              <button class="btn btn-secondary btn-sm claim-dec-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${activeUserId}" data-rev="${itemRevision}">-</button>
-              <span class="step-val">${targetQty}</span>
-              <button class="btn btn-secondary btn-sm claim-inc-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${activeUserId}" data-rev="${itemRevision}">+</button>
-            </div>
-          </div>
-          <div>
-            <button class="btn btn-secondary btn-sm claim-all-btn" data-id="${item.id}" data-target="${activeUserId}" data-rev="${itemRevision}" data-total="${itemTotalQty}" data-unassigned="${unassigned}">
-              ${snap.is_organizer ? 'Assign All' : 'Claim All'}
-            </button>
-          </div>
+        <div class="hybrid-pill-cluster">
+          ${dinerPills}
+          <button type="button" class="btn btn-secondary btn-sm hybrid-details-btn" data-action="hybrid-toggle-details" data-item="${item.id}" aria-expanded="${isExpanded}">
+            <span>${isExpanded ? '▴ Close' : '▾ Details / Split'}</span>
+          </button>
         </div>
 
-        ${chipsHtml ? `<div class="chips-row">${chipsHtml}</div>` : ''}
+        ${drawerHtml}
       </div>
     `;
   }).join('');
 
+  let mobileSheetHtml = '';
+  if (state.activeMobileSheetItemId) {
+    const sheetItem = items.find(it => it.id === state.activeMobileSheetItemId);
+    if (sheetItem) {
+      const claims = snap.claims?.filter(c => c.item_id === sheetItem.id) || [];
+      const totalClaimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+      const totalClaimed = ratToNum(totalClaimedRat);
+      const itemTotalQty = ratToNum(sheetItem.quantity);
+      let badgeHtml = '';
+      if (Math.abs(totalClaimed - itemTotalQty) < 0.0001) badgeHtml = '<span class="badge badge-verified">✓ Fully Allocated</span>';
+      else if (totalClaimed > itemTotalQty) badgeHtml = '<span class="badge badge-danger">⚠️ Over-allocated</span>';
+      else badgeHtml = `<span class="badge badge-pending">⚠️ ${formatRat(subtractFractions(sheetItem.quantity, totalClaimedRat))} unassigned</span>`;
+
+      mobileSheetHtml = `
+        <div class="bottom-sheet-scrim" data-action="close-sheet"></div>
+        <div class="bottom-sheet-modal" role="dialog" aria-modal="true" aria-labelledby="bottom-sheet-title" id="hybrid-bottom-sheet">
+          <div class="bottom-sheet-handle"></div>
+          <div class="bottom-sheet-header">
+            <div>
+              <h3 id="bottom-sheet-title" class="bottom-sheet-item-title">${escapeHtml(sheetItem.label)}</h3>
+              <div class="bottom-sheet-item-meta">Total Qty: ${itemTotalQty} &bull; ${formatSen(sheetItem.line_sen)} &bull; ${badgeHtml}</div>
+            </div>
+            <button type="button" class="bottom-sheet-close-btn" data-action="close-sheet" aria-label="Close sheet">✕</button>
+          </div>
+          <div class="bottom-sheet-body">
+            ${renderHybridDetailContent(sheetItem, snap, activeParts, true)}
+          </div>
+        </div>
+      `;
+    }
+  }
+
   return `
     <div class="card">
-      <h3 class="card-title">${snap.is_organizer ? 'Item Allocation (Organizer & Collaborative)' : 'Claim Your Portions'}</h3>
+      <h3 class="card-title">Item Allocation (Organizer & Collaborative)</h3>
       <p class="card-desc">
-        ${snap.is_organizer 
-          ? 'Assign portions for any diner below. Collaborative diners can also claim their own portions.'
-          : 'Tap + or - to set your claimed portion for each item. Overlapping claims split the cost.'}
+        Item-first allocation: tap an available diner to quickly assign 1 portion, or open Details / Split for custom fractions and equal sharing.
       </p>
-      ${selectorBarHtml}
       ${itemsHtml}
     </div>
+    ${mobileSheetHtml}
   `;
 }
 
@@ -2149,16 +2504,225 @@ function bindEvents(snap) {
     });
   });
 
-  // 4b. Allocation Target Selector (Organizer)
-  const targetSelect = document.getElementById('allocation-target-select');
-  if (targetSelect) {
-    targetSelect.addEventListener('change', (e) => {
-      state.allocationTargetId = e.target.value;
-      updateMealUI();
+  const activeParts = snap.participants?.filter(p => !snap.inactive_participant_ids?.includes(p.id)) || [];
+
+  // 4b. CONCEPT C: Organizer Item-First Allocation Event Handlers
+  if (snap.is_organizer) {
+    // 1. Quick Assign (+ Diner)
+    document.querySelectorAll('[data-action="hybrid-quick-assign"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const itemId = btn.getAttribute('data-item');
+        const targetPid = btn.getAttribute('data-target');
+        const rev = parseInt(btn.getAttribute('data-rev'), 10);
+        const item = snap.receipt?.items?.find(i => i.id === itemId);
+        if (!item) return;
+
+        const claims = snap.claims?.filter(c => c.item_id === itemId) || [];
+        const claimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+        const unassignedRat = subtractFractions(item.quantity, claimedRat);
+        const unassignedNum = ratToNum(unassignedRat);
+
+        if (unassignedNum <= 0) {
+          openItemEditor(itemId);
+          showAlert('Item is already fully allocated. Adjust existing portions in Details / Split.', 'info');
+          return;
+        }
+
+        if (unassignedNum < 1) {
+          openItemEditor(itemId);
+          showAlert('Item has a fractional remaining portion. Use Details / Split to allocate exact fractions.', 'info');
+          return;
+        }
+
+        const assignQty = 1;
+        const otherClaims = claims
+          .filter(c => c.participant_id !== targetPid)
+          .map(c => ({ participant_id: c.participant_id, quantity: c.quantity }));
+        const newAllocs = [...otherClaims, { participant_id: targetPid, quantity: assignQty }];
+        await executeSetItemAllocations(itemId, newAllocs, rev);
+      });
+    });
+
+    // 2. Open / Toggle Details (Pills & Buttons)
+    document.querySelectorAll('[data-action="hybrid-open-details"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const itemId = btn.getAttribute('data-item');
+        openItemEditor(itemId);
+      });
+    });
+
+    document.querySelectorAll('[data-action="hybrid-toggle-details"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const itemId = btn.getAttribute('data-item');
+        toggleItemEditor(itemId);
+      });
+    });
+
+    // 3. Selective Equal Split: Toggle Diner Checkbox
+    document.querySelectorAll('[data-action="toggle-split-diner"]').forEach(input => {
+      input.addEventListener('change', () => {
+        const itemId = input.getAttribute('data-item');
+        const targetPid = input.getAttribute('data-target');
+        if (!state.selectedSplitDiners.has(itemId)) {
+          state.selectedSplitDiners.set(itemId, new Set(activeParts.map(p => p.id)));
+        }
+        const set = state.selectedSplitDiners.get(itemId);
+        if (input.checked) {
+          set.add(targetPid);
+        } else {
+          set.delete(targetPid);
+        }
+        updateMealUI();
+      });
+    });
+
+    // 4. Selective Equal Split: Select All & Clear Helpers
+    document.querySelectorAll('[data-action="split-select-all"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const itemId = btn.getAttribute('data-item');
+        state.selectedSplitDiners.set(itemId, new Set(activeParts.map(p => p.id)));
+        updateMealUI();
+      });
+    });
+
+    document.querySelectorAll('[data-action="split-clear-all"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const itemId = btn.getAttribute('data-item');
+        state.selectedSplitDiners.set(itemId, new Set());
+        updateMealUI();
+      });
+    });
+
+    // 5. Apply Selective Equal Split
+    document.querySelectorAll('[data-action="apply-equal-split"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const itemId = btn.getAttribute('data-item');
+        const rev = parseInt(btn.getAttribute('data-rev'), 10);
+        const item = snap.receipt?.items?.find(i => i.id === itemId);
+        if (!item) return;
+
+        const set = state.selectedSplitDiners.get(itemId);
+        const selectedIds = Array.from(set || []);
+        if (selectedIds.length === 0) return;
+
+        const existingClaims = (snap.claims || []).filter(c => c.item_id === itemId);
+        if (existingClaims.length > 0) {
+          const existingSummary = existingClaims.map(c => {
+            const p = activeParts.find(part => part.id === c.participant_id);
+            return `${p ? p.name : c.participant_id} (${formatRat(c.quantity)})`;
+          }).join(', ');
+          const ok = window.confirm(`Replace current allocations on "${item.label}" (${existingSummary}) with equal split among ${selectedIds.length} diners?`);
+          if (!ok) return;
+        }
+
+        const itemTotalQty = ratToNum(item.quantity);
+        const shareRat = makeReducedFraction(itemTotalQty, selectedIds.length);
+        const allocations = selectedIds.map(pid => ({ participant_id: pid, quantity: shareRat }));
+        await executeSetItemAllocations(itemId, allocations, rev);
+      });
+    });
+
+    // 6. Stepper (+ / -) in Expanded Editor
+    document.querySelectorAll('[data-action="hybrid-step"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const itemId = btn.getAttribute('data-item');
+        const targetPid = btn.getAttribute('data-target');
+        const rev = parseInt(btn.getAttribute('data-rev'), 10);
+        const step = parseInt(btn.getAttribute('data-step'), 10);
+
+        const claim = (snap.claims || []).find(c => c.item_id === itemId && c.participant_id === targetPid);
+        const currentRat = claim ? claim.quantity : 0;
+        let newQty;
+        if (step > 0) {
+          const num = ratToNum(currentRat);
+          newQty = Math.floor(num) + 1;
+        } else {
+          const num = ratToNum(currentRat);
+          if (Array.isArray(currentRat)) {
+            newQty = Math.floor(num);
+          } else {
+            newQty = Math.max(0, num - 1);
+          }
+        }
+
+        const otherClaims = (snap.claims || [])
+          .filter(c => c.item_id === itemId && c.participant_id !== targetPid)
+          .map(c => ({ participant_id: c.participant_id, quantity: c.quantity }));
+        const allocations = [...otherClaims];
+        if (newQty > 0) {
+          allocations.push({ participant_id: targetPid, quantity: newQty });
+        }
+        await executeSetItemAllocations(itemId, allocations, rev);
+      });
+    });
+
+    // 7. Fraction Buttons in Expanded Editor (1/3, 1/2, All, 0)
+    document.querySelectorAll('[data-action="hybrid-fraction"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const itemId = btn.getAttribute('data-item');
+        const targetPid = btn.getAttribute('data-target');
+        const rev = parseInt(btn.getAttribute('data-rev'), 10);
+        const frac = btn.getAttribute('data-frac');
+        const item = snap.receipt?.items?.find(i => i.id === itemId);
+        if (!item) return;
+
+        const otherClaims = (snap.claims || [])
+          .filter(c => c.item_id === itemId && c.participant_id !== targetPid)
+          .map(c => ({ participant_id: c.participant_id, quantity: c.quantity }));
+        const allocations = [...otherClaims];
+
+        if (frac === '1/3') {
+          allocations.push({ participant_id: targetPid, quantity: [1, 3] });
+        } else if (frac === '1/2') {
+          allocations.push({ participant_id: targetPid, quantity: [1, 2] });
+        } else if (frac === 'all') {
+          const otherSumRat = otherClaims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+          const remRat = subtractFractions(item.quantity, otherSumRat);
+          const qtyToSet = (remRat && remRat !== 0) ? remRat : item.quantity;
+          allocations.push({ participant_id: targetPid, quantity: qtyToSet });
+        } else if (frac === '0') {
+          // Omitting targetPid unassigns them
+        }
+        await executeSetItemAllocations(itemId, allocations, rev);
+      });
+    });
+
+    // 8. Clear All Claims on Item
+    document.querySelectorAll('[data-action="hybrid-clear-item"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const itemId = btn.getAttribute('data-item');
+        const rev = parseInt(btn.getAttribute('data-rev'), 10);
+        const item = snap.receipt?.items?.find(i => i.id === itemId);
+        const label = item ? item.label : 'item';
+
+        const existingClaims = (snap.claims || []).filter(c => c.item_id === itemId);
+        if (existingClaims.length === 0) return;
+
+        const ok = window.confirm(`Clear all allocations for "${label}"?`);
+        if (!ok) return;
+
+        await executeSetItemAllocations(itemId, [], rev);
+      });
+    });
+
+    // 9. Close Sheet / Close Details
+    document.querySelectorAll('[data-action="close-sheet"]').forEach(el => {
+      el.addEventListener('click', () => {
+        state.activeMobileSheetItemId = null;
+        updateMealUI();
+      });
+    });
+
+    document.querySelectorAll('[data-action="hybrid-close-details"]').forEach(el => {
+      el.addEventListener('click', () => {
+        const itemId = el.getAttribute('data-item');
+        if (itemId) state.expandedHybridItemIds.delete(itemId);
+        updateMealUI();
+      });
     });
   }
 
-  // 5. Claim / Allocation Adjustments (+ / - / Claim All / Assign All)
+  // 5. Diner Self-Claiming Adjustments (+ / - / Claim All)
   document.querySelectorAll('.claim-inc-btn, .claim-dec-btn, .claim-all-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const itemId = btn.getAttribute('data-id');
@@ -2185,18 +2749,14 @@ function bindEvents(snap) {
 
       state.mutationActive = true;
       try {
-        const commandKind = snap.is_organizer ? 'AssignParticipantQuantity' : 'SetOwnQuantity';
         const payload = {
-          kind: commandKind,
-          command_id: `${commandKind.toLowerCase()}-${Date.now()}-${itemId}`,
+          kind: 'SetOwnQuantity',
+          command_id: `setownquantity-${Date.now()}-${itemId}`,
           item_id: itemId,
           quantity: targetVal === 0 ? null : targetVal,
           expected_item_revision: rev,
           expected_financial_revision: snap.financial_revision,
         };
-        if (snap.is_organizer) {
-          payload.participant_id = targetUserId;
-        }
 
         await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', payload);
         state.mutationActive = false;
