@@ -81,9 +81,9 @@ class SetItemAllocations:
    - If any participant is non-existent or inactive (`active != 1`), command is rejected with `AuthorityError('forbidden')` (HTTP 403).
 3. **Duplicate Participant Prevention**:
    - Duplicate `participant_id`s within `allocations` are strictly rejected with `AuthorityError('invalid_input')` (HTTP 400).
-4. **Strict Rational Positivity**:
-   - Each allocation quantity must be an integer or `Fraction` $> 0$ with `numerator <= 1_000_000_000` and `denominator <= 1_000_000`.
-   - Zero, negative quantities, or non-rational types are rejected with `AuthorityError('invalid_input')` (HTTP 400).
+4. **Strict Rational Positivity & Exact Integer Types**:
+   - Each allocation quantity must be a strict integer or `Fraction` $> 0$ with `numerator <= 1_000_000_000` and `denominator <= 1_000_000`.
+   - Booleans (e.g. `true`, `false`, `[true, 2]`, `[1, false]`), floating-point values, zero, negative quantities, or non-rational types are strictly rejected with HTTP 400 (`invalid_input` or `invalid_number`).
 5. **Capacity Verification**:
    - Sum of all allocated quantities $\sum_{a} \text{quantity}_a$ must be $\le \text{item.quantity}$.
    - If sum exceeds item capacity, rejected with `AuthorityError('quantity_capacity')` (HTTP 400).
@@ -93,11 +93,10 @@ class SetItemAllocations:
    - `expected_financial_revision` must strictly match `state['financial_revision']`; stale edits reject with `AuthorityError('financial_revision_conflict')` (HTTP 409).
 7. **Finalization Protection**:
    - If the meal has already been finalized (`state['calculation'] is not None`), rejected with `AuthorityError('finalized')` (HTTP 409).
-8. **Claim Attribution & Financial Revision Tagging**:
-   - Existing claims on `item_id` are removed.
-   - New claims are created with:
-     - `item_id`: `item_id`
-     - `participant_id`: `spec.participant_id`
+8. **Claim Attribution & Provenance Preservation**:
+   - Unchanged claims (matching participant, quantity, and current financial revision) preserve their original provenance (`assigned_by = prev.assigned_by`, e.g. `None` for diner-authored claims).
+   - Newly allocated claims or claims with modified quantities are attributed to the current organizer (`assigned_by = actor`).
+   - Claims are stamped with `financial_revision = state['financial_revision']`.
      - `quantity`: `spec.quantity`
      - `financial_revision`: `state['financial_revision']`
      - `assigned_by`: `actor` (organizer participant ID)

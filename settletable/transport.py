@@ -926,6 +926,30 @@ class SettleTableApp:
             ('Referrer-Policy', 'no-referrer'),
         ]
 
+    @staticmethod
+    def _parse_quantity(qty, *, allow_none=False):
+        if qty is None:
+            if allow_none:
+                return None
+            raise TransportError('invalid_input', 400)
+        if isinstance(qty, list) and len(qty) == 2:
+            num, den = qty[0], qty[1]
+            if type(num) is not int or type(den) is not int or num <= 0 or den <= 0:
+                raise TransportError('invalid_input', 400)
+            try:
+                return Fraction(num, den)
+            except (ValueError, ZeroDivisionError):
+                raise TransportError('invalid_input', 400)
+        if type(qty) is int:
+            if qty <= 0:
+                raise TransportError('invalid_input', 400)
+            return qty
+        if isinstance(qty, Fraction):
+            if type(qty.numerator) is not int or type(qty.denominator) is not int or qty <= 0:
+                raise TransportError('invalid_input', 400)
+            return qty
+        raise TransportError('invalid_input', 400)
+
     def _build_command(self, data):
         if not isinstance(data, dict):
             raise TransportError('invalid_input', 400)
@@ -947,9 +971,7 @@ class SettleTableApp:
                 raw_adjustments = rcpt_data.get('adjustments', [])
                 items = []
                 for item in raw_items:
-                    qty = item.get('quantity', 1)
-                    if isinstance(qty, list) and len(qty) == 2:
-                        qty = Fraction(qty[0], qty[1])
+                    qty = self._parse_quantity(item.get('quantity', 1))
                     items.append(ReceiptItem(item['id'], item['label'], qty, item.get('line_sen')))
                 item_id_set = {item.id for item in items}
                 adjustments = []
@@ -987,9 +1009,7 @@ class SettleTableApp:
                     receipt=receipt,
                 )
             elif kind == 'SetOwnQuantity':
-                qty = data.get('quantity')
-                if isinstance(qty, list) and len(qty) == 2:
-                    qty = Fraction(qty[0], qty[1])
+                qty = self._parse_quantity(data.get('quantity'), allow_none=True)
                 return SetOwnQuantity(
                     command_id=cmd_id,
                     item_id=data.get('item_id'),
@@ -998,9 +1018,7 @@ class SettleTableApp:
                     expected_financial_revision=data.get('expected_financial_revision'),
                 )
             elif kind == 'AssignParticipantQuantity':
-                qty = data.get('quantity')
-                if isinstance(qty, list) and len(qty) == 2:
-                    qty = Fraction(qty[0], qty[1])
+                qty = self._parse_quantity(data.get('quantity'), allow_none=True)
                 part_id = data.get('participant_id')
                 if not part_id or not isinstance(part_id, str):
                     raise TransportError('invalid_input', 400)
@@ -1022,27 +1040,15 @@ class SettleTableApp:
                 allocs = []
                 for entry in raw_allocs:
                     if isinstance(entry, AllocationSpec):
-                        allocs.append(entry)
+                        qty = self._parse_quantity(entry.quantity, allow_none=False)
+                        allocs.append(AllocationSpec(participant_id=entry.participant_id, quantity=qty))
                         continue
                     if not isinstance(entry, dict):
                         raise TransportError('invalid_input', 400)
                     part_id = entry.get('participant_id')
                     if not part_id or not isinstance(part_id, str):
                         raise TransportError('invalid_input', 400)
-                    qty = entry.get('quantity')
-                    if isinstance(qty, list) and len(qty) == 2:
-                        if not isinstance(qty[0], int) or not isinstance(qty[1], int) or qty[1] <= 0:
-                            raise TransportError('invalid_input', 400)
-                        try:
-                            qty = Fraction(qty[0], qty[1])
-                        except (ValueError, ZeroDivisionError):
-                            raise TransportError('invalid_input', 400)
-                    elif isinstance(qty, int):
-                        pass
-                    elif isinstance(qty, Fraction):
-                        pass
-                    else:
-                        raise TransportError('invalid_input', 400)
+                    qty = self._parse_quantity(entry.get('quantity'), allow_none=False)
                     allocs.append(AllocationSpec(participant_id=part_id, quantity=qty))
                 return SetItemAllocations(
                     command_id=cmd_id,

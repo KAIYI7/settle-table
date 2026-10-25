@@ -844,6 +844,98 @@ class TransportTests(unittest.TestCase):
                                        headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
         self.assertEqual(len(snap_cleared['json']['claims']), 0)
 
+    def test_transport_strict_fraction_and_boolean_rejections(self):
+        boot = self.client.post('/api/meals/m_strict/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Organizer', 'organizer': True},
+                {'id': 'D', 'name': 'Diner', 'organizer': False},
+            ]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        rcpt_cmd = {
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-rcpt',
+            'expected_revision': 0,
+            'expected_financial_revision': 0,
+            'receipt': {
+                'items': [{'id': 'item-1', 'label': 'Noodles', 'quantity': 2, 'line_sen': 1200}],
+                'subtotal_sen': 1200,
+                'total_sen': 1200,
+            }
+        }
+        self.client.post('/api/meals/m_strict/apply', body=rcpt_cmd,
+                         headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+
+        # Test SetItemAllocations malformed quantities:
+        malformed_cases = [
+            True, False, 0, -1, 1.5, "1", None, {},
+            [True, 2], [1, False], [True, False],
+            [0, 2], [1, 0], [-1, 2], [1, -2],
+            ["1", 2], [1, "2"], [1.5, 2], [1, 2.5],
+            [], [1], [1, 2, 3]
+        ]
+        for idx, bad_qty in enumerate(malformed_cases):
+            res = self.client.post('/api/meals/m_strict/apply', body={
+                'kind': 'SetItemAllocations',
+                'command_id': f'cmd-malformed-{idx}',
+                'item_id': 'item-1',
+                'allocations': [{'participant_id': 'O', 'quantity': bad_qty}],
+                'expected_item_revision': 1,
+                'expected_financial_revision': 1,
+            }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+            self.assertEqual(res['status'], 400, f"Expected 400 for bad quantity {bad_qty!r}, got {res['status']}")
+            self.assertIn(res['json']['error'], ('invalid_input', 'invalid_number'))
+
+        # Test SetOwnQuantity malformed quantities:
+        bad_own_cases = [
+            True, False, 0, -1, 1.5, "1", {},
+            [True, 2], [1, False], [0, 2], [1, 0], [-1, 2], [1, -2],
+            ["1", 2], [1.5, 2], [], [1], [1, 2, 3]
+        ]
+        for idx, bad_qty in enumerate(bad_own_cases):
+            res = self.client.post('/api/meals/m_strict/apply', body={
+                'kind': 'SetOwnQuantity',
+                'command_id': f'cmd-own-malformed-{idx}',
+                'item_id': 'item-1',
+                'quantity': bad_qty,
+                'expected_item_revision': 1,
+                'expected_financial_revision': 1,
+            }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+            self.assertEqual(res['status'], 400, f"Expected 400 for bad SetOwnQuantity {bad_qty!r}")
+            self.assertIn(res['json']['error'], ('invalid_input', 'invalid_number'))
+
+        # Test AssignParticipantQuantity malformed quantities:
+        for idx, bad_qty in enumerate(bad_own_cases):
+            res = self.client.post('/api/meals/m_strict/apply', body={
+                'kind': 'AssignParticipantQuantity',
+                'command_id': f'cmd-assign-malformed-{idx}',
+                'participant_id': 'D',
+                'item_id': 'item-1',
+                'quantity': bad_qty,
+                'expected_item_revision': 1,
+                'expected_financial_revision': 1,
+            }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+            self.assertEqual(res['status'], 400, f"Expected 400 for bad AssignParticipantQuantity {bad_qty!r}")
+            self.assertIn(res['json']['error'], ('invalid_input', 'invalid_number'))
+
+        # Test ReplaceReceipt malformed item quantity:
+        bad_rcpt_item = {
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-bad-rcpt-qty',
+            'expected_revision': 1,
+            'expected_financial_revision': 1,
+            'receipt': {
+                'items': [{'id': 'item-2', 'label': 'Dish', 'quantity': [True, 2], 'line_sen': 500}],
+                'subtotal_sen': 500,
+                'total_sen': 500,
+            }
+        }
+        res_rcpt = self.client.post('/api/meals/m_strict/apply', body=bad_rcpt_item,
+                                    headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(res_rcpt['status'], 400)
+        self.assertEqual(res_rcpt['json']['error'], 'invalid_input')
+
     def test_static_join_shell_serving(self):
         res = self.client.get('/join/meal-abc')
         self.assertEqual(res['status'], 200)

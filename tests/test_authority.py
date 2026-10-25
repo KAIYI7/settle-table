@@ -5,6 +5,7 @@ from dataclasses import replace
 from fractions import Fraction
 from unittest.mock import patch
 import sqlite3
+import threading
 import time
 
 from settletable.authority import (Authority, AuthorityError, Participant, Receipt, ReceiptItem,
@@ -635,6 +636,176 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(snap_after.revision, snap_before.revision)
         self.assertEqual(snap_after.claims, snap_before.claims)
         self.assertEqual(len(snap_after.claims), 2)
+
+    def test_set_item_allocations_preserves_unchanged_diner_claim_provenance(self):
+        result = self.authority.bootstrap('meal', (
+            Participant('A', 'Alice', True),
+            Participant('B', 'Bob'),
+            Participant('C', 'Carol'),
+        ))
+        creds = {s.participant_id: s.credential for s in result.sessions}
+        receipt = Receipt((ReceiptItem('dish', 'Noodles', 3, 3000),), 3000, 3000)
+        self.authority.apply(creds['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+        # 1. Diner B self-claims 1 portion using SetOwnQuantity
+        self.authority.apply(creds['B'], 'meal', SetOwnQuantity('b-claim', 'dish', 1, 1, 1))
+        snap1 = self.authority.snapshot(creds['A'], 'meal')
+        self.assertEqual(len(snap1.claims), 1)
+        self.assertEqual(snap1.claims[0].participant_id, 'B')
+        self.assertEqual(snap1.claims[0].quantity, 1)
+        self.assertIsNone(snap1.claims[0].assigned_by, "Diner self-claim must have assigned_by=None")
+
+        # 2. Organizer A uses SetItemAllocations to allocate a portion to Carol C,
+        # while keeping Diner B's claim UNCHANGED at quantity 1
+        alloc_cmd = SetItemAllocations(
+            'add-carol',
+            'dish',
+            (
+                AllocationSpec('B', 1),   # Unchanged diner claim
+                AllocationSpec('C', 1),   # New organizer allocation
+            ),
+            expected_item_revision=2,
+            expected_financial_revision=1,
+        )
+        res = self.authority.apply(creds['A'], 'meal', alloc_cmd)
+        self.assertEqual(len(res.changed_claims), 2)
+
+        snap2 = self.authority.snapshot(creds['A'], 'meal')
+        claims_by_p = {c.participant_id: c for c in snap2.claims}
+        # CRUCIAL: Diner B's provenance MUST be preserved as None!
+        self.assertEqual(claims_by_p['B'].quantity, 1)
+        self.assertIsNone(claims_by_p['B'].assigned_by, "Unchanged diner claim must preserve assigned_by=None")
+        # Carol C's allocation must be stamped with organizer A
+        self.assertEqual(claims_by_p['C'].quantity, 1)
+        self.assertEqual(claims_by_p['C'].assigned_by, 'A')
+
+        # 3. Now Organizer A explicitly modifies Diner B's allocation from 1 to 2
+        alloc_modify_b = SetItemAllocations(
+            'modify-b-qty',
+            'dish',
+            (
+                AllocationSpec('B', 2),   # Modified quantity by organizer!
+                AllocationSpec('C', 1),   # Unchanged organizer allocation
+            ),
+            expected_item_revision=3,
+            expected_financial_revision=1,
+        )
+        self.authority.apply(creds['A'], 'meal', alloc_modify_b)
+        snap3 = self.authority.snapshot(creds['A'], 'meal')
+        claims_by_p3 = {c.participant_id: c for c in snap3.claims}
+        # Modified Diner B claim must now reflect organizer A as assigned_by
+        self.assertEqual(claims_by_p3['B'].quantity, 2)
+        self.assertEqual(claims_by_p3['B'].assigned_by, 'A')
+        # Carol C remains assigned_by A
+        self.assertEqual(claims_by_p3['C'].quantity, 1)
+        self.assertEqual(claims_by_p3['C'].assigned_by, 'A')
+
+    def test_concurrent_race_set_item_allocations_and_set_own_quantity(self):
+        auth_org = Authority(self.path, clock=lambda: 1000)
+        auth_diner = Authority(self.path, clock=lambda: 1000)
+        try:
+            result = auth_org.bootstrap('meal', (
+                Participant('A', 'Alice', True),
+                Participant('B', 'Bob'),
+                Participant('C', 'Carol'),
+            ))
+            creds = {s.participant_id: s.credential for s in result.sessions}
+            receipt = Receipt((ReceiptItem('dish', 'Rice', 2, 2000),), 2000, 2000)
+            auth_org.apply(creds['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+
+            # Both read initial snapshot at item_revision 1
+            snap_org = auth_org.snapshot(creds['A'], 'meal')
+            snap_diner = auth_diner.snapshot(creds['B'], 'meal')
+            self.assertEqual(snap_org.items[0].item_revision, 1)
+            self.assertEqual(snap_diner.items[0].item_revision, 1)
+
+            # Organizer prepares to allocate 2 portions (dish capacity = 2)
+            cmd_org = SetItemAllocations(
+                'cmd-org-alloc',
+                'dish',
+                (AllocationSpec('A', 1), AllocationSpec('C', 1)),
+                expected_item_revision=1,
+                expected_financial_revision=1,
+            )
+            # Diner prepares to claim 1 portion
+            cmd_diner = SetOwnQuantity(
+                'cmd-diner-claim',
+                'dish',
+                1,
+                expected_item_revision=1,
+                expected_financial_revision=1,
+            )
+
+            # Execute concurrently across independent threads
+            results = {}
+            errors = {}
+
+            def run_org():
+                auth = Authority(self.path, clock=lambda: 1000)
+                try:
+                    results['org'] = auth.apply(creds['A'], 'meal', cmd_org)
+                except Exception as e:
+                    errors['org'] = e
+                finally:
+                    auth.close()
+
+            def run_diner():
+                auth = Authority(self.path, clock=lambda: 1000)
+                try:
+                    results['diner'] = auth.apply(creds['B'], 'meal', cmd_diner)
+                except Exception as e:
+                    errors['diner'] = e
+                finally:
+                    auth.close()
+
+            t_org = threading.Thread(target=run_org)
+            t_diner = threading.Thread(target=run_diner)
+
+            t_org.start()
+            t_diner.start()
+            t_org.join()
+            t_diner.join()
+
+            # Confirm serialization: exactly one command succeeded and one failed with conflict
+            self.assertEqual(len(results), 1, "Exactly one command must commit first")
+            self.assertEqual(len(errors), 1, "The competing concurrent command must encounter conflict")
+
+            winner = 'org' if 'org' in results else 'diner'
+            loser = 'diner' if winner == 'org' else 'org'
+
+            self.assertIsInstance(errors[loser], AuthorityError)
+            self.assertEqual(errors[loser].code, 'item_revision_conflict')
+
+            # Confirm state integrity and quantity conservation
+            final_snap = auth_org.snapshot(creds['A'], 'meal')
+            total_claimed = sum(c.quantity for c in final_snap.claims)
+            self.assertLessEqual(total_claimed, 2, "Quantity must be strictly conserved <= 2")
+
+            if winner == 'org':
+                self.assertEqual(final_snap.items[0].item_revision, 2)
+                self.assertEqual(len(final_snap.claims), 2)
+                self.assertEqual(total_claimed, 2)
+            else:
+                self.assertEqual(final_snap.items[0].item_revision, 2)
+                self.assertEqual(len(final_snap.claims), 1)
+                self.assertEqual(total_claimed, 1)
+
+            # Verify failing transaction rolled back cleanly without partial claims or lock leaks
+            # Loser retries with refreshed revision:
+            auth_retry = Authority(self.path, clock=lambda: 1000)
+            try:
+                if loser == 'diner':
+                    # Dish is now fully claimed (2/2), so claiming 1 should fail with quantity_capacity
+                    with self.assertRaises(AuthorityError) as over_cap:
+                        auth_retry.apply(creds['B'], 'meal', SetOwnQuantity(
+                            'cmd-diner-retry', 'dish', 1, expected_item_revision=2, expected_financial_revision=1
+                        ))
+                    self.assertEqual(over_cap.exception.code, 'quantity_capacity')
+            finally:
+                auth_retry.close()
+        finally:
+            auth_org.close()
+            auth_diner.close()
 
 
 if __name__ == '__main__':

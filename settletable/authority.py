@@ -1261,14 +1261,22 @@ class Authority:
             _require(target is not None and target[0] == 1, 'forbidden')
         requested_total = sum((Fraction(*a['quantity']) for a in allocations), Fraction())
         _require(requested_total <= Fraction(*item['quantity']), 'quantity_capacity')
+        previous_claims = {c['participant_id']: c for c in state['claims'] if c['item_id'] == item_id}
         state['claims'] = [c for c in state['claims'] if c['item_id'] != item_id]
         for a in allocations:
+            pid = a['participant_id']
+            qty = a['quantity']
+            prev = previous_claims.get(pid)
+            if prev is not None and prev['quantity'] == qty and prev['financial_revision'] == state['financial_revision']:
+                assigned_by = prev.get('assigned_by')
+            else:
+                assigned_by = actor
             state['claims'].append({
                 'item_id': item_id,
-                'participant_id': a['participant_id'],
-                'quantity': a['quantity'],
+                'participant_id': pid,
+                'quantity': qty,
                 'financial_revision': state['financial_revision'],
-                'assigned_by': actor,
+                'assigned_by': assigned_by,
             })
         state['item_revisions'][item_id] += 1
         _revision(state['item_revisions'][item_id])
