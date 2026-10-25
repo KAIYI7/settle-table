@@ -708,6 +708,234 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(claim['participant_id'], 'D')
         self.assertEqual(claim['assigned_by'], 'O')
 
+    def test_transport_set_item_allocations_and_rejections(self):
+        boot = self.client.post('/api/meals/m_alloc/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Organizer', 'organizer': True},
+                {'id': 'D1', 'name': 'Diner 1', 'organizer': False},
+                {'id': 'D2', 'name': 'Diner 2', 'organizer': False},
+            ]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # Replace receipt with item of quantity 2
+        rcpt_cmd = {
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-rcpt',
+            'expected_revision': 0,
+            'expected_financial_revision': 0,
+            'receipt': {
+                'items': [{'id': 'item-1', 'label': 'Noodles', 'quantity': 2, 'line_sen': 1200}],
+                'subtotal_sen': 1200,
+                'total_sen': 1200,
+            }
+        }
+        self.client.post('/api/meals/m_alloc/apply', body=rcpt_cmd,
+                         headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+
+        # Diner D1 redeems invitation
+        inv = self.client.post('/api/meals/m_alloc/invitations', body={'participant_id': 'D1'},
+                               headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        token = inv['json']['token']
+        redeem = self.client.post(f'/api/meals/m_alloc/invitations/{token}/redeem', body={})
+        diner_cookie = http.cookies.SimpleCookie(redeem['headers']['Set-Cookie'])['settletable_session'].value
+
+        # 1. Diner D1 calling SetItemAllocations is rejected with HTTP 403 forbidden
+        bad_diner_alloc = self.client.post('/api/meals/m_alloc/apply', body={
+            'kind': 'SetItemAllocations',
+            'command_id': 'cmd-diner-forbidden',
+            'item_id': 'item-1',
+            'allocations': [{'participant_id': 'D1', 'quantity': 1}],
+            'expected_item_revision': 1,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_COOKIE': f'settletable_session={diner_cookie}'})
+        self.assertEqual(bad_diner_alloc['status'], 403)
+
+        # 2. Reject floating-point quantity with HTTP 400
+        bad_float = self.client.post('/api/meals/m_alloc/apply', body={
+            'kind': 'SetItemAllocations',
+            'command_id': 'cmd-float',
+            'item_id': 'item-1',
+            'allocations': [{'participant_id': 'O', 'quantity': 0.5}],
+            'expected_item_revision': 1,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(bad_float['status'], 400)
+
+        # 3. Reject capacity overflow (total 3 > 2) with HTTP 400 (quantity_capacity)
+        bad_cap = self.client.post('/api/meals/m_alloc/apply', body={
+            'kind': 'SetItemAllocations',
+            'command_id': 'cmd-cap',
+            'item_id': 'item-1',
+            'allocations': [
+                {'participant_id': 'O', 'quantity': 2},
+                {'participant_id': 'D1', 'quantity': 1},
+            ],
+            'expected_item_revision': 1,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(bad_cap['status'], 400)
+        self.assertEqual(bad_cap['json']['error'], 'quantity_capacity')
+
+        # 4. Reject duplicate participants with HTTP 400 (invalid_input)
+        bad_dup = self.client.post('/api/meals/m_alloc/apply', body={
+            'kind': 'SetItemAllocations',
+            'command_id': 'cmd-dup',
+            'item_id': 'item-1',
+            'allocations': [
+                {'participant_id': 'O', 'quantity': 1},
+                {'participant_id': 'O', 'quantity': 1},
+            ],
+            'expected_item_revision': 1,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(bad_dup['status'], 400)
+        self.assertEqual(bad_dup['json']['error'], 'invalid_input')
+
+        # 5. Reject stale item revision with HTTP 409 (item_revision_conflict)
+        bad_stale = self.client.post('/api/meals/m_alloc/apply', body={
+            'kind': 'SetItemAllocations',
+            'command_id': 'cmd-stale',
+            'item_id': 'item-1',
+            'allocations': [{'participant_id': 'O', 'quantity': 1}],
+            'expected_item_revision': 99,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(bad_stale['status'], 409)
+        self.assertEqual(bad_stale['json']['error'], 'item_revision_conflict')
+
+        # 6. Valid atomic equal split: 3 diners splitting 2 portions -> 2/3 each
+        ok_alloc = self.client.post('/api/meals/m_alloc/apply', body={
+            'kind': 'SetItemAllocations',
+            'command_id': 'cmd-ok-split',
+            'item_id': 'item-1',
+            'allocations': [
+                {'participant_id': 'O', 'quantity': [2, 3]},
+                {'participant_id': 'D1', 'quantity': [2, 3]},
+                {'participant_id': 'D2', 'quantity': [2, 3]},
+            ],
+            'expected_item_revision': 1,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(ok_alloc['status'], 200)
+        self.assertEqual(len(ok_alloc['json']['changed_claims']), 3)
+        for c in ok_alloc['json']['changed_claims']:
+            self.assertEqual(c['item_id'], 'item-1')
+            self.assertEqual(c['quantity'], [2, 3])
+            self.assertEqual(c['assigned_by'], 'O')
+
+        # 7. Snapshot reflects the 3 claims correctly
+        snap = self.client.get('/api/meals/m_alloc/snapshot',
+                               headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(len(snap['json']['claims']), 3)
+
+        # 8. Reset/clear all claims with empty allocations list
+        clear_alloc = self.client.post('/api/meals/m_alloc/apply', body={
+            'kind': 'SetItemAllocations',
+            'command_id': 'cmd-clear',
+            'item_id': 'item-1',
+            'allocations': [],
+            'expected_item_revision': 2,
+            'expected_financial_revision': 1,
+        }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(clear_alloc['status'], 200)
+        self.assertEqual(len(clear_alloc['json']['changed_claims']), 0)
+        snap_cleared = self.client.get('/api/meals/m_alloc/snapshot',
+                                       headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(len(snap_cleared['json']['claims']), 0)
+
+    def test_transport_strict_fraction_and_boolean_rejections(self):
+        boot = self.client.post('/api/meals/m_strict/bootstrap', body={
+            'participants': [
+                {'id': 'O', 'name': 'Organizer', 'organizer': True},
+                {'id': 'D', 'name': 'Diner', 'organizer': False},
+            ]
+        })
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        rcpt_cmd = {
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-rcpt',
+            'expected_revision': 0,
+            'expected_financial_revision': 0,
+            'receipt': {
+                'items': [{'id': 'item-1', 'label': 'Noodles', 'quantity': 2, 'line_sen': 1200}],
+                'subtotal_sen': 1200,
+                'total_sen': 1200,
+            }
+        }
+        self.client.post('/api/meals/m_strict/apply', body=rcpt_cmd,
+                         headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+
+        # Test SetItemAllocations malformed quantities:
+        malformed_cases = [
+            True, False, 0, -1, 1.5, "1", None, {},
+            [True, 2], [1, False], [True, False],
+            [0, 2], [1, 0], [-1, 2], [1, -2],
+            ["1", 2], [1, "2"], [1.5, 2], [1, 2.5],
+            [], [1], [1, 2, 3]
+        ]
+        for idx, bad_qty in enumerate(malformed_cases):
+            res = self.client.post('/api/meals/m_strict/apply', body={
+                'kind': 'SetItemAllocations',
+                'command_id': f'cmd-malformed-{idx}',
+                'item_id': 'item-1',
+                'allocations': [{'participant_id': 'O', 'quantity': bad_qty}],
+                'expected_item_revision': 1,
+                'expected_financial_revision': 1,
+            }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+            self.assertEqual(res['status'], 400, f"Expected 400 for bad quantity {bad_qty!r}, got {res['status']}")
+            self.assertIn(res['json']['error'], ('invalid_input', 'invalid_number'))
+
+        # Test SetOwnQuantity malformed quantities:
+        bad_own_cases = [
+            True, False, 0, -1, 1.5, "1", {},
+            [True, 2], [1, False], [0, 2], [1, 0], [-1, 2], [1, -2],
+            ["1", 2], [1.5, 2], [], [1], [1, 2, 3]
+        ]
+        for idx, bad_qty in enumerate(bad_own_cases):
+            res = self.client.post('/api/meals/m_strict/apply', body={
+                'kind': 'SetOwnQuantity',
+                'command_id': f'cmd-own-malformed-{idx}',
+                'item_id': 'item-1',
+                'quantity': bad_qty,
+                'expected_item_revision': 1,
+                'expected_financial_revision': 1,
+            }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+            self.assertEqual(res['status'], 400, f"Expected 400 for bad SetOwnQuantity {bad_qty!r}")
+            self.assertIn(res['json']['error'], ('invalid_input', 'invalid_number'))
+
+        # Test AssignParticipantQuantity malformed quantities:
+        for idx, bad_qty in enumerate(bad_own_cases):
+            res = self.client.post('/api/meals/m_strict/apply', body={
+                'kind': 'AssignParticipantQuantity',
+                'command_id': f'cmd-assign-malformed-{idx}',
+                'participant_id': 'D',
+                'item_id': 'item-1',
+                'quantity': bad_qty,
+                'expected_item_revision': 1,
+                'expected_financial_revision': 1,
+            }, headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+            self.assertEqual(res['status'], 400, f"Expected 400 for bad AssignParticipantQuantity {bad_qty!r}")
+            self.assertIn(res['json']['error'], ('invalid_input', 'invalid_number'))
+
+        # Test ReplaceReceipt malformed item quantity:
+        bad_rcpt_item = {
+            'kind': 'ReplaceReceipt',
+            'command_id': 'cmd-bad-rcpt-qty',
+            'expected_revision': 1,
+            'expected_financial_revision': 1,
+            'receipt': {
+                'items': [{'id': 'item-2', 'label': 'Dish', 'quantity': [True, 2], 'line_sen': 500}],
+                'subtotal_sen': 500,
+                'total_sen': 500,
+            }
+        }
+        res_rcpt = self.client.post('/api/meals/m_strict/apply', body=bad_rcpt_item,
+                                    headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(res_rcpt['status'], 400)
+        self.assertEqual(res_rcpt['json']['error'], 'invalid_input')
+
     def test_static_join_shell_serving(self):
         res = self.client.get('/join/meal-abc')
         self.assertEqual(res['status'], 200)
