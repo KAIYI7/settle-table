@@ -295,5 +295,21 @@ The next local scope targets invitations and sessions for already declared diner
 | **Financial & Apportionment Invariants** | PASS — Deterministic calculation engine (`settletable/calculation.py`) and Hamilton-Hare apportionment tie-breaker (`tabwise-apportion-v1`) remain untouched; sen-level exactness and zero floating-point math preserved; 192/192 Python unit tests pass; 11-stage real browser CDP test passes. |
 | **Production Boundary Demarcation** | PASS — Scope is strictly bounded to the Phase 1 backend engine and transport routes. Production frontend allocator and diner self-claiming UI remain untouched; Concept C UI integration is deferred pending PO review and authorization. |
 
-**Next scope:** Present Phase 1 closure to PO, keep production frontend intact, and await authorization before Concept C UI integration.
+**Next scope:** Production integration of Concept C (Unified Expandable Hybrid organizer allocation) frontend workflow.
+
+## 2026-10-25 — PR #18 Merge: Phase 2 Concept C Organizer Allocation Production Integration Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `751c10ca2d0f7a126c576083a5d511975970aa82` merged autonomously under orchestrator governance policy into `main` at `1f34b3e6d04193908e0264c050a25528df1f13cc`. GitHub PR #18 ([#18](https://github.com/KAIYI7/settle-table/pull/18)) verified on hosted CI before merge. Post-implementation independent code review completed with CONDITIONAL PASS; all review findings (M-01 float math, L-01 mobile pill height, L-02 meta fraction formatting) remediated and verified locally; 192/192 Python test suite methods passed; 11/11 automated real-browser CDP test stages passed in `tools/e2e_browser_test.mjs`; dedicated 10-scenario production verification passed with high-resolution CDP evidence in `tools/verify_concept_c_production.mjs`; hosted GitHub Actions CI run `40178531481` succeeded on the exact reviewed head in `ubuntu-24.04` (Python 3.14).
+
+| Gate | Disposition / Evidence |
+|---|---|
+| **Concept C Item-First Allocation Architecture** | PASS — Replaced the legacy global dropdown Allocation Target Selector with item-first allocation cards (`.hybrid-item-card`). Displays item name, line total, allocation progress bar, available diner pills for 1-click quick assignment, clean allocated diner pills without tiny buttons, and a responsive Details / Split trigger. |
+| **1-Click Quick Assign & Capacity Safety** | PASS — 1-click on available diner pill assigns 1 unassigned whole portion instantly. If remaining portion is fractional, user is prompted via toast notification to use Details / Split for custom fractions. |
+| **Selective Subset Split with Exact Rationals** | PASS — Organizers select an arbitrary subset of diners to split an item equally. Generates exact reduced rational fractions ($[1, n]$, $[m, n]$) with real-time formula and cost preview (`1 item ÷ 3 diners = ⅓ each (~RM 12.00)`). Explicit confirmation prompt displayed before overwriting pre-existing claims. |
+| **Adaptive Desktop / Mobile Architecture** | PASS — Desktop ($\ge 768\text{px}$) expands inline drawer (`.hybrid-drawer`). Mobile ($< 768\text{px}$) displays accessible bottom-sheet modal (`.bottom-sheet-modal`) with scrim backdrop, drag handle, safe-area insets, touch targets $\ge 44\text{px}$, zero horizontal overflow ($375\text{px}$ width verified), and Escape key keyboard dismissal. |
+| **Claim Provenance & Attribution Integrity** | PASS — Unchanged diner self-claims (`assigned_by = None`) and original financial revisions are strictly preserved when the organizer updates allocations via `SetItemAllocations`. Verified in real browser E2E test. |
+| **Zero Floating-Point Drift & Wire Compliance** | PASS — Rational arithmetic functions (`makeReducedFraction`, `toRat`, `addFractions`, `subtractFractions`, `formatRat`) ensure quantities submitted over the wire strictly match backend integer and fraction pair types, preventing `float_number_rejected` HTTP 400 errors. Apportionment reconciles down to the sen. |
+| **Diner Self-Claiming Boundary Intact** | PASS — Diner self-claiming view (`!snap.is_organizer`) remains 100% intact with stepper increments, decrements, and claim-all buttons. |
+
+**Next scope:** Stakeholder User Acceptance Testing (UAT) of Concept C allocation across mobile and desktop devices.
 

@@ -221,6 +221,23 @@ Updated 2026-10-25. Project: **SettleTable**. Authority: [orchestrator governanc
   5. **Deterministic Sen Apportionment & Production Invariants**: Preserves the Hamilton-Hare apportionment tie-breaker (`tabwise-apportion-v1`), deterministic sen-level calculations, active membership validation, audit attribution, and existing financial contracts.
   6. **Production Frontend Boundary**: Production allocator and diner self-claiming UI remain untouched pending future Concept C UI integration review and explicit PO authorization.
 
+## Accepted Phase 2 Concept C organizer allocation production integration checkpoint (PR #18)
+
+- PR #18 reviewed head: [`751c10ca2d0f7a126c576083a5d511975970aa82`](https://github.com/KAIYI7/settle-table/commit/751c10ca2d0f7a126c576083a5d511975970aa82); premerge main: [`36f016a`](https://github.com/KAIYI7/settle-table/commit/36f016a).
+- Merge commit: [`1f34b3e6d04193908e0264c050a25528df1f13cc`](https://github.com/KAIYI7/settle-table/commit/1f34b3e6d04193908e0264c050a25528df1f13cc). Merged autonomously under orchestrator governance policy following verified PR CI and independent code review.
+- Verified evidence: 192 full-suite Python unit/integration test methods pass locally; 11/11 automated real-browser CDP test stages pass in `tools/e2e_browser_test.mjs`; dedicated 10-scenario production verification passes with high-resolution CDP evidence in `tools/verify_concept_c_production.mjs`; independent code review completed with CONDITIONAL PASS (remediated findings M-01, L-01, L-02); hosted GitHub Actions run [40178531481](https://github.com/KAIYI7/settle-table/actions/runs/40178531481) succeeded on the exact PR head SHA in `ubuntu-24.04` (Python 3.14); Impeccable detect reported 0 anti-patterns; visual evidence captured in `screenshot_concept_c_desktop_collapsed.png`, `screenshot_concept_c_desktop_expanded.png`, `screenshot_concept_c_selective_split.png`, `screenshot_concept_c_mobile_collapsed.png`, `screenshot_concept_c_mobile_sheet_expanded.png`, `screenshot_concept_c_finalized.png`.
+- Key capabilities:
+  1. **Concept C Unified Expandable Hybrid Allocation**: Replaced the legacy dropdown Allocation Target Selector with an item-first interface. Each item card displays line total, allocation progress, available diner quick-assign pills, clean allocated pills, and a clear `Details / Split` trigger.
+  2. **1-Click Quick-Assign**: Unassigned whole portions can be allocated directly to an available diner in one tap. Fractional unassigned portions prompt the user to use the detailed split editor.
+  3. **Selective Equal Split**: Organizers can select any arbitrary subset of diners to split an item equally. Generates exact reduced rational fractions ($[1, n]$, $[m, n]$) with real-time formula and cost preview (`1 item ÷ 3 diners = ⅓ each (~RM 12.00)`), requiring explicit confirmation when overwriting existing claims.
+  4. **Adaptive Form Factor Architecture**:
+     - Desktop ($\ge 768\text{px}$): Inline expandable details/split drawer (`.hybrid-drawer`).
+     - Mobile ($< 768\text{px}$): Accessible bottom-sheet modal (`.bottom-sheet-modal`) with drag handle, scrim backdrop, touch targets $\ge 44\text{px}$, zero horizontal overflow, and Escape key dismissal.
+  5. **Clean Pill Design**: Eliminates miniature $+$/$-$ buttons inside allocated diner pills. Pills render clean typography (`👑 Alice · 1`, `🍽️ Bob · ⅓`), opening the dedicated portion editor on tap.
+  6. **Diner Claim Provenance Preservation**: Unchanged diner self-claims (`assigned_by = None`) are preserved when organizers modify other item claims.
+  7. **Exact Rational Math & Strict Wire Safety**: Rational arithmetic helpers (`makeReducedFraction`, `addFractions`, `subtractFractions`, `ratToNum`, `formatRat`) ensure zero floating-point drift on the frontend and complete sen-level financial reconciliation.
+  8. **Documented Route Correction**: Confirmed and corrected the API contract documentation in `PROJECT_STATUS.md` and `docs/agents/phase-transitions.md` to reference `POST /api/meals/{meal_id}/apply` (`kind: "SetItemAllocations"`).
+
 ## Repository foundation
 
 - CI merge: `a4dd5302f93b41bbf72cbf29ecd596bc7bb7c1aa` (PR #2). `.github/workflows/python-tests.yml` runs the entire suite on PRs targeting main and pushes to main, with pinned official actions, read-only token permissions and no supplied secrets/caches/artifacts. The owner confirms included minutes remain and no valid payment method is attached; no billing setting or paid usage was enabled. [CI research/review](research/foundation/README.md).
