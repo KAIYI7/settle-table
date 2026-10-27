@@ -327,4 +327,20 @@ The next local scope targets invitations and sessions for already declared diner
 
 **Next scope:** Formal closure of the organizer allocation milestone and local stakeholder UAT.
 
+## 2026-10-27 — PR #20 Merge: Header Navigation and Toast Layout Polish Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `d8163e54d3315edd8d57eced1cc7cf7503c456c5` merged autonomously under orchestrator governance policy into `main` at `1926871`. GitHub PR #20 ([#20](https://github.com/KAIYI7/settle-table/pull/20)) verified on hosted CI before merge. Post-implementation independent code and UX review completed with unconditional APPROVE / PASS (Zero findings); 192/192 Python test suite methods passed in 80.4s; 11/11 automated real-browser CDP test stages passed in `tools/e2e_browser_test.mjs`; visual layout metrics captured across Desktop (1280x800), Tablet (768x1024), Mobile (375x667), and Mobile Bottom Sheet + Toast stacking; hosted GitHub Actions CI run `40512835119` succeeded on the exact reviewed head in `ubuntu-24.04` (Python 3.14).
+
+| Gate | Disposition / Evidence |
+|---|---|
+| **Simplified Room Navigation Architecture** | PASS — Completely eliminated the redundant `.room-nav-bar` row. Retained `.room-status-card` and added high-contrast, accessible `← Home / Room` breadcrumb navigation (`.room-home-link`), ensuring mobile users retain discoverable Home navigation even when the sticky header's `#nav-home-btn` text link is hidden. Cleaned up obsolete `#room-leave-btn` references in `settletable/static/app.js`. Text contrast reaches 4.90:1 (exceeding WCAG AA 4.5:1), hit area exceeds 64x28px, and layout truncation (`overflow: hidden; text-overflow: ellipsis`) prevents overflow. |
+| **Corrected Header & Content Spacing** | PASS — Resolved CSS specificity collision where `.container` (`padding: 0 16px`) silently overrode `main` (`padding: 20px 16px 40px`). Explicitly declared `main#app, main` with `padding: 20px 16px 48px;` (desktop) and `padding: 16px 12px 40px;` (mobile). Eliminated negative margins and hardcoded offsets; content reliably begins 20px (16px on mobile) below the sticky header. All `.room-status-card` styles declared in `settletable/static/style.css`. |
+| **Responsive Viewport Toast Placement** | PASS — Introduced `syncHeaderHeight()` to dynamically write `--app-header-height` to `:root`. Anchored `#alert-container` with `top: calc(var(--app-header-height, 68px) + 12px)` on desktop (starts at 81px, 12px below 69px header) and `+ 8px` on mobile (starts at 65px, 8px below 57px header). Zero overlap with sticky header navigation controls (Refresh, Leave Room). Preserved non-scrolling viewport stability, pass-through pointer events, and keyboard Esc dismissal. |
+| **Rigorous Layering (z-index Hierarchy)** | PASS — Established explicit stacking hierarchy across page content (`z-index: 1`), sticky application header (`z-index: 200`), mobile bottom-sheet scrim (`z-index: 900`), mobile bottom-sheet modal (`z-index: 950`), and transient notifications (`z-index: 1100`). Guaranteed error alerts and conflict banners remain visible and interactive above modal sheets without blocking modal footer action buttons (`Clear All Claims`, `Done`). Verified via CDP live injection. |
+| **Test Suite Resilience & Portability** | PASS — Parameterized `tools/e2e_browser_test.mjs` with `process.env.SETTLETABLE_PORT` and dynamic `${serverOrigin}`, updated assertions to verify `.room-status-card` and `.room-home-link`. All 192 Python unit tests and all 11 real browser CDP stages pass. |
+| **Financial & System Invariants Intact** | PASS — Zero backend changes (`settletable/calculation.py`, `settletable/authority.py`, and `settletable/transport.py` untouched); sen-level exactness and zero floating-point math preserved; Impeccable detect reports 0 anti-patterns. |
+
+**Next scope:** Final stakeholder UAT handover and Phase 4 deployment planning.
+
+
 
