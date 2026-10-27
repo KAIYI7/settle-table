@@ -77,13 +77,21 @@ def main():
     print("=" * 60)
     print(" Press Ctrl+C to stop.\n")
 
-    with make_server(args.host, args.port, app) as httpd:
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("\nShutting down demo server.")
-        finally:
-            app.close()
+    try:
+        with make_server(args.host, args.port, app) as httpd:
+            try:
+                httpd.serve_forever()
+            except KeyboardInterrupt:
+                print("\nShutting down demo server.")
+            finally:
+                app.close()
+    except (PermissionError, OSError) as e:
+        print(f"\n[ERROR] Unable to bind to {args.host}:{args.port} ({e}).")
+        print(f"Port {args.port} is already in use by another application on your system.")
+        print("Please choose an available port, for example:")
+        print("    python tools/run_demo.py --port 8000 --mock-ocr --mock-notion")
+        print("    python tools/run_demo.py --port 8095 --mock-ocr --mock-notion\n")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
