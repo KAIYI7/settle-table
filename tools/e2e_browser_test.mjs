@@ -17,7 +17,7 @@ const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 function parseArgs() {
   const args = process.argv.slice(2);
   const options = {
-    port: 8089,
+    port: process.env.SETTLETABLE_PORT ? parseInt(process.env.SETTLETABLE_PORT, 10) : 8089,
     chrome: null,
     python: null,
   };
@@ -543,8 +543,8 @@ async function main() {
     console.log('   Testing participant identification & Home navigation...');
     await pageA.waitFor("document.getElementById('header-user-status').innerText.includes('Organizer')");
     await pageA.waitFor("document.getElementById('header-user-status').innerText.includes('Alice')");
-    await pageA.waitFor("document.querySelector('.room-nav-bar') !== null");
-    console.log('   ✓ Header and room bar clearly identify current participant (Organizer: Alice) and room');
+    await pageA.waitFor("document.querySelector('.room-status-card') !== null && document.querySelector('.room-home-link') !== null");
+    console.log('   ✓ Header and room status card clearly identify current participant (Organizer: Alice) and room');
 
     // Click Home link
     await pageA.evaluate("document.getElementById('nav-home-btn').click()");
@@ -934,7 +934,7 @@ async function main() {
     // =========================================================================
     console.log('[11/11] Testing Dual Diner Invitation & General Meal Join Request Workflow...');
     // Alice creates meal "dual-join-e2e" with Diners Bob and Charlie
-    await pageA.navigate('http://127.0.0.1:8089/#/');
+    await pageA.navigate(`${serverOrigin}/#/`);
     await pageA.waitFor("document.getElementById('create-meal-form') !== null");
     await pageA.evaluate(`
       document.getElementById('create-meal-id').value = 'dual-join-e2e';
@@ -964,7 +964,7 @@ async function main() {
 
     // Diner visits general meal join landing: /join/dual-join-e2e
     console.log('   Testing general join landing in diner browser...');
-    await pageB.navigate('http://127.0.0.1:8089/join/dual-join-e2e');
+    await pageB.navigate(`${serverOrigin}/join/dual-join-e2e`);
     await pageB.waitFor("document.getElementById('join-name-input') !== null");
     const joinLandingText = await pageB.evaluate("document.body.innerText");
     if (!joinLandingText.includes('Join Dining Table') || !joinLandingText.includes('Same-Browser Profile Notice')) {

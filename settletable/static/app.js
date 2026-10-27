@@ -319,6 +319,16 @@ function extractNotionUuid(val) {
 let alertTimer = null;
 let alertKeyHandler = null;
 
+function syncHeaderHeight() {
+  const header = document.querySelector('.app-header');
+  if (header) {
+    const height = Math.ceil(header.getBoundingClientRect().height);
+    if (height > 0) {
+      document.documentElement.style.setProperty('--app-header-height', `${height}px`);
+    }
+  }
+}
+
 function dismissAlert() {
   if (alertTimer) {
     clearTimeout(alertTimer);
@@ -335,6 +345,7 @@ function dismissAlert() {
 }
 
 function showAlert(message, type = 'error', dismissible = true) {
+  syncHeaderHeight();
   const container = document.getElementById('alert-container');
   if (!container) return;
 
@@ -477,8 +488,15 @@ function route() {
   renderWelcome();
 }
 
-window.addEventListener('hashchange', route);
-window.addEventListener('DOMContentLoaded', route);
+window.addEventListener('hashchange', () => {
+  syncHeaderHeight();
+  route();
+});
+window.addEventListener('DOMContentLoaded', () => {
+  syncHeaderHeight();
+  route();
+});
+window.addEventListener('resize', syncHeaderHeight);
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (state.activeMobileSheetItemId) {
@@ -583,6 +601,7 @@ async function handleLeaveRoom() {
   state.selectedSplitDiners.clear();
   const headerStatus = document.getElementById('header-user-status');
   if (headerStatus) headerStatus.innerHTML = '';
+  syncHeaderHeight();
   if (window.location.hash === '#/') {
     renderWelcome();
   } else {
@@ -601,6 +620,7 @@ function renderWelcome() {
   state.isOrganizer = false;
   const headerStatus = document.getElementById('header-user-status');
   if (headerStatus) headerStatus.innerHTML = '';
+  syncHeaderHeight();
 
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -1077,23 +1097,10 @@ function updateMealUI() {
   `;
   document.getElementById('manual-refresh-btn')?.addEventListener('click', () => fetchSnapshot(true));
   document.getElementById('header-leave-btn')?.addEventListener('click', handleLeaveRoom);
+  syncHeaderHeight();
 
   const app = document.getElementById('app');
   let html = '';
-
-  // Room Navigation Bar
-  html += `
-    <div class="room-nav-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.85rem;">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <a href="#/" class="btn btn-secondary btn-sm" style="min-height: 36px; padding: 4px 10px; font-size: 0.85rem;" title="Return to Home screen">← Home</a>
-        <span style="color: var(--text-dim);">Room:</span>
-        <strong style="color: var(--text-main); font-size: 0.95rem;">${escapeHtml(snap.meal_id)}</strong>
-      </div>
-      <button id="room-leave-btn" class="btn btn-secondary btn-sm btn-leave" style="min-height: 36px; padding: 4px 10px; font-size: 0.85rem;" title="Exit room and clear session cookie">
-        Leave Room
-      </button>
-    </div>
-  `;
 
   // 1. Status Bar Card
   const finalized = snap.finalized;
@@ -1108,15 +1115,21 @@ function updateMealUI() {
   }
 
   html += `
-    <div class="card" style="margin-bottom: 16px;">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <span style="font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase;">Room</span>
-          <h2 style="font-size: 1.2rem; font-weight: 700;">${escapeHtml(snap.meal_id)}</h2>
+    <div class="card room-status-card">
+      <div class="room-status-inner">
+        <div class="room-status-left">
+          <div class="room-status-breadcrumbs">
+            <a href="#/" class="room-home-link" title="Return to Home Screen">
+              <span class="room-home-arrow">←</span> Home
+            </a>
+            <span class="room-breadcrumb-sep">/</span>
+            <span class="room-badge-label">Room</span>
+          </div>
+          <h2 class="room-title">${escapeHtml(snap.meal_id)}</h2>
         </div>
-        <div style="text-align: right;">
+        <div class="room-status-right">
           ${statusBadge}
-          <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 2px;">Revision ${snap.revision}</div>
+          <div class="room-revision-label">Revision ${snap.revision}</div>
         </div>
       </div>
     </div>
@@ -2093,12 +2106,6 @@ function renderFinalizedCalculation(snap) {
 
 // --- Event Binding ---
 function bindEvents(snap) {
-  // Navigation: Leave Room button
-  const roomLeaveBtn = document.getElementById('room-leave-btn');
-  if (roomLeaveBtn) {
-    roomLeaveBtn.addEventListener('click', handleLeaveRoom);
-  }
-
   // 1. Add Item Form
   const addItemForm = document.getElementById('add-item-form');
   if (addItemForm) {
