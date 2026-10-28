@@ -329,6 +329,15 @@ function syncHeaderHeight() {
   }
 }
 
+function syncAlertContainerPlacement() {
+  const container = document.getElementById('alert-container');
+  const hasBottomSheet = Boolean(state?.activeMobileSheetItemId && window.innerWidth < 768);
+  if (container) {
+    container.classList.toggle('alert-container-top', hasBottomSheet);
+  }
+  document.body.classList.toggle('has-bottom-sheet', hasBottomSheet);
+}
+
 function dismissAlert() {
   if (alertTimer) {
     clearTimeout(alertTimer);
@@ -342,10 +351,12 @@ function dismissAlert() {
   if (container) {
     container.innerHTML = '';
   }
+  syncAlertContainerPlacement();
 }
 
 function showAlert(message, type = 'error', dismissible = true) {
   syncHeaderHeight();
+  syncAlertContainerPlacement();
   const container = document.getElementById('alert-container');
   if (!container) return;
 
@@ -496,7 +507,10 @@ window.addEventListener('DOMContentLoaded', () => {
   syncHeaderHeight();
   route();
 });
-window.addEventListener('resize', syncHeaderHeight);
+window.addEventListener('resize', () => {
+  syncHeaderHeight();
+  syncAlertContainerPlacement();
+});
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (state.activeMobileSheetItemId) {
@@ -1188,6 +1202,7 @@ function updateMealUI() {
   app.innerHTML = html;
   bindEvents(snap);
   restoreFocus();
+  syncAlertContainerPlacement();
 }
 
 // --- Sub-renderers ---

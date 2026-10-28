@@ -133,10 +133,11 @@ body {
   border-color: var(--accent-rose);
 }
 
-/* Alert / Viewport Toast Container */
+/* Alert / Viewport Toast Container (Bottom Safe-Area Aware by Default) */
 #alert-container {
   position: fixed;
-  top: calc(var(--app-header-height, 68px) + 12px + env(safe-area-inset-top, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  top: auto;
   left: 50%;
   transform: translateX(-50%);
   width: calc(100% - 32px);
@@ -150,25 +151,52 @@ body {
   margin-top: 0;
 }
 
+/* Contextual Notification Placement when Mobile Bottom Sheet is Active */
+body:has(.bottom-sheet-modal) #alert-container,
+:has(.bottom-sheet-modal) #alert-container,
+body.has-bottom-sheet #alert-container,
+#alert-container.alert-container-top {
+  bottom: auto;
+  top: calc(var(--app-header-height, 56px) + 8px + env(safe-area-inset-top, 0px));
+}
+
 .alert-banner {
   pointer-events: auto;
   width: 100%;
-  padding: 4px 10px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 0.88rem;
   font-weight: 500;
-  line-height: 1.3;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  animation: toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  line-height: 1.35;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: toast-in-bottom 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes toast-in {
+body:has(.bottom-sheet-modal) #alert-container .alert-banner,
+:has(.bottom-sheet-modal) #alert-container .alert-banner,
+body.has-bottom-sheet #alert-container .alert-banner,
+#alert-container.alert-container-top .alert-banner {
+  animation: toast-in-top 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toast-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-in-top {
   from {
     opacity: 0;
     transform: translateY(-8px) scale(0.98);
@@ -181,6 +209,9 @@ body {
 
 .alert-message {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .alert-close-btn {
@@ -1456,9 +1487,18 @@ input[type=number].ocr-edit-item-qty:focus {
   }
 
   #alert-container {
-    top: calc(var(--app-header-height, 56px) + 8px + env(safe-area-inset-top, 0px));
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    top: auto;
     width: calc(100% - 20px);
     max-width: calc(100% - 20px);
+  }
+
+  body:has(.bottom-sheet-modal) #alert-container,
+  :has(.bottom-sheet-modal) #alert-container,
+  body.has-bottom-sheet #alert-container,
+  #alert-container.alert-container-top {
+    bottom: auto;
+    top: calc(var(--app-header-height, 56px) + 8px + env(safe-area-inset-top, 0px));
   }
   /* Header Responsive Micro-Spatial Layout (Prevents Overflow & Multiline Buttons) */
   .app-header {
