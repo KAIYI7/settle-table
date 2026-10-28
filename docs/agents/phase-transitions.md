@@ -342,5 +342,23 @@ The next local scope targets invitations and sessions for already declared diner
 
 **Next scope:** Final stakeholder UAT handover and Phase 4 deployment planning.
 
+## 2026-10-28 — PR #21 Merge: Toast Placement Refinement Accepted
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `487de389c267f1e57e7d23973b84b44078e404fe` merged autonomously under orchestrator governance policy into `main` at `0bca517`. GitHub PR #21 ([#21](https://github.com/KAIYI7/settle-table/pull/21)) verified on hosted CI before merge. Post-implementation independent dual-axis code and UX review completed with unconditional PASS (Zero findings); 192/192 Python test suite methods passed in 83.9s; 11/11 automated real-browser CDP test stages passed in `tools/e2e_browser_test.mjs`; dedicated 5-case geometry and visual verification suite passed in `tools/capture_toast_evidence.mjs`; hosted GitHub Actions CI run `40625125967` succeeded on the exact reviewed head in `ubuntu-24.04` (Python 3.14).
+
+| Gate | Disposition / Evidence |
+|---|---|
+| **Safe-Area Aware Bottom Viewport Anchoring** | PASS — Anchored `#alert-container` to viewport bottom with `bottom: calc(24px + env(safe-area-inset-bottom, 0px))` on desktop and `16px` on mobile. Achieved **541.0px clearance** on desktop (room card bottom: 185px, toast top: 726px) and **451.6px clearance** on mobile (room card bottom: 149.4px, toast top: 601px). Completely eliminates overlap with the `← Home / Room` breadcrumb navigation, room title, and Drafting status badge. |
+| **Contextual Mobile Bottom Sheet Inversion** | PASS — Dual-layer CSS (`:has(.bottom-sheet-modal) #alert-container`, `body.has-bottom-sheet #alert-container`, `#alert-container.alert-container-top`) and JavaScript state synchronization in `syncAlertContainerPlacement()`. When a mobile bottom sheet modal is active, the toast automatically docks to the top (`y = 65–117px`), completely clearing modal footer actions (`Apply Equal Split`, `Clear All Claims`, `Done`). Touch targets for modal buttons remain 100% interactive and unblocked. |
+| **Natural Directional Entry Motion** | PASS — Keyframe animations aligned to entry origin: `toast-in-bottom` (`translateY(12px) scale(0.98)` to `translateY(0) scale(1)`) for bottom toasts and `toast-in-top` (`translateY(-8px) scale(0.98)` to `translateY(0) scale(1)`) for contextual top-docked toasts, providing polished physical feedback. |
+| **Responsive Wrapping & Rigid Touch Targets** | PASS — Long error messages (150+ chars) wrap cleanly via `overflow-wrap: break-word; word-break: break-word; min-width: 0;` with zero horizontal overflow (`bannerScrollWidth === bannerClientWidth` at 353px on 375px mobile viewport). Close button touch target enforced at rigid $36\times 36\text{px}$ with `flex-shrink: 0; touch-action: manipulation;`. |
+| **Fixed Viewport Scroll Stability** | PASS — Under deep page scroll (`scrollY = 450px`), toast remains fixed at the viewport bottom (`y = 726–776px`, `inViewport: true`), with zero scroll jumping, layout shift (CLS = 0), or content displacement. |
+| **Accessibility & Keyboard Dismissal** | PASS — Semantic ARIA roles preserved (`role="alert"` / `aria-live="assertive"` for errors; `role="status"` / `aria-live="polite"` for success). `Escape` keyboard dismissal verified with immediate event listener cleanup on dismissal to prevent memory leaks. |
+| **CI Runner Stability Hardening** | PASS — In `tools/e2e_browser_test.mjs`, added `--disable-background-networking` and `--disable-default-apps` Chrome flags and extended connection polling to 300 attempts (30s), eliminating runner timeouts under high worker saturation. |
+| **Financial & System Invariants Intact** | PASS — Zero backend changes (`settletable/calculation.py`, `settletable/authority.py`, and `settletable/transport.py` untouched); sen-level exactness and zero floating-point math preserved; Impeccable detect reports 0 anti-patterns. |
+
+**Next scope:** Final stakeholder UAT walkthrough and Phase 4 deployment planning.
+
+
 
 
