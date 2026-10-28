@@ -184,6 +184,8 @@ async function startChrome(chromeBin, port, dataDir) {
     `--user-data-dir=${dataDir}`,
     '--no-first-run',
     '--no-default-browser-check',
+    '--disable-background-networking',
+    '--disable-default-apps',
     '--disable-gpu',
     '--no-sandbox',
     '--disable-dev-shm-usage',
@@ -196,7 +198,7 @@ async function startChrome(chromeBin, port, dataDir) {
   // Wait for DevTools HTTP endpoint
   const endpoint = `http://127.0.0.1:${port}/json/list`;
   let target = null;
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 300; i++) {
     if (proc.exitCode !== null) {
       throw new Error(`Chrome exited prematurely with code ${proc.exitCode} on port ${port}: ${stderr}`);
     }
@@ -211,7 +213,7 @@ async function startChrome(chromeBin, port, dataDir) {
 
   if (!target || !target.webSocketDebuggerUrl) {
     proc.kill();
-    throw new Error(`Could not connect to Chrome on port ${port} after 15s. Stderr: ${stderr}`);
+    throw new Error(`Could not connect to Chrome on port ${port} after 30s. Stderr: ${stderr}`);
   }
 
   const page = new CDPPage(target.webSocketDebuggerUrl);
