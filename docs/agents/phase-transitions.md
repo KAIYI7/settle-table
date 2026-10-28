@@ -362,3 +362,7 @@ The next local scope targets invitations and sessions for already declared diner
 
 
 
+
+## 2026-10-28 — Bounded synthetic allocation authorization implementation readiness
+
+Orchestrator decision: PASS for implementation of an opt-in local authorization-only integration; risk HIGH (authentication, authorization, concurrency and additive nonfinancial persistence). The owner approved this sole bounded feature and source publication; no public deployment or permanent credential provisioning. The reviewed contract fixes accepted Finalize consumption as amount authority and uses stable opaque references with a dedicated synthetic merchant/customer binding. Existing allocation and accepted command bytes remain invariant; no contribution/reimbursement/settlement effects, capture/refund or new financial schema. Independent source/security/adversarial review, failure/restart evidence using isolated stores, full local Python/browser regression and successful hosted exact-PR-head CI remain blocking delivery gates. Feature startup defaults disabled and local test infrastructure is disposable. Existing Internet release blockers remain. No phase-4 hosting work is authorized by this transition.

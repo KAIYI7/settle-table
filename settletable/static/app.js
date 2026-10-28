@@ -18,6 +18,11 @@ const state = {
   notionParentId: '',
   notionToken: '',
   notionExport: null,
+  paymentSimulations: new Map(),
+  paymentBusy: new Set(),
+  paymentReadSeq: new Map(),
+  paymentTimers: new Map(),
+  paymentEpoch: 0,
   allocationTargetId: null,
   expandedHybridItemIds: new Set(),
   activeMobileSheetItemId: null,
@@ -527,8 +532,12 @@ window.addEventListener('keydown', (e) => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     stopPolling();
+    clearSimulationTimers();
   } else if (state.mealId && !state.pollTimer) {
     startPolling();
+    for (const [id, value] of state.paymentSimulations) {
+      if (['PENDING', 'REQUEST_UNKNOWN'].includes(value.state)) scheduleSimulationReads(id);
+    }
   }
 });
 
@@ -578,6 +587,7 @@ async function fetchSnapshot(force = false) {
 
       if (force || hasChanged) {
         updateMealUI();
+        if (snap.finalized && !prevFinalized) loadSimulationReads(snap);
       }
     }
   } catch (err) {
@@ -601,6 +611,7 @@ async function handleLeaveRoom() {
     console.warn('Session clear error:', err);
   }
   stopPolling();
+  resetSimulationView();
   state.mealId = null;
   state.snapshot = null;
   state.currentUserId = null;
@@ -998,6 +1009,7 @@ function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
 
 // --- View 3: Meal Room ---
 async function loadMeal(mealId) {
+  resetSimulationView();
   state.mealId = mealId;
   state.notionParentId = '';
   state.notionToken = '';
@@ -1034,6 +1046,7 @@ async function loadMeal(mealId) {
       }
 
       updateMealUI();
+      loadSimulationReads(snap);
       startPolling();
     }
   } catch (err) {
@@ -2003,6 +2016,103 @@ function renderClaimsSection(snap) {
   `;
 }
 
+function clearSimulationTimers(id = null) {
+  for (const [participant, timers] of state.paymentTimers) {
+    if (id === null || participant === id) {
+      timers.forEach(clearTimeout);
+      state.paymentTimers.delete(participant);
+    }
+  }
+}
+
+function resetSimulationView() {
+  clearSimulationTimers();
+  state.paymentEpoch++;
+  state.paymentSimulations.clear();
+  state.paymentBusy.clear();
+  state.paymentReadSeq.clear();
+}
+
+function renderSimulationControl(participant, snap) {
+  if (!snap.payment_simulation_enabled || (!snap.is_organizer && participant.id !== snap.current_participant_id)
+      || snap.inactive_participant_ids?.includes(participant.id)) return '';
+  const value = state.paymentSimulations.get(participant.id);
+  const busy = state.paymentBusy.has(participant.id);
+  const labels = {
+    NO_PAYMENT_NEEDED: 'No payment needed (zero allocation)', NOT_SENT: 'Not requested',
+    REQUEST_UNKNOWN: 'Request uncertain — refresh status first', PENDING: 'Pending simulated authorization',
+    AUTHORIZED: 'Simulated authorization approved', DECLINED: 'Simulated authorization declined',
+    FAILED: 'Simulated authorization definitively failed', CONFLICT: 'Request conflict — operator review needed',
+    UNAVAILABLE: 'Status unavailable — refresh to check again', UNEXPECTED_STATUS: 'Unsupported payment status — operator review needed',
+  };
+  const terminal = ['NO_PAYMENT_NEEDED', 'AUTHORIZED', 'DECLINED', 'FAILED', 'CONFLICT', 'UNEXPECTED_STATUS'].includes(value?.state);
+  const canInitiate = snap.is_organizer && !terminal && (!value?.exists || value?.state === 'NOT_SENT' || value?.refreshed);
+  return `<div class="allocation-simulation" data-simulation-participant="${escapeHtml(participant.id)}">
+    <span class="simulation-status" role="status">${busy ? 'Checking simulation…' : (labels[value?.state] || 'Simulation status not loaded')}</span>
+    ${value?.observedAt ? `<span class="simulation-observed">Last observed ${escapeHtml(new Date(value.observedAt * 1000).toLocaleTimeString())}</span>` : ''}
+    <div class="simulation-actions">
+      ${canInitiate ? `<button type="button" class="btn btn-secondary" data-simulation-action="initiate" data-participant-id="${escapeHtml(participant.id)}" ${busy ? 'disabled' : ''}>${value?.exists && value.state !== 'NOT_SENT' ? 'Retry same simulation' : 'Simulate authorization'}</button>` : ''}
+      <button type="button" class="btn btn-secondary" data-simulation-action="refresh" data-participant-id="${escapeHtml(participant.id)}" ${busy ? 'disabled' : ''}>Refresh status</button>
+    </div>
+  </div>`;
+}
+
+async function requestSimulation(participantId, initiate = false, schedule = true) {
+  if (!state.mealId || state.paymentBusy.has(participantId) || document.visibilityState === 'hidden') return;
+  const meal = state.mealId;
+  const epoch = state.paymentEpoch;
+  const seq = (state.paymentReadSeq.get(participantId) || 0) + 1;
+  state.paymentReadSeq.set(participantId, seq);
+  state.paymentBusy.add(participantId);
+  updateMealUI();
+  try {
+    const result = await apiCall(`/api/meals/${encodeURIComponent(meal)}/participants/${encodeURIComponent(participantId)}/payment-simulation`,
+      initiate ? 'POST' : 'GET', initiate ? {} : null);
+    if (state.mealId !== meal || state.paymentEpoch !== epoch || state.paymentReadSeq.get(participantId) !== seq) return;
+    const next = result.payment_simulation;
+    const prior = state.paymentSimulations.get(participantId);
+    if (prior?.paymentVersion != null && next.paymentVersion != null && next.paymentVersion < prior.paymentVersion) return;
+    next.refreshed = !initiate;
+    state.paymentSimulations.set(participantId, next);
+    if (['PENDING', 'REQUEST_UNKNOWN'].includes(next.state) && schedule) scheduleSimulationReads(participantId);
+    else if (!['PENDING', 'REQUEST_UNKNOWN'].includes(next.state)) clearSimulationTimers(participantId);
+  } catch (err) {
+    if (state.mealId !== meal || state.paymentEpoch !== epoch) return;
+    if (err.status === 401 || err.status === 403) {
+      resetSimulationView();
+      showAlert('Simulation access expired or was revoked. Reload your meal session.', 'error');
+    } else {
+      const prior = state.paymentSimulations.get(participantId);
+      state.paymentSimulations.set(participantId, {...prior, exists: prior?.exists || initiate,
+        state: initiate ? 'REQUEST_UNKNOWN' : 'UNAVAILABLE', refreshed: !initiate});
+      if (initiate && schedule) scheduleSimulationReads(participantId);
+    }
+  } finally {
+    if (state.mealId === meal && state.paymentEpoch === epoch) {
+      state.paymentBusy.delete(participantId);
+      updateMealUI();
+    }
+  }
+}
+
+function scheduleSimulationReads(participantId) {
+  clearSimulationTimers(participantId);
+  const epoch = state.paymentEpoch;
+  state.paymentTimers.set(participantId, [2, 5, 10, 30, 60, 90, 120].map(seconds => setTimeout(() => {
+    if (state.paymentEpoch === epoch && document.visibilityState !== 'hidden') requestSimulation(participantId, false, false);
+  }, seconds * 1000)));
+}
+
+async function loadSimulationReads(snap) {
+  if (!snap.finalized || !snap.payment_simulation_enabled) return;
+  const epoch = state.paymentEpoch;
+  for (const participant of snap.participants || []) {
+    if (state.paymentEpoch !== epoch) return;
+    if ((snap.is_organizer || participant.id === snap.current_participant_id)
+        && !snap.inactive_participant_ids?.includes(participant.id)) await requestSimulation(participant.id);
+  }
+}
+
 function renderFinalizedCalculation(snap) {
   const calc = snap.calculation;
   if (!calc || !Array.isArray(calc.consumption)) {
@@ -2038,7 +2148,7 @@ function renderFinalizedCalculation(snap) {
     const totalSen = consumptionMap.get(p.id);
     return `
       <tr>
-        <td><strong>${escapeHtml(p.name)}</strong> ${p.organizer ? '(Organizer)' : ''}</td>
+        <td><strong>${escapeHtml(p.name)}</strong> ${p.organizer ? '(Organizer)' : ''}${renderSimulationControl(p, snap)}</td>
         <td class="amount" style="color: #6ee7b7; font-weight: 700;">${formatSen(totalSen)}</td>
       </tr>
     `;
@@ -2072,6 +2182,7 @@ function renderFinalizedCalculation(snap) {
     <div class="card">
       <div class="card-title" style="color: var(--accent-emerald);">Final Apportionment Summary</div>
       <p class="card-desc">Every cent accounted for. Apportionment rounded deterministically with cent conservation.</p>
+      ${snap.payment_simulation_enabled ? '<p class="simulation-notice">Simulation only — no money moved; reimbursement unchanged.</p>' : ''}
 
       <table class="breakdown-table">
         <thead>
@@ -2121,6 +2232,9 @@ function renderFinalizedCalculation(snap) {
 
 // --- Event Binding ---
 function bindEvents(snap) {
+  document.querySelectorAll('[data-simulation-action]').forEach(button => {
+    button.addEventListener('click', () => requestSimulation(button.dataset.participantId, button.dataset.simulationAction === 'initiate'));
+  });
   // 1. Add Item Form
   const addItemForm = document.getElementById('add-item-form');
   if (addItemForm) {
