@@ -366,3 +366,19 @@ The next local scope targets invitations and sessions for already declared diner
 ## 2026-10-28 — Bounded synthetic allocation authorization implementation readiness
 
 Orchestrator decision: PASS for implementation of an opt-in local authorization-only integration; risk HIGH (authentication, authorization, concurrency and additive nonfinancial persistence). The owner approved this sole bounded feature and source publication; no public deployment or permanent credential provisioning. The reviewed contract fixes accepted Finalize consumption as amount authority and uses stable opaque references with a dedicated synthetic merchant/customer binding. Existing allocation and accepted command bytes remain invariant; no contribution/reimbursement/settlement effects, capture/refund or new financial schema. Independent source/security/adversarial review, failure/restart evidence using isolated stores, full local Python/browser regression and successful hosted exact-PR-head CI remain blocking delivery gates. Feature startup defaults disabled and local test infrastructure is disposable. Existing Internet release blockers remain. No phase-4 hosting work is authorized by this transition.
+
+
+## 2026-10-28 — Optional allocation authorization simulation accepted (PR #22)
+
+**Orchestrator decision: PASS / MERGED.** [PR #22](https://github.com/KAIYI7/settle-table/pull/22) merged with a merge commit after review and successful exact-head CI. Reviewed head `a1c82c8ed159fd1e5c2ddd89ae18d6d2f67e5b54`; merge `79d68548d65230755a5837b9debe071bd902cf3b`; premerge main `f0f58646e41ad3ccce207801b401cd72bd45e43f`. Actual merge parents and equality to the reviewed source tree were verified.
+
+| Gate | Disposition |
+| --- | --- |
+| Financial and accepted-source authority | PASS: immutable accepted Finalize consumption supplies integer sen; allocation and command bytes remain unchanged; no contribution, reimbursement or settlement effect |
+| Security and privacy | PASS: organizer-only initiation, organizer/self reads, reauthorization, server-only machine credential, fixed destination and disabled default; independent source/security/adversarial review accepted |
+| Persistence, failure and recovery | PASS: real SQLite races and rollback; separate-process PostgreSQL/Kafka retries, cache expiry, lost-response restart, dependency outages and explicit restore write freeze |
+| Local regression and UI | PASS: 213 Python tests, 21 focused simulation tests, 11 existing Chrome stages, explicit simulation browser journey, responsive controls and bounded GET polling |
+| Hosted CI | PASS: [run 40649706607](https://github.com/KAIYI7/settle-table/actions/runs/40649706607), associated with the exact reviewed head, passed 213 Python tests and all 11 browser stages |
+| Publication and cleanup | PASS: reviewed public source only; task-owned local processes, containers and disposable credentials removed; pre-existing resources preserved |
+
+This completes the bounded, default-disabled local simulation milestone. Existing Internet release blockers remain. No public hosting, permanent account/credential provisioning, real payment or further feature is authorized by this transition.
