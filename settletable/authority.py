@@ -522,6 +522,17 @@ class Authority:
                     FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id),
                     FOREIGN KEY(meal_id) REFERENCES meals(id) ON DELETE CASCADE);
                 CREATE INDEX IF NOT EXISTS idx_join_requests_meal_status ON join_requests (meal_id, status);
+                CREATE TABLE IF NOT EXISTS payment_simulations (
+                    integration_id TEXT NOT NULL, meal_id TEXT NOT NULL,
+                    finalize_actor_id TEXT NOT NULL, finalize_command_id TEXT NOT NULL,
+                    participant_id TEXT NOT NULL, purpose_version TEXT NOT NULL,
+                    client_reference TEXT NOT NULL, basis BLOB NOT NULL,
+                    payment_id TEXT, payment_version INTEGER, payment_status TEXT,
+                    payment_updated_at TEXT, observed_at REAL,
+                    outcome TEXT NOT NULL, retry_after INTEGER,
+                    PRIMARY KEY(integration_id,meal_id,finalize_actor_id,finalize_command_id,participant_id,purpose_version),
+                    UNIQUE(integration_id,client_reference),
+                    FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id));
             ''')
         except sqlite3.Error:
             self.close()
@@ -768,6 +779,87 @@ class Authority:
         except Exception:
             self._rollback()
             raise AuthorityError('storage_error') from None
+
+    def _finalized_allocation(self, credential, meal_id, participant_id, *, initiate=False):
+        """Authorized accepted-Finalize seam. Caller owns a short SQLite transaction.
+
+        Never derives identity from the mutable snapshot revision or recalculates money.
+        The simulation helper uses this connection so authorization and intent commit
+        share one consistent authority snapshot.
+        """
+        _id(meal_id)
+        _id(participant_id)
+        actor, organizer = self._authenticate(_verifier(credential), meal_id)
+        _require(bool(organizer) if initiate else bool(organizer) or actor == participant_id, 'forbidden')
+        target = self._db.execute('SELECT active FROM participants WHERE meal_id=? AND id=?',
+                                  (meal_id, participant_id)).fetchone()
+        _require(target is not None, 'participant_not_found')
+        _require(target[0] == 1, 'participant_inactive')
+        state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
+        _require(state['calculation'] is not None, 'meal_not_finalized')
+        finalizations = []
+        for final_actor, command_id, body, digest, result in self._db.execute(
+                'SELECT participant_id,command_id,body,digest,result FROM commands WHERE meal_id=? AND security=0', (meal_id,)):
+            command = json.loads(body)
+            accepted = json.loads(result)
+            if command.get('kind') == 'Finalize' or accepted.get('kind') == 'Finalize':
+                _require(command.get('kind') == accepted.get('kind') == 'Finalize', 'invalid_finalization_basis')
+                _require(_wire(command) == body and _wire(accepted) == result
+                         and digest == hashlib.sha256(b'settletable-command-digest-v1\0' + body).digest(),
+                         'invalid_finalization_basis')
+                _id(final_actor)
+                _id(command_id)
+                _require(command.get('command_id') == accepted.get('command_id') == command_id,
+                         'invalid_finalization_basis')
+                revision, financial_revision = accepted.get('revision'), accepted.get('financial_revision')
+                _require(type(revision) is int and 1 <= revision <= state['revision']
+                         and type(financial_revision) is int and financial_revision == state['financial_revision']
+                         and command.get('expected_revision') == revision - 1
+                         and command.get('expected_financial_revision') == financial_revision
+                         and accepted.get('calculation') == state['calculation'], 'invalid_finalization_basis')
+                finalizations.append((final_actor, command_id, accepted, result))
+        _require(len(finalizations) == 1, 'invalid_finalization_basis')
+        final_actor, command_id, accepted, result = finalizations[0]
+        rows = accepted['calculation'].get('consumption')
+        _require(type(rows) is list and 1 <= len(rows) <= 100, 'invalid_finalization_basis')
+        seen, amount = set(), None
+        for row in rows:
+            _require(type(row) is dict and set(row) == {'participant_id', 'sen'}, 'invalid_finalization_basis')
+            _id(row['participant_id'])
+            _require(row['participant_id'] not in seen and type(row['sen']) is int
+                     and 0 <= row['sen'] <= 1_000_000_000, 'invalid_finalization_basis')
+            seen.add(row['participant_id'])
+            if row['participant_id'] == participant_id:
+                amount = row['sen']
+        _require(amount is not None, 'invalid_finalization_basis')
+        return {'meal_id': meal_id, 'finalize_actor_id': final_actor, 'finalize_command_id': command_id,
+                'participant_id': participant_id, 'revision': accepted['revision'],
+                'financial_revision': accepted['financial_revision'],
+                'result_digest': hashlib.sha256(result).hexdigest(), 'amountCents': amount, 'currency': 'MYR'}
+
+    def finalized_allocation(self, credential, meal_id, participant_id):
+        """Read the authorized immutable basis without changing accepted command bytes."""
+        try:
+            self._db.execute('BEGIN')
+            basis = self._finalized_allocation(credential, meal_id, participant_id)
+            self._db.execute('COMMIT')
+            return basis
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('invalid_finalization_basis') from None
+
+    def payment_simulation(self, credential, meal_id, participant_id, config, *, create=False):
+        from .payment_simulation import simulation_intent
+        return simulation_intent(self, credential, meal_id, participant_id, config, create=create)
+
+    def observe_payment_simulation(self, credential, meal_id, participant_id, config, observation):
+        from .payment_simulation import store_observation
+        return store_observation(self, credential, meal_id, participant_id, config, observation)
 
     def authenticate(self, credential, meal_id):
         verifier = _verifier(credential)

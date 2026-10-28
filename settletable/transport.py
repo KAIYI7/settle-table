@@ -79,6 +79,8 @@ STATUS_MAP = {
     'already_revoked': 409,
     'finalized': 409,
     'meal_not_finalized': 409,
+    'invalid_finalization_basis': 409,
+    'simulation_conflict': 409,
     'export_in_progress': 409,
     'claimed_item_deletion': 409,
     'retired_source': 409,
@@ -102,6 +104,7 @@ STATUS_MAP = {
     'commit_uncertain': 503,
     'busy': 503,
     'ocr_unavailable': 503,
+    'simulation_disabled': 503,
     'notion_auth_error': 400,
 }
 
@@ -238,7 +241,7 @@ def serialize_json(data):
 class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
                  server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None,
-                 notion_client=None, allow_sync_export=False):
+                 notion_client=None, allow_sync_export=False, simulation_config=None, simulation_client=None):
         self.db_path = str(db_path)
         self.allowed_hosts = set(allowed_hosts)
         self.server_origin = server_origin.rstrip('/')
@@ -246,6 +249,9 @@ class SettleTableApp:
         self.logger = logger
         self.ocr_engine = ocr_engine
         self.notion_client = notion_client
+        from settletable.payment_simulation import SimulationConfig, KaiPayClient
+        self.simulation_config = simulation_config if simulation_config is not None else SimulationConfig.from_env()
+        self.simulation_client = (simulation_client or KaiPayClient(self.simulation_config)) if self.simulation_config else None
         self.allow_sync_export = (
             bool(allow_sync_export)
             or os.environ.get('SETTLETABLE_ALLOW_SYNC_EXPORT') == '1'
@@ -625,7 +631,25 @@ class SettleTableApp:
             out['ok'] = True
             out['current_participant_id'] = part_id
             out['is_organizer'] = is_org
+            out['payment_simulation_enabled'] = self.simulation_config is not None
             return 200, self._default_headers(), serialize_json(out)
+
+        # Allocation simulation has its own organizer/self permission boundary.
+        m_sim = re.fullmatch(r'/api/meals/([A-Za-z0-9][A-Za-z0-9_.:-]{0,63})/participants/([A-Za-z0-9][A-Za-z0-9_.:-]{0,63})/payment-simulation', path)
+        if m_sim and method in ('POST', 'GET'):
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            if self.simulation_config is None:
+                # Authenticate before disclosing even the feature's availability.
+                authority.authenticate(active_cred, m_sim.group(1))
+                raise TransportError('simulation_disabled', 503)
+            if method == 'POST' and body_data != {}:
+                raise TransportError('invalid_input', 400)
+            from settletable.payment_simulation import perform_simulation
+            result = perform_simulation(authority, active_cred, *m_sim.groups(),
+                                        self.simulation_config, self.simulation_client, initiate=method == 'POST')
+            code = 202 if result['state'] in ('PENDING', 'REQUEST_UNKNOWN') else 200
+            return code, self._default_headers(), serialize_json({'ok': True, 'payment_simulation': result})
 
         # Rotate Session POST /api/meals/{meal_id}/session/rotate
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/session/rotate', path)

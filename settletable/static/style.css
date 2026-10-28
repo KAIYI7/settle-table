@@ -21,6 +21,14 @@
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+.simulation-notice { color: var(--text-main); margin: 12px 0; font-size: 0.9rem; }
+.allocation-simulation { margin-top: 10px; max-width: 30rem; font-size: 0.85rem; font-weight: 400; }
+.simulation-status, .simulation-observed { display: block; overflow-wrap: anywhere; }
+.simulation-observed { color: var(--text-muted); font-size: 0.8rem; margin-top: 3px; }
+.simulation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.simulation-actions .btn { min-height: 40px; padding: 8px 10px; font-size: 0.8rem; white-space: normal; }
+.simulation-actions .btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
