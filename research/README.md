@@ -10,6 +10,8 @@ Publication preparation2026-10-17: see [safe checkpoint and reproducibility note
 
 ## Evidence conventions
 
+29 October 2026: [two focused independent-UAT UI corrections](phase-3/uat-ui-corrections.md), including real receipt DOM regressions, allocation affordance checks and independent reviews. The original incomplete UAT scenarios remain open for separate independent retest.
+
 - **Verified / Fact:** inspected source at an exact revision or current primary documentation.
 - **Inference / Proposal:** conclusion, architecture recommendation, cost assumption or future acceptance criterion.
 - **Unresolved / Open:** unmeasured, incomplete, conflicting or requiring user choice.
