@@ -382,3 +382,21 @@ Orchestrator decision: PASS for implementation of an opt-in local authorization-
 | Publication and cleanup | PASS: reviewed public source only; task-owned local processes, containers and disposable credentials removed; pre-existing resources preserved |
 
 This completes the bounded, default-disabled local simulation milestone. Existing Internet release blockers remain. No public hosting, permanent account/credential provisioning, real payment or further feature is authorized by this transition.
+
+## 2026-10-29 — Two focused independent-UAT UI corrections
+
+**Orchestrator decision: PASS / MERGED** for [PR #23](https://github.com/KAIYI7/settle-table/pull/23). Risk MEDIUM overall (receipt quantity display Medium; capacity affordance Low). Scope is limited to existing rational display formatting and unavailable quick-assignment affordances, plus regression tests/evidence. [Verification](../../research/phase-3/uat-ui-corrections.md).
+
+Reviewed source commit `3b24faa4bdd5a705854b4c31b2fa58d36597e69e`; final PR head `e00f914c49e04c72e13a57c58fc0cb70463a9cc7` adds evidence only and preserves reviewed production/test bytes. Premerge remote main rechecked at `76187b1fcb5e928e8f6cc78b3afc1c02477501ef`.
+
+| Gate | Disposition |
+| --- | --- |
+| Receipt review display | PASS: actual DOM x1, x2, x3, x½, x⅓ before/after sealing and reload; unchanged authoritative receipt/line amounts |
+| Allocation affordance | PASS: native disabled quick assignment at insufficient whole capacity, visible associated explanation, usable desktop/mobile Details / Split, reallocation and persistence after reload |
+| Scope and authority | PASS: existing financial engine, authorization, revision conflict recovery, persistence and finalization/native confirmation implementation untouched; unknown UAT database/listener and unrelated resources preserved |
+| Independent reviews | PASS: separate standards/source and specification reviewers report zero findings; independent focused Chrome rerun passes |
+| Full local regression | PASS: post-review rerun 213 Python tests in 50.797s and all 12 real Chrome stages; 1280 × 900 / 375 × 667 focused visual evidence inspected |
+| Hosted exact-head CI | PASS: [run 40820110948](https://github.com/KAIYI7/settle-table/actions/runs/40820110948), check head SHA equals final PR head; logs confirm 213 Python tests and 12 browser stages pass |
+| Final diff/base recheck | PASS: actual hosted PR diff reviewed, production/test bytes equal independently reviewed source; remote main and branch refs unchanged before authorization |
+
+Merge commit `449dc8c2322c7b64a429e28db8290da38f141975` was verified on remote main. Its parents are exactly the premerge main and reviewed PR head above, and its tree `53f9483d653160805ca9792d5d3121d2b2c62356` equals the final reviewed PR-head tree. This decision closes only the two corrections. The original independent UAT remains incomplete: its blocked and untested scenarios require a separate independent retest in a confirmed isolated environment. No public-release, deployment or further feature scope is authorized.

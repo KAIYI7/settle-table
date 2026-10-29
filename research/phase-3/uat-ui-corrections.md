@@ -30,7 +30,7 @@ After both corrections:
 
 - Focused Chrome CDP regression PASS. The actual Receipt & Charges DOM is checked for all five quantities before sealing, after sealing and after reload; every line remains RM 6.00 and the serialized authoritative receipt stays identical.
 - Quick assignment works with whole capacity, is natively disabled at full/fractional capacity, and has an accessible explanation. Attempted disabled activation preserves the snapshot and does not open the editor. Existing assigned pills and desktop Details open the drawer. Mobile Details opens the existing bottom sheet; clearing an assignment re-enables quick assignment; reassignment persists after reload.
-- `python -m unittest discover -s tests -v`: **213 tests PASS**, 49.415s. Includes allocation authorization and capacity rejection, stale revision conflict/recovery, unchanged diner provenance, concurrency, rollback, and persistence tests.
+- `python -m unittest discover -s tests -v`: **213 tests PASS**, initial run 49.415s; post-review full rerun 50.797s. Includes allocation authorization and capacity rejection, stale revision conflict/recovery, unchanged diner provenance, concurrency, rollback, and persistence tests.
 - Full Chrome suite, with task-local `ARTIFACT_DIR` and port 18879: **12 stages PASS** (11 existing plus the new regression stage). This suite uses mock OCR and mock Notion, and its existing finalization tests replace `window.confirm` in the browser.
 - `git diff --check`: PASS. Impeccable detector on the changed production UI files returned `[]` (zero mechanical findings).
 - Rendered captures inspected at desktop 1280 × 900 and mobile 375 × 667: [receipt quantities](../../.scratch/uat-ui-corrections/evidence/receipt-quantities.png), [desktop capacity](../../.scratch/uat-ui-corrections/evidence/capacity-desktop.png), [mobile capacity](../../.scratch/uat-ui-corrections/evidence/capacity-mobile.png), [mobile details](../../.scratch/uat-ui-corrections/evidence/capacity-mobile-details.png).
@@ -42,7 +42,9 @@ Each harness run used a newly created `settletable-e2e-*` temporary directory wi
 - [Standards/source review](uat-ui-corrections-standards-review.md): PASS, zero documented violations or actionable baseline smells.
 - [Specification review](uat-ui-corrections-spec-review.md): PASS, zero findings. The independent reviewer also reran the focused Chrome regression successfully (3.23s) and inspected receipt/mobile captures.
 - Reviewed production/test source commit: `3b24faa4bdd5a705854b4c31b2fa58d36597e69e`. Subsequent evidence-only commits preserve these source bytes.
-- Hosted exact-head PR CI and remote merge verification remain required before integration. The final PR/head/CI and merge identifiers are added after observation.
+- Final [PR #23](https://github.com/KAIYI7/settle-table/pull/23) head `e00f914c49e04c72e13a57c58fc0cb70463a9cc7` preserves independently reviewed production/test bytes. [Hosted CI run 40820110948](https://github.com/KAIYI7/settle-table/actions/runs/40820110948), check/job `123270342737`, completed successfully with that exact check head SHA. Untruncated logs confirm 213 Python tests (30.375s) and all 12 browser stages pass.
+- Orchestrator rechecked the actual hosted PR diff, source-byte equivalence, remote head and unchanged remote base `76187b1fcb5e928e8f6cc78b3afc1c02477501ef`; all integration gates PASS.
+- **MERGED:** `449dc8c2322c7b64a429e28db8290da38f141975`, verified on remote main. Its two parents are exactly premerge main and final PR head. Merge tree `53f9483d653160805ca9792d5d3121d2b2c62356` equals the reviewed PR-head tree. [Acceptance gates](../../docs/agents/phase-transitions.md).
 
 ## Original independent UAT remains incomplete
 
