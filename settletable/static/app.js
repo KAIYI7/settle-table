@@ -1231,7 +1231,7 @@ function renderOrganizerSection(snap) {
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
       <div>
         <strong>${escapeHtml(it.label)}</strong>
-        <span style="color: var(--text-dim); font-size: 0.85rem;">(x${it.quantity})</span>
+        <span style="color: var(--text-dim); font-size: 0.85rem;">(x${formatRat(it.quantity)})</span>
       </div>
       <div style="font-weight: 600;">${formatSen(it.line_sen)}</div>
     </div>
@@ -1893,6 +1893,10 @@ function renderClaimsSection(snap) {
     const isComplete = Math.abs(totalClaimed - itemTotalQty) < 0.0001;
     const isOver = totalClaimed > itemTotalQty;
     const unassignedRat = subtractFractions(item.quantity, totalClaimedRat);
+    const canQuickAssign = ratToNum(unassignedRat) >= 1;
+    const quickAssignHelp = ratToNum(unassignedRat) <= 0
+      ? 'Fully allocated. Use Details / Split to reallocate.'
+      : 'Less than 1 portion remains. Use Details / Split for exact fractions.';
     const pct = Math.min(100, Math.round((totalClaimed / itemTotalQty) * 100));
     const isExpanded = state.expandedHybridItemIds.has(item.id);
 
@@ -1916,8 +1920,11 @@ function renderClaimsSection(snap) {
       const qStr = claim ? formatRat(claim.quantity) : '0';
 
       if (!isClaimed) {
+        const title = canQuickAssign
+          ? `Assign 1 portion to ${escapeHtml(p.name)}`
+          : `Quick assignment unavailable for ${escapeHtml(p.name)}. ${quickAssignHelp}`;
         return `
-          <button type="button" class="hybrid-pill hybrid-pill-available" data-action="hybrid-quick-assign" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Assign 1 portion to ${escapeHtml(p.name)}">
+          <button type="button" class="hybrid-pill hybrid-pill-available" data-action="hybrid-quick-assign" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="${title}" ${canQuickAssign ? '' : `disabled aria-describedby="quick-assign-help-${item.id}"`}>
             <span class="pill-plus">+</span>
             <span class="pill-avatar">${p.organizer ? '👑' : '🍽️'}</span>
             <span class="pill-name">${escapeHtml(p.name)}</span>
@@ -1966,6 +1973,8 @@ function renderClaimsSection(snap) {
             <span>${isExpanded ? '▴ Close' : '▾ Details / Split'}</span>
           </button>
         </div>
+
+        ${canQuickAssign ? '' : `<p class="item-meta" id="quick-assign-help-${item.id}">${quickAssignHelp}</p>`}
 
         ${drawerHtml}
       </div>

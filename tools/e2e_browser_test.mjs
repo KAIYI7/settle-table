@@ -11,6 +11,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:net';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -20,6 +21,7 @@ function parseArgs() {
     port: process.env.SETTLETABLE_PORT ? parseInt(process.env.SETTLETABLE_PORT, 10) : 8089,
     chrome: null,
     python: null,
+    uiRegressionsOnly: args.includes('--ui-regressions-only'),
   };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--port' && args[i + 1]) {
@@ -222,12 +224,135 @@ async function startChrome(chromeBin, port, dataDir) {
   return { proc, page };
 }
 
+async function runUiRegressions(page, serverOrigin) {
+  console.log('[UI regression] Receipt rational DOM and quick-assignment capacity');
+  await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const quick = (item, diner) => `[data-action="hybrid-quick-assign"][data-item="${item}"][data-target="${diner}"]`;
+  const details = '[data-action="hybrid-toggle-details"][data-item="qty-1"]';
+  await page.navigate(`${serverOrigin}/`);
+  await page.waitFor("document.getElementById('create-meal-form') !== null");
+  await page.evaluate(() => {
+    document.getElementById('create-meal-id').value = 'ui-regression';
+    document.getElementById('create-org-name').value = 'Alice';
+    document.getElementById('create-diners').value = 'Bob, Carol';
+    document.getElementById('create-meal-form').requestSubmit();
+  });
+  await page.waitFor("state.mealId === 'ui-regression' && document.getElementById('add-item-form') !== null");
+  // Seed authoritative rational values through the real transport; render the real app.
+  const originalReceipt = await page.evaluate(async () => {
+    const snap = state.snapshot;
+    await apiCall('/api/meals/ui-regression/apply', 'POST', {
+      kind: 'ReplaceReceipt', command_id: 'ui-receipt',
+      expected_revision: snap.revision, expected_financial_revision: snap.financial_revision,
+      receipt: {
+        items: [[1, 1], [2, 1], [3, 1], [1, 2], [1, 3]].map((quantity, i) => ({
+          id: `qty-${i + 1}`, label: `Quantity case ${i + 1}`, quantity, line_sen: 600,
+        })),
+        subtotal_sen: 3000, total_sen: 3000, adjustments: [], included_tax_sen: 0,
+      },
+    });
+    await fetchSnapshot(true);
+    return JSON.stringify(state.snapshot.receipt);
+  });
+  const checkReceiptDom = async () => {
+    const rows = await page.evaluate(() => {
+      const card = [...document.querySelectorAll('.card')].find(c =>
+        c.querySelector('.card-title')?.textContent.includes('Receipt & Charges'));
+      return [...card.querySelectorAll('strong')].filter(el => el.textContent.startsWith('Quantity case'))
+        .map(el => ({ label: el.textContent, quantity: el.nextElementSibling.textContent, row: el.parentElement.parentElement.textContent }));
+    });
+    assert(rows.length === 5, 'Expected five actual Receipt & Charges DOM rows');
+    for (const [i, expected] of ['1', '2', '3', '½', '⅓'].entries()) {
+      assert(rows[i].quantity === `(x${expected})`, `Receipt DOM quantity ${i + 1}: expected (x${expected}), got ${rows[i].quantity}`);
+      assert(rows[i].row.includes('RM 6.00'), 'Receipt line amount changed');
+    }
+    assert(await page.evaluate('JSON.stringify(state.snapshot.receipt)') === originalReceipt, 'Authoritative receipt changed');
+  };
+  await checkReceiptDom();
+  await page.evaluate(() => {
+    const check = document.getElementById('review-confirm-check');
+    check.checked = true;
+    check.dispatchEvent(new Event('change'));
+    document.getElementById('review-submit-btn').click();
+  });
+  await page.waitFor("document.body.innerText.includes('Review Verified ✓')");
+  await checkReceiptDom();
+  await page.reload();
+  await page.waitFor("state.snapshot?.review && document.getElementById('item-card-qty-1') !== null");
+  await checkReceiptDom();
+  if (process.env.ARTIFACT_DIR) {
+    await fs.promises.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
+    await page.screenshot(join(process.env.ARTIFACT_DIR, 'receipt-quantities.png'));
+  }
+  console.log('   ✓ Receipt DOM x1, x2, x3, x½, x⅓ before/after sealing and reload; authoritative receipt preserved');
+
+  assert(await page.evaluate(`!document.querySelector('${quick('qty-1', 'D1')}').disabled`), 'Whole portion should allow quick assignment');
+  await page.evaluate(`document.querySelector('${quick('qty-1', 'D1')}').click()`);
+  await page.waitFor("state.snapshot.claims.some(c => c.item_id === 'qty-1' && c.participant_id === 'D1')");
+  const beforeBlockedClick = await page.evaluate('JSON.stringify(state.snapshot)');
+  const blocked = await page.evaluate(`(() => {
+    const button = document.querySelector('${quick('qty-1', 'D2')}');
+    return { disabled: button.disabled, title: button.title, description: document.getElementById(button.getAttribute('aria-describedby'))?.textContent };
+  })()`);
+  assert(blocked.disabled, 'Full-capacity quick assignment must be disabled before clicking');
+  assert(blocked.title.includes('Details / Split') && blocked.description?.includes('Fully allocated'), 'Unavailable assignment needs an accessible explanation and Details / Split path');
+  await page.evaluate(`document.querySelector('${quick('qty-1', 'D2')}').click()`);
+  assert(await page.evaluate('JSON.stringify(state.snapshot)') === beforeBlockedClick, 'Disabled quick assignment changed allocations or revision');
+  assert(await page.evaluate("document.querySelector('#hybrid-drawer-qty-1') === null"), 'Disabled quick assignment opened editor');
+  for (const item of ['qty-4', 'qty-5']) {
+    assert(await page.evaluate(`document.querySelector('${quick(item, 'D1')}').disabled`), 'Fractional capacity must not offer a whole-portion quick assignment');
+  }
+  // Desktop details remains usable, as do existing allocated diner pills.
+  await page.evaluate(`document.querySelector('${details}').click()`);
+  await page.waitFor("document.getElementById('hybrid-drawer-qty-1') !== null");
+  await page.evaluate(`document.querySelector('${details}').click()`);
+  await page.evaluate("document.querySelector('[data-action=\"hybrid-open-details\"][data-item=\"qty-1\"][data-target=\"D1\"]').click()");
+  await page.waitFor("document.getElementById('hybrid-drawer-qty-1') !== null");
+  await page.evaluate(`document.querySelector('${details}').click()`);
+  if (process.env.ARTIFACT_DIR) {
+    await fs.promises.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
+    await page.evaluate("document.getElementById('item-card-qty-1').scrollIntoView({block: 'center'})");
+    await page.screenshot(join(process.env.ARTIFACT_DIR, 'capacity-desktop.png'));
+  }
+  await page.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
+  await page.evaluate("document.getElementById('item-card-qty-1').scrollIntoView({block: 'center'})");
+  if (process.env.ARTIFACT_DIR) await page.screenshot(join(process.env.ARTIFACT_DIR, 'capacity-mobile.png'));
+  await page.evaluate(`document.querySelector('${details}').click()`);
+  await page.waitFor("document.querySelector('.bottom-sheet-modal') !== null");
+  assert(await page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Mobile allocation UI overflows horizontally');
+  if (process.env.ARTIFACT_DIR) await page.screenshot(join(process.env.ARTIFACT_DIR, 'capacity-mobile-details.png'));
+  // Reallocate through the existing editor; the freed capacity re-enables quick assign.
+  await page.evaluate("document.querySelector('.bottom-sheet-modal [data-action=\"hybrid-fraction\"][data-frac=\"0\"][data-target=\"D1\"]').click()");
+  await page.waitFor("!state.snapshot.claims.some(c => c.item_id === 'qty-1')");
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+  await page.waitFor("document.querySelector('.bottom-sheet-modal') === null");
+  assert(await page.evaluate(`!document.querySelector('${quick('qty-1', 'D2')}').disabled`), 'Freed capacity did not re-enable quick assignment');
+  await page.evaluate(`document.querySelector('${quick('qty-1', 'D2')}').click()`);
+  await page.waitFor("state.snapshot.claims.some(c => c.item_id === 'qty-1' && c.participant_id === 'D2')");
+  await page.reload();
+  await page.waitFor("state.snapshot?.claims?.some(c => c.item_id === 'qty-1' && c.participant_id === 'D2')");
+  assert(await page.evaluate(`document.querySelector('${quick('qty-1', 'D1')}').disabled`), 'Full capacity after reallocation/reload must disable quick assign');
+  await checkReceiptDom();
+  await page.send('Emulation.clearDeviceMetricsOverride');
+  console.log('   ✓ Capacity affordance, blocked-click invariance, desktop/mobile Details, reallocation and reload');
+}
+
 async function main() {
   const options = parseArgs();
   const chromeBin = resolveChromePath(options.chrome);
   const pythonBin = resolvePythonPath(options.python);
   const serverPort = options.port;
   const serverOrigin = `http://127.0.0.1:${serverPort}`;
+
+  // Refuse occupied ports rather than accidentally test an unrelated listener.
+  for (const port of [serverPort, 9224, 9225]) {
+    await new Promise((resolve, reject) => {
+      const probe = createServer();
+      probe.once('error', reject);
+      probe.listen(port, '127.0.0.1', () => probe.close(resolve));
+    });
+  }
 
   console.log('--- Starting SettleTable Real Browser End-to-End Test ---');
   console.log(`[Config] Chrome: ${chromeBin}`);
@@ -243,6 +368,7 @@ async function main() {
   // 2. Start SettleTable WSGI Demo Server
   console.log(`[1/8] Starting local server on port ${serverPort}...`);
   const serverProc = spawn(pythonBin, [
+    '-u',
     join('tools', 'run_demo.py'),
     '--host', '127.0.0.1',
     '--port', String(serverPort),
@@ -272,6 +398,9 @@ async function main() {
 
     const pageA = orgChrome.page;
     const pageB = dinerChrome.page;
+
+    await runUiRegressions(pageA, serverOrigin);
+    if (options.uiRegressionsOnly) return;
 
     // 4a. Test Dedicated OCR Workflow: Upload, Inline Edit, Discard & Accept
     console.log('[3/8] Testing OCR Image Upload, Staging, Inline Edit, Discard, and Accept & Apply...');
@@ -1029,7 +1158,7 @@ async function main() {
     console.log('   ✓ Verified Personal One-Time Invite Link for Bob remains 100% operational in parallel');
 
     console.log('\n===========================================================');
-    console.log(' ALL 11 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
+    console.log(' ALL 12 REAL BROWSER E2E TEST STAGES PASSED SUCCESSFULLY! ');
     console.log('===========================================================');
   } finally {
     if (orgChrome) {
