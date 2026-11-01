@@ -398,6 +398,73 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(adj_rounding['rationale'], 'Rounding Adjustment adjustment')
         self.assertEqual(sorted(adj_rounding['eligible_item_ids']), ['it-1', 'it-2'])
 
+    def test_legacy_scope_replay_only_and_dynamic_scope_correction(self):
+        boot = self.client.post('/api/meals/m-scope/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Org', 'organizer': True}]})
+        cred = boot['json']['sessions'][0]['credential']
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {cred}'}
+        receipt = {'items': [{'id': 'a', 'label': 'A', 'quantity': 1, 'line_sen': 1000}],
+                   'subtotal_sen': 1000, 'total_sen': 1100,
+                   'adjustments': [{'id': 'fee', 'label': 'Service', 'kind': 'service', 'amount_sen': 100}]}
+        cmd = {'kind': 'ReplaceReceipt', 'command_id': 'legacy', 'expected_revision': 0,
+               'expected_financial_revision': 0, 'receipt': receipt}
+        self.assertEqual(self.client.post('/api/meals/m-scope/apply', body=cmd, headers=headers)['status'], 200)
+        # Historically explicit empty and foreign scopes normalized identically to omitted scope.
+        for scope in ([], ['foreign'], '', 0, False, {}, 'az', {'a': 1, 'z': 2}):
+            retry = {**cmd, 'receipt': {**receipt, 'adjustments': [{**receipt['adjustments'][0], 'eligible_item_ids': scope}]}}
+            self.assertEqual(self.client.post('/api/meals/m-scope/apply', body=retry, headers=headers)['status'], 200)
+            retry['command_id'] = 'new-invalid'
+            retry['expected_revision'] = retry['expected_financial_revision'] = 1
+            self.assertNotEqual(self.client.post('/api/meals/m-scope/apply', body=retry, headers=headers)['status'], 200)
+        expanded = {**receipt, 'items': receipt['items'] + [{'id': 'b', 'label': 'B', 'quantity': 1, 'line_sen': 500}],
+                    'subtotal_sen': 1500, 'total_sen': 1600,
+                    'adjustments': [{**receipt['adjustments'][0], 'eligible_item_ids': ['a'], 'scope_mode': 'all_items'}]}
+        change = {'kind': 'ReplaceReceipt', 'command_id': 'dynamic', 'expected_revision': 1,
+                  'expected_financial_revision': 1, 'receipt': expanded}
+        self.assertEqual(self.client.post('/api/meals/m-scope/apply', body=change, headers=headers)['status'], 200)
+        snap = self.client.get('/api/meals/m-scope/snapshot', headers=headers)['json']
+        fee = snap['receipt']['adjustments'][0]
+        self.assertEqual(fee['eligible_item_ids'], ['a', 'b'])
+        self.assertEqual((fee['scope_mode'], fee['amount_sen']), ('all_items', 100))
+        # Removing an item updates dynamic scope, without altering the printed amount.
+        removed = {**expanded, 'items': [expanded['items'][1]], 'subtotal_sen': 500, 'total_sen': 600}
+        correction = {'kind': 'ReplaceReceipt', 'command_id': 'remove', 'expected_revision': 2,
+                      'expected_financial_revision': 2, 'receipt': removed}
+        self.assertEqual(self.client.post('/api/meals/m-scope/apply', body=correction, headers=headers)['status'], 200)
+        snap = self.client.get('/api/meals/m-scope/snapshot', headers=headers)['json']
+        self.assertEqual(snap['receipt']['adjustments'][0]['eligible_item_ids'], ['b'])
+        self.assertEqual(snap['receipt']['adjustments'][0]['amount_sen'], 100)
+        # Fixed mode must have an explicit, valid, nonempty scope.
+        for bad_scope in (None, [], ['missing']):
+            bad_receipt = {**removed, 'adjustments': [{**removed['adjustments'][0],
+                           'scope_mode': 'fixed_items', 'eligible_item_ids': bad_scope}]}
+            bad = {'kind': 'ReplaceReceipt', 'command_id': 'bad-fixed', 'expected_revision': 3,
+                   'expected_financial_revision': 3, 'receipt': bad_receipt}
+            self.assertNotEqual(self.client.post('/api/meals/m-scope/apply', body=bad, headers=headers)['status'], 200)
+            self.assertEqual(self.client.get('/api/meals/m-scope/snapshot', headers=headers)['json']['revision'], 3)
+        fixed_receipt = {**removed, 'adjustments': [{**removed['adjustments'][0],
+                         'scope_mode': 'fixed_items', 'eligible_item_ids': ['b']}]}
+        fixed = {'kind': 'ReplaceReceipt', 'command_id': 'fixed', 'expected_revision': 3,
+                 'expected_financial_revision': 3, 'receipt': fixed_receipt}
+        self.assertEqual(self.client.post('/api/meals/m-scope/apply', body=fixed, headers=headers)['status'], 200)
+        fixed_added = {**fixed_receipt, 'items': fixed_receipt['items'] + [{'id': 'c', 'label': 'C', 'quantity': 1, 'line_sen': 500}],
+                       'subtotal_sen': 1000, 'total_sen': 1100}
+        fixed_add = {**fixed, 'command_id': 'fixed-add', 'expected_revision': 4,
+                     'expected_financial_revision': 4, 'receipt': fixed_added}
+        self.assertEqual(self.client.post('/api/meals/m-scope/apply', body=fixed_add, headers=headers)['status'], 200)
+        snap = self.client.get('/api/meals/m-scope/snapshot', headers=headers)['json']
+        self.assertEqual(snap['receipt']['adjustments'][0]['eligible_item_ids'], ['b'])
+
+        for omitted in ({}, {'eligible_item_ids': None}):
+            legacy_adj = {k: v for k, v in fixed_added['adjustments'][0].items()
+                          if k not in ('eligible_item_ids', 'scope_mode')}
+            legacy_adj.update(omitted)
+            attempt = {**fixed_add, 'command_id': 'omitted-scope', 'expected_revision': 5,
+                       'expected_financial_revision': 5,
+                       'receipt': {**fixed_added, 'adjustments': [legacy_adj]}}
+            self.assertNotEqual(self.client.post('/api/meals/m-scope/apply', body=attempt, headers=headers)['status'], 200)
+            self.assertEqual(self.client.get('/api/meals/m-scope/snapshot', headers=headers)['json']['revision'], 5)
+
     def test_logging_and_secret_redaction(self):
         logs = []
         app_with_logger = SettleTableApp(self.db_path, clock=lambda: self.clock_val, logger=logs.append)

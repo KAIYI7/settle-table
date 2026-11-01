@@ -46,6 +46,7 @@ class CandidateAdjustment:
     amount_sen: int  # Positive for tax/service/round-up, negative for discount/round-down
     eligible_item_ids: tuple[str, ...] | None
     rationale: str
+    scope_mode: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +56,7 @@ class CandidateAdjustment:
             'amount_sen': self.amount_sen,
             'eligible_item_ids': list(self.eligible_item_ids) if self.eligible_item_ids is not None else None,
             'rationale': self.rationale,
+            'scope_mode': self.scope_mode,
         }
 
 

@@ -12,7 +12,7 @@
 
 `snapshot(credential, meal_id)` returns the entire consistent immutable `DraftSnapshot`; `apply(credential, meal_id, command)` returns `AcceptedResult` only after commit. `close()` closes the connection.
 
-Receipt facts: `ReceiptItem(id, label, quantity=1, line_sen=None)`, `ReceiptAdjustment(id, label, kind, amount_sen, eligible_item_ids, rationale)`, and `Receipt(items=(), subtotal_sen=None, total_sen=None, adjustments=(), included_tax_sen=0)`. Monetary values are integer sen or documented unknown `None`. Quantities are exact `int`/`Fraction`; adjustment scopes are nonempty tuples. Receipt review does not invent diner allocations.
+Receipt facts: `ReceiptItem(id, label, quantity=1, line_sen=None)`, `ReceiptAdjustment(id, label, kind, amount_sen, eligible_item_ids, rationale, scope_mode=None)`, and `Receipt(items=(), subtotal_sen=None, total_sen=None, adjustments=(), included_tax_sen=0)`. Monetary values are integer sen or documented unknown `None`. Quantities are exact `int`/`Fraction`; adjustment scopes are nonempty tuples. Omitted `scope_mode` means a fixed explicit scope and retains the historical canonical representation. `all_items` means every current receipt item: the transport materializes that scope on replacement, and direct authority callers must supply the complete item set. Changing an existing all-items scope to a fixed scope requires the explicit fixed_items mode; an omitted field cannot silently downgrade it. The printed adjustment amount is not recomputed. Receipt review does not invent diner allocations.
 
 Commands (positional order shown; keywords recommended):
 

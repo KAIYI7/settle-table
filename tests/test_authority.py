@@ -149,6 +149,98 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(tuple((a.source_id, tuple(s.sen for s in a.shares)) for a in result.calculation.adjustments),
                          (('discount', (-51, -50)), ('round', (1, 0)), ('service', (145, 145)), ('sst', (87, 87))))
 
+    def test_legacy_scoped_receipt_replay_and_finalized_state_survive_reopen(self):
+        credentials = self.bootstrap()
+        receipt = Receipt(
+            (ReceiptItem('dish', 'Rice', 1, 1000), ReceiptItem('tea', 'Tea', 1, 500)),
+            1500, 1650,
+            (ReceiptAdjustment('service', 'Service', 'service', 150, ('dish',), 'Printed service'),),
+        )
+        command = ReplaceReceipt('entry', 0, 0, receipt)
+        accepted = self.authority.apply(credentials['A'], 'meal', command)
+        snapshot = self.authority.snapshot(credentials['A'], 'meal')
+        # This digest is pinned to the pre-scope-mode v1 receipt representation.
+        self.assertEqual(snapshot.receipt_digest,
+                         '8e5e343f4fe952c627fada6f0fd2b732535797f15946665517ea79352af65574')
+        self.assertEqual(snapshot.receipt.adjustments[0].eligible_item_ids, ('dish',))
+        saved_command = self.authority._db.execute(
+            "SELECT body, digest, result FROM commands WHERE meal_id=? AND command_id=?",
+            ('meal', 'entry')).fetchone()
+
+        self.authority.close()
+        self.authority = Authority(self.path, clock=lambda: 1000)
+        reopened = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(reopened.receipt, receipt)
+        self.assertEqual(reopened.receipt_digest, snapshot.receipt_digest)
+        self.assertEqual(self.authority.apply(credentials['A'], 'meal', command).canonical_bytes,
+                         accepted.canonical_bytes)
+
+        self.assertEqual(self.authority._db.execute(
+            "SELECT body, digest, result FROM commands WHERE meal_id=? AND command_id=?",
+            ('meal', 'entry')).fetchone(), saved_command)
+
+        self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('claim-a', 'dish', 1, 1, 1))
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('claim-b', 'tea', 1, 1, 1))
+        snapshot = self.authority.snapshot(credentials['A'], 'meal')
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('review', snapshot.revision, 1, snapshot.receipt_digest))
+        finalized = self.authority.apply(credentials['A'], 'meal', Finalize('final', snapshot.revision + 1, 1))
+        self.assertEqual(tuple((p.participant_id, p.sen) for p in finalized.calculation.consumption),
+                         (('A', 1150), ('B', 500)))
+        final_snapshot = self.authority.snapshot(credentials['A'], 'meal')
+        self.authority.close()
+        self.authority = Authority(self.path, clock=lambda: 1000)
+        restored = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertTrue(restored.finalized)
+        self.assertEqual(restored.receipt_digest, final_snapshot.receipt_digest)
+        self.assertEqual(restored.receipt, final_snapshot.receipt)
+        self.assertEqual(restored.calculation, final_snapshot.calculation)
+        self.assertEqual(self.authority.apply(credentials['A'], 'meal', command).canonical_bytes,
+                         accepted.canonical_bytes)
+
+
+    def test_all_item_scope_persists_and_requires_new_review(self):
+        credentials = self.bootstrap()
+        items = (ReceiptItem('dish', 'Rice', 1, 1000), ReceiptItem('tea', 'Tea', 1, 500))
+        service = ReceiptAdjustment('service', 'Service', 'service', 150, ('dish', 'tea'), 'Printed', 'all_items')
+        receipt = Receipt(items, 1500, 1650, (service,))
+        entry = ReplaceReceipt('entry', 0, 0, receipt)
+        with self.assertRaises(AuthorityError) as denied:
+            self.authority.apply(credentials['B'], 'meal', entry)
+        self.assertEqual(denied.exception.code, 'forbidden')
+        self.authority.apply(credentials['A'], 'meal', entry)
+        with self.assertRaises(AuthorityError) as denied_replay:
+            self.authority.apply(credentials['B'], 'meal', entry, replay_only=True)
+        self.assertEqual(denied_replay.exception.code, 'forbidden')
+        snap = self.authority.snapshot(credentials['A'], 'meal')
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('review', 1, 1, snap.receipt_digest))
+        new_items = items + (ReceiptItem('dessert', 'Dessert', 1, 500),)
+        corrected = Receipt(new_items, 2000, 2150,
+                            (replace(service, eligible_item_ids=('dish', 'tea', 'dessert')),))
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('add', 2, 1, corrected))
+        snap = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertIsNone(snap.review)
+        self.assertEqual(snap.receipt.adjustments[0].amount_sen, 150)
+        self.assertEqual(snap.receipt.adjustments[0].scope_mode, 'all_items')
+        with self.assertRaises(AuthorityError):
+            self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('downgrade', 3, 2,
+                replace(corrected, adjustments=(replace(service, scope_mode=None),))))
+        with self.assertRaises(AuthorityError):
+            self.authority.apply(credentials['A'], 'meal', Finalize('without-review', 3, 2))
+        self.authority.close()
+        self.authority = Authority(self.path, clock=lambda: 1000)
+        restored = self.authority.snapshot(credentials['A'], 'meal').receipt
+        self.assertEqual({i.id for i in restored.items}, {'dish', 'tea', 'dessert'})
+        self.assertEqual(set(restored.adjustments[0].eligible_item_ids), {'dish', 'tea', 'dessert'})
+        self.assertEqual(restored.adjustments[0].scope_mode, 'all_items')
+        self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('a-dish', 'dish', 1, 1, 2))
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('b-tea', 'tea', 1, 1, 2))
+        self.authority.apply(credentials['B'], 'meal', SetOwnQuantity('b-dessert', 'dessert', 1, 1, 2))
+        snap = self.authority.snapshot(credentials['A'], 'meal')
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('review2', snap.revision, 2, snap.receipt_digest))
+        final = self.authority.apply(credentials['A'], 'meal', Finalize('final2', snap.revision + 1, 2))
+        self.assertEqual(tuple((p.participant_id, p.sen) for p in final.calculation.consumption),
+                         (('A', 1075), ('B', 1075)))
+
     def test_included_tax_is_informational_and_full_discount_keeps_zero_totals(self):
         for case, receipt, claims, expected in (
             ('included', Receipt((ReceiptItem('dish', 'Gross meal', 1, 600),), 600, 600, included_tax_sen=34),

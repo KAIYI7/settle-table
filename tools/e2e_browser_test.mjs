@@ -304,9 +304,14 @@ async function runUiRegressions(page, serverOrigin) {
     assert(await page.evaluate(`document.querySelector('${quick(item, 'D1')}').disabled`), 'Fractional capacity must not offer a whole-portion quick assignment');
   }
   // Desktop details remains usable, as do existing allocated diner pills.
-  await page.evaluate(`document.querySelector('${details}').click()`);
+  await page.evaluate(`document.querySelector('${details}').focus()`);
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await page.waitFor("document.getElementById('hybrid-drawer-qty-1') !== null");
-  await page.evaluate(`document.querySelector('${details}').click()`);
+  assert(await page.evaluate("document.querySelector('.bottom-sheet-modal') === null"), 'Desktop editor must remain an inline drawer');
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await page.waitFor("document.getElementById('hybrid-drawer-qty-1') === null");
   await page.evaluate("document.querySelector('[data-action=\"hybrid-open-details\"][data-item=\"qty-1\"][data-target=\"D1\"]').click()");
   await page.waitFor("document.getElementById('hybrid-drawer-qty-1') !== null");
   await page.evaluate(`document.querySelector('${details}').click()`);
@@ -318,8 +323,24 @@ async function runUiRegressions(page, serverOrigin) {
   await page.send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
   await page.evaluate("document.getElementById('item-card-qty-1').scrollIntoView({block: 'center'})");
   if (process.env.ARTIFACT_DIR) await page.screenshot(join(process.env.ARTIFACT_DIR, 'capacity-mobile.png'));
-  await page.evaluate(`document.querySelector('${details}').click()`);
+  await page.evaluate(`document.querySelector('${details}').focus()`);
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await page.waitFor("document.querySelector('.bottom-sheet-modal') !== null");
+  assert(await page.evaluate("document.activeElement.matches('.bottom-sheet-close-btn')"), 'Opening sheet must focus its close button');
+  const tab = async shift => {
+    await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: shift ? 8 : 0 });
+    await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: shift ? 8 : 0 });
+    assert(await page.evaluate("document.querySelector('.bottom-sheet-modal').contains(document.activeElement)"), 'Tab escaped modal');
+  };
+  await tab(true);
+  assert(await page.evaluate("document.activeElement === sheetFocusables(document.getElementById('hybrid-bottom-sheet')).at(-1)"), 'Shift+Tab must wrap to last control');
+  await tab(false);
+  assert(await page.evaluate("document.activeElement.matches('.bottom-sheet-close-btn')"), 'Tab must wrap to first control');
+  await page.evaluate("document.querySelector('.room-home-link').focus()");
+  assert(await page.evaluate("document.querySelector('.bottom-sheet-modal').contains(document.activeElement)"), 'Background focus must be redirected');
+  await page.evaluate('updateMealUI()');
+  assert(await page.evaluate("document.activeElement.matches('.bottom-sheet-close-btn')"), 'Re-render lost modal focus');
   assert(await page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Mobile allocation UI overflows horizontally');
   if (process.env.ARTIFACT_DIR) await page.screenshot(join(process.env.ARTIFACT_DIR, 'capacity-mobile-details.png'));
   // Reallocate through the existing editor; the freed capacity re-enables quick assign.
@@ -327,6 +348,14 @@ async function runUiRegressions(page, serverOrigin) {
   await page.waitFor("!state.snapshot.claims.some(c => c.item_id === 'qty-1')");
   await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
   await page.waitFor("document.querySelector('.bottom-sheet-modal') === null");
+  assert(await page.evaluate(`document.activeElement === document.querySelector('${details}')`), 'Escape must restore trigger focus');
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await page.waitFor("document.querySelector('.bottom-sheet-modal') !== null");
+  await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  await page.waitFor("document.querySelector('.bottom-sheet-modal') === null");
+  assert(await page.evaluate(`document.activeElement === document.querySelector('${details}')`), 'Close button must restore trigger focus');
   assert(await page.evaluate(`!document.querySelector('${quick('qty-1', 'D2')}').disabled`), 'Freed capacity did not re-enable quick assignment');
   await page.evaluate(`document.querySelector('${quick('qty-1', 'D2')}').click()`);
   await page.waitFor("state.snapshot.claims.some(c => c.item_id === 'qty-1' && c.participant_id === 'D2')");
@@ -501,7 +530,7 @@ async function main() {
     console.log('   ✓ Single editing workflow verified: manual #add-item-form paused and review checkbox guarded during staging');
 
     // Capture Stepper Interaction Screenshot
-    const artifactDir = process.env.ARTIFACT_DIR || (process.platform === 'win32' ? path.resolve('C:/Users/alpha/.gemini/antigravity/brain/8551baa0-7cf7-4f83-91eb-19824df0c298') : null);
+    const artifactDir = process.env.ARTIFACT_DIR;
     if (artifactDir && !fs.existsSync(artifactDir)) fs.mkdirSync(artifactDir, { recursive: true });
     await pageA.evaluate("document.getElementById('ocr-candidate-card')?.scrollIntoView({ block: 'start' })");
     if (artifactDir) await pageA.screenshot(path.join(artifactDir, 'screenshot_stepper_interaction.png'));
@@ -895,11 +924,26 @@ async function main() {
 
     // Test Organizer Allocation (Concept C item-first): Alice assigns 1 Iced Tea to Bob in 1 click
     console.log('   Testing organizer-assisted allocation (Alice assigns portion to Bob via Concept C)...');
-    await pageA.evaluate(`(() => {
-      const btn = document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-2"][data-target="D1"]');
+    const teaId = await pageA.evaluate("state.snapshot.receipt.items.find(item => item.label === 'Iced Tea')?.id");
+    if (!teaId) throw new Error('Iced Tea missing from authoritative receipt');
+    // Exercise a real diner claim on a manually generated (non-sequential) ID.
+    await pageB.evaluate(`(() => {
+      const btn = [...document.querySelectorAll('.claim-inc-btn')].find(el => el.dataset.id === ${JSON.stringify(teaId)});
       if (btn) btn.click();
     })()`);
-    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === 'item-2' && c.assigned_by === 'O')");
+    await pageB.waitFor(`state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === ${JSON.stringify(teaId)})`);
+    await pageB.evaluate(`(() => {
+      const btn = [...document.querySelectorAll('.claim-dec-btn')].find(el => el.dataset.id === ${JSON.stringify(teaId)});
+      if (btn) btn.click();
+    })()`);
+    await pageB.waitFor(`!state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === ${JSON.stringify(teaId)})`);
+    await pageA.evaluate('fetchSnapshot(true)');
+    await pageA.waitFor(`!state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === ${JSON.stringify(teaId)})`);
+    await pageA.evaluate(`(() => {
+      const btn = [...document.querySelectorAll('[data-action="hybrid-quick-assign"][data-target="D1"]')].find(el => el.dataset.item === ${JSON.stringify(teaId)});
+      if (btn) btn.click();
+    })()`);
+    await pageA.waitFor(`state.snapshot?.claims?.some(c => c.participant_id === 'D1' && c.item_id === ${JSON.stringify(teaId)} && c.assigned_by === 'O')`);
     console.log('   ✓ Organizer Alice allocated 1 Iced Tea to Bob (assigned_by: O verified in snapshot)');
 
     // Alice claims remaining portions: 1 Burger Set and 1 Iced Tea via 1-click quick-assign
@@ -910,10 +954,10 @@ async function main() {
     await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-1')");
 
     await pageA.evaluate(`
-      const btnTea = document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-2"][data-target="O"]');
+      const btnTea = [...document.querySelectorAll('[data-action="hybrid-quick-assign"][data-target="O"]')].find(el => el.dataset.item === ${JSON.stringify(teaId)});
       if (btnTea) btnTea.click();
     `);
-    await pageA.waitFor("state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === 'item-2')");
+    await pageA.waitFor(`state.snapshot?.claims?.some(c => c.participant_id === 'O' && c.item_id === ${JSON.stringify(teaId)})`);
     console.log('   ✓ All items fully allocated across Alice and Bob');
 
     // 9. Finalization & Apportionment Check

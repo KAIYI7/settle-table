@@ -92,6 +92,7 @@ class ReceiptAdjustment:
     amount_sen: int | None
     eligible_item_ids: tuple[str, ...]
     rationale: str
+    scope_mode: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,15 +331,21 @@ def _receipt_data(receipt):
         if change.amount_sen is not None:
             _require(not (change.kind in ('tax', 'service') and change.amount_sen < 0)
                      and not (change.kind == 'discount' and change.amount_sen > 0))
+        _require(change.scope_mode in (None, 'all_items', 'fixed_items'))
         _tuple(change.eligible_item_ids, 500, 1)
         scope = set()
         for item_id in change.eligible_item_ids:
             _id(item_id)
             _require(item_id in {i.id for i in receipt.items} and item_id not in scope)
             scope.add(item_id)
-        changes.append({'id': change.id, 'label': change.label, 'kind': change.kind,
-                        'amount_sen': change.amount_sen, 'eligible_item_ids': sorted(scope),
-                        'rationale': change.rationale})
+        if change.scope_mode == 'all_items':
+            _require(scope == {i.id for i in receipt.items})
+        entry = {'id': change.id, 'label': change.label, 'kind': change.kind,
+                 'amount_sen': change.amount_sen, 'eligible_item_ids': sorted(scope),
+                 'rationale': change.rationale}
+        if change.scope_mode is not None:
+            entry['scope_mode'] = change.scope_mode
+        changes.append(entry)
     return {'items': sorted(items, key=lambda i: i['id']), 'subtotal_sen': receipt.subtotal_sen,
             'total_sen': receipt.total_sen, 'adjustments': sorted(changes, key=lambda a: a['id']),
             'included_tax_sen': receipt.included_tax_sen}
@@ -350,7 +357,7 @@ def _decode_receipt(data):
     return Receipt(tuple(ReceiptItem(i['id'], i['label'], Fraction(*i['quantity']), i['line_sen'])
                          for i in data['items']), data['subtotal_sen'], data['total_sen'],
                    tuple(ReceiptAdjustment(a['id'], a['label'], a['kind'], a['amount_sen'],
-                                           tuple(a['eligible_item_ids']), a['rationale'])
+                                           tuple(a['eligible_item_ids']), a['rationale'], a.get('scope_mode'))
                          for a in data['adjustments']), data['included_tax_sen'])
 
 
@@ -1261,8 +1268,15 @@ class Authority:
                                       (meal_id, data['participant_id'])).fetchone()
             _require(target is not None and not target[0] and data['participant_id'] != actor, 'forbidden')
 
-    def _replace_receipt(self, state, data):
+    def _replace_receipt(self, state, data, omitted_scope_ids=()):
         old = state['receipt']
+        old_adjustments = {} if old is None else {a['id']: a for a in old['adjustments']}
+        for adjustment in data['receipt']['adjustments']:
+            previous = old_adjustments.get(adjustment['id'])
+            if previous and adjustment['id'] in omitted_scope_ids:
+                _require(previous['eligible_item_ids'] == adjustment['eligible_item_ids'])
+            if previous and previous.get('scope_mode') == 'all_items':
+                _require(adjustment.get('scope_mode') in ('all_items', 'fixed_items'))
         olditems = {} if old is None else {i['id']: i for i in old['items']}
         newitems = {i['id']: i for i in data['receipt']['items']}
         oldsources = set() if old is None else {i['id'] for i in old['items'] + old['adjustments']}
@@ -1427,7 +1441,7 @@ class Authority:
                                       (meal_id, data['participant_id'], now)).rowcount
             _require(inv_up > 0, 'already_revoked')
 
-    def apply(self, credential, meal_id, command):
+    def apply(self, credential, meal_id, command, *, replay_only=False, omitted_scope_ids=()):
         verifier = _verifier(credential)
         _id(meal_id)
         data = _command_data(command)
@@ -1447,6 +1461,7 @@ class Authority:
                 result = _decode_result(saved[2])
                 self._db.execute('COMMIT')
                 return result
+            _require(not replay_only)
             state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
             security = data['kind'] in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation')
             if not security:
@@ -1461,7 +1476,7 @@ class Authority:
             if 'expected_financial_revision' in data:
                 _require(data['expected_financial_revision'] == state['financial_revision'], 'financial_revision_conflict')
             if data['kind'] == 'ReplaceReceipt':
-                changed = self._replace_receipt(state, data)
+                changed = self._replace_receipt(state, data, omitted_scope_ids)
             elif data['kind'] == 'SetOwnQuantity':
                 changed = self._set_own_quantity(state, actor, data)
             elif data['kind'] == 'AssignParticipantQuantity':

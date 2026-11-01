@@ -6,8 +6,7 @@ import path, { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const conversationArtifactDir = 'C:\\Users\\alpha\\.gemini\\antigravity\\brain\\8551baa0-7cf7-4f83-91eb-19824df0c298';
-const ARTIFACT_DIR = process.env.ARTIFACT_DIR || (existsSync(conversationArtifactDir) ? conversationArtifactDir : join(REPO_ROOT, 'artifacts'));
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || join(REPO_ROOT, 'artifacts');
 if (!existsSync(ARTIFACT_DIR)) {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 }
@@ -90,6 +89,11 @@ class CDPPage {
     if (typeof expr === 'function') {
       exprStr = `(${expr.toString()})()`;
     }
+    // This verifier's numbered fixture aliases are mapped to the actual IDs
+    // returned by the authority; manually added items need not use sequence IDs.
+    if (this.fixtureIds) {
+      exprStr = exprStr.replace(/\bitem-([1-5])\b/g, (_, number) => this.fixtureIds[Number(number) - 1]);
+    }
     const res = await this.send('Runtime.evaluate', {
       expression: exprStr,
       returnByValue: true,
@@ -137,11 +141,16 @@ async function launchChrome(port, userDataDir, windowSize = '1280,800') {
     '--no-default-browser-check',
     '--headless=new',
     '--disable-gpu',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-background-networking',
+    '--disable-default-apps',
     `--window-size=${windowSize}`,
     'about:blank',
   ], { stdio: 'ignore' });
 
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 300; i++) {
+    if (proc.exitCode !== null) throw new Error(`Chrome exited before debugger startup: ${proc.exitCode}`);
     try {
       const res = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) {
@@ -242,6 +251,9 @@ async function main() {
     }`);
     await pageDesktop.waitFor("document.body.innerText.includes('Gourmet Dessert')");
     console.log('   ✓ 5 items added to receipt');
+    const fixtureIds = await pageDesktop.evaluate(`['Margherita Pizza', 'Pasta Carbonara', 'Sharing Platter', 'Garlic Bread', 'Gourmet Dessert'].map(label => state.snapshot.receipt.items.find(item => item.label === label)?.id)`);
+    if (fixtureIds.some(id => !id) || new Set(fixtureIds).size !== fixtureIds.length) throw new Error('Receipt fixture identities are missing or duplicated');
+    pageDesktop.fixtureIds = fixtureIds;
 
     // Verify receipt items against merchant bill (Human Receipt Review)
     console.log('[3/10] Verifying receipt total before allocations...');
@@ -506,6 +518,7 @@ async function main() {
 
     dinerBob = await launchChrome(9445, join(testDir, 'chrome-bob'), '1280,800');
     const pageBob = dinerBob.page;
+    pageBob.fixtureIds = fixtureIds;
     await pageBob.navigate(bobToken);
     await pageBob.waitFor("document.getElementById('redeem-btn') !== null");
     await pageBob.evaluate(`document.getElementById('redeem-btn').click()`);
