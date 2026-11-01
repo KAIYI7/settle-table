@@ -39,6 +39,51 @@ from settletable.notion import (
 from settletable.transport import SettleTableApp, redact_log_string
 
 
+class TestNotionHttpClientSecurity(unittest.TestCase):
+    """Test NotionHttpClient security controls, redirect disallowance, and token hygiene."""
+
+    def test_default_api_version_is_stable_2022_06_28(self):
+        from settletable.notion.client import NotionHttpClient
+        cli = NotionHttpClient()
+        self.assertEqual(cli.api_version, "2022-06-28")
+
+    def test_disallow_redirect_handler_blocks_redirects_and_preserves_token(self):
+        import urllib.error
+        from settletable.notion.client import DisallowRedirectHandler, NotionHttpClient, NotionError
+
+        handler = DisallowRedirectHandler()
+        # Simulate a 302 redirect attempting to forward request to external domain
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            handler.redirect_request(None, None, 302, "Found", {}, "https://evil.attacker.com/leak")
+        self.assertEqual(ctx.exception.code, 302)
+        self.assertIn("blocked to prevent credential leakage", str(ctx.exception))
+
+    def test_client_opener_has_disallow_redirect_handler(self):
+        from settletable.notion.client import DisallowRedirectHandler, NotionHttpClient
+        cli = NotionHttpClient()
+        self.assertTrue(any(isinstance(h, DisallowRedirectHandler) for h in cli._opener.handlers))
+
+    def test_request_redirect_raises_notion_error_with_blocked_msg(self):
+        import io
+        import urllib.error
+        from unittest.mock import patch
+        from settletable.notion.client import NotionHttpClient, NotionError
+
+        cli = NotionHttpClient()
+        redirect_err = urllib.error.HTTPError(
+            "https://api.notion.com/v1/pages",
+            302,
+            "Notion API redirect (302) blocked to prevent credential leakage",
+            {},
+            fp=io.BytesIO(b""),
+        )
+        with patch.object(cli._opener, "open", side_effect=redirect_err):
+            with self.assertRaises(NotionError) as ctx:
+                cli._request("test_token", "GET", "pages")
+            self.assertIn("302", str(ctx.exception))
+            self.assertIn("blocked to prevent credential leakage", str(ctx.exception))
+
+
 class TestNotionModelsAndFormatting(unittest.TestCase):
     """Test pure unit models, money formatting, and block generation."""
 

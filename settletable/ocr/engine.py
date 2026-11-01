@@ -181,9 +181,22 @@ class RapidOcrEngine:
         validate_image_payload(image_bytes)
         try:
             result = self._engine(image_bytes)
-            texts = result.txts or []
-            scores = result.scores or []
-            boxes = result.boxes if result.boxes is not None else []
+            if hasattr(result, "txts") and hasattr(result, "scores") and hasattr(result, "boxes"):
+                texts = result.txts or []
+                scores = result.scores or []
+                boxes = result.boxes if result.boxes is not None else []
+            elif isinstance(result, tuple) and len(result) >= 1:
+                raw_list = result[0] or []
+                boxes = [item[0] for item in raw_list]
+                texts = [item[1] for item in raw_list]
+                scores = [item[2] for item in raw_list]
+            elif isinstance(result, list):
+                boxes = [item[0] for item in result]
+                texts = [item[1] for item in result]
+                scores = [item[2] for item in result]
+            else:
+                texts, scores, boxes = [], [], []
+
             lines = []
             for txt, score, box in zip(texts, scores, boxes):
                 pts = tuple(tuple(int(coord) for coord in pt) for pt in box)

@@ -150,37 +150,32 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
         if any(kw in lbl for kw in ("INCLUSIVE OF", "INCL SST", "INCL GST", "TAX INCL", "TAX INCLUSIVE")):
             tax_included = True
 
-        # Check for summary lines
+        # Check for summary lines (must contain monetary amounts)
         summary_matched = False
-        if re.search(r"\b(?:SUB[-\s]*TOTAL|STTL|NET SALES|TOTAL SALES)\b", lbl) or (amounts and re.search(r"\bTOTAL.*EXCLUD", lbl)):
-            if amounts:
-                printed_subtotal_sen = amounts[-1]
+        if amounts and (re.search(r"\b(?:SUB[-\s]*TOTAL|STTL|NET SALES|TOTAL SALES)\b", lbl) or re.search(r"\bTOTAL.*EXCLUD", lbl)):
+            printed_subtotal_sen = amounts[-1]
             summary_matched = True
             in_items = False
             past_items = True
-        elif re.search(r"\b(?:ROUNDING|ROUND|ROUNDING ADJ)\b", lbl):
-            if amounts:
-                rounding_sen = amounts[-1]
+        elif amounts and re.search(r"\b(?:ROUNDING|ROUND|ROUNDING ADJ)\b", lbl):
+            rounding_sen = amounts[-1]
             summary_matched = True
             in_items = False
             past_items = True
-        elif re.search(r"\b(?:DISCOUNT|DISC|VOUCHER|REBATE|PROMO)\b", lbl):
-            if amounts:
-                discount_sen = abs(amounts[-1])
+        elif amounts and re.search(r"\b(?:DISCOUNT|DISC|VOUCHER|REBATE|PROMO)\b", lbl):
+            discount_sen = abs(amounts[-1])
             summary_matched = True
             in_items = False
             past_items = True
-        elif re.search(r"\b(?:SERVICE\s*(?:CHARGE|CHG)|SVC\s*CHG)\b", lbl):
-            if amounts:
-                service_sen = amounts[-1]
+        elif amounts and re.search(r"\b(?:SERVICE\s*(?:CHARGE|CHG)|SVC\s*CHG)\b", lbl):
+            service_sen = amounts[-1]
             summary_matched = True
             in_items = False
             past_items = True
-        elif re.search(r"\b(?:SST|GST|SERVICE TAX|SALES TAX|GOVT TAX)\b", lbl) and not re.search(r"\b(?:NO\.?|REG|INVOICE|SUMMARY|CODE|AMOUNT|TOTAL|TTL)\b", lbl):
-            if amounts:
-                tax_sen = amounts[-1]
-                if "GST" in lbl:
-                    tax_kind = "GST"
+        elif amounts and re.search(r"\b(?:SST|GST|SERVICE TAX|SALES TAX|GOVT TAX)\b", lbl) and not re.search(r"\b(?:NO\.?|REG|INVOICE|SUMMARY|CODE|AMOUNT|TOTAL|TTL|ID)\b", lbl):
+            tax_sen = amounts[-1]
+            if "GST" in lbl:
+                tax_kind = "GST"
             summary_matched = True
             in_items = False
             past_items = True
@@ -214,17 +209,31 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
         # Item line extraction
         if amounts:
             before = row[:matches[0].start()].strip()
-            # Match quantity: e.g. "2x", "2 x", "2", "1"
+            # Match quantity: e.g. "2x", "2 x", "2", "1" at start or trailing before price
             q_match = re.match(r"^(\d+(?:\.\d+)?)\s*(?:[xX]\s*)?", before)
             quantity = (1, 1)
             item_text = before
             if q_match:
-                try:
-                    frac = Fraction(q_match.group(1)).limit_denominator(100)
-                    quantity = (frac.numerator, frac.denominator)
-                    item_text = before[q_match.end():].strip()
-                except (ValueError, ZeroDivisionError):
-                    quantity = (1, 1)
+                matched_rest = before[q_match.end():].strip()
+                if any(c.isalpha() for c in matched_rest):
+                    try:
+                        frac = Fraction(q_match.group(1)).limit_denominator(100)
+                        quantity = (frac.numerator, frac.denominator)
+                        item_text = matched_rest
+                    except (ValueError, ZeroDivisionError):
+                        quantity = (1, 1)
+            if quantity == (1, 1):
+                trailing_q = re.search(r"\b(\d+(?:\.\d+)?)\s*[xX]?$", before)
+                if trailing_q:
+                    potential_text = before[:trailing_q.start()].strip()
+                    if potential_text and any(c.isalpha() for c in potential_text):
+                        try:
+                            frac = Fraction(trailing_q.group(1)).limit_denominator(100)
+                            if frac > 0:
+                                quantity = (frac.numerator, frac.denominator)
+                                item_text = potential_text
+                        except (ValueError, ZeroDivisionError):
+                            pass
             
             # Clean alphanumeric internal codes (e.g. "T01", "102")
             if re.fullmatch(r"[A-Za-z]*\d+[A-Za-z]*", item_text):

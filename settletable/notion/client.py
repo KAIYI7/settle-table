@@ -97,11 +97,26 @@ class NotionClientProtocol(Protocol):
         ...
 
 
+class DisallowRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Disallow automatic HTTP redirects to prevent token leakage or unexpected mutation replays."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        clean_url = sanitize_notion_error_message(newurl)
+        raise urllib.error.HTTPError(
+            clean_url,
+            code,
+            f"Notion API redirect ({code}) blocked to prevent credential leakage",
+            headers,
+            fp,
+        )
+
+
 class NotionHttpClient:
     """Standard library HTTP client for the Notion REST API.
     
     Hardcodes the base URL to https://api.notion.com/v1/ to prevent SSRF.
     Enforces bounded retries (sleep <= 2.0s) to prevent WSGI worker starvation.
+    Disallows automatic redirects to strictly protect Bearer tokens from forwarding leakage.
     """
 
     BASE_URL = "https://api.notion.com/v1"
@@ -109,6 +124,7 @@ class NotionHttpClient:
     def __init__(self, api_version: str = "2022-06-28", timeout_seconds: float = 8.0):
         self.api_version = api_version
         self.timeout_seconds = timeout_seconds
+        self._opener = urllib.request.build_opener(DisallowRedirectHandler())
 
     def _request(
         self,
@@ -131,7 +147,7 @@ class NotionHttpClient:
         while True:
             req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                with self._opener.open(req, timeout=self.timeout_seconds) as resp:
                     raw = resp.read().decode("utf-8")
                     return json.loads(raw) if raw else {}
             except urllib.error.HTTPError as err:
@@ -143,6 +159,9 @@ class NotionHttpClient:
                     err_msg = err_json.get("message", err_body_raw)
                 except Exception:
                     err_msg = err_body_raw
+
+                if not err_msg and getattr(err, "msg", ""):
+                    err_msg = getattr(err, "msg", "")
 
                 clean_msg = sanitize_notion_error_message(err_msg)
 
