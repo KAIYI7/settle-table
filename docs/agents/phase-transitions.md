@@ -1,5 +1,20 @@
 # Phase transition decisions
 
+## 2026-11-01 — Local OCR parsing and Notion redirect defense milestone: PR #26 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `d65d383857229600252a7c1d206bb5e59280a0f1` merged autonomously under orchestrator governance policy into `main` at `e06f606d5f9ff822ce54de7334fe9bc4daf1e63b`. GitHub PR #26 ([#26](https://github.com/KAIYI7/settle-table/pull/26)) verified on hosted CI before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| OCR parser & RapidOCR compatibility | PASS: summary lines require monetary amounts to prevent column header false positives from aborting scanning; added trailing item quantity extraction; polymorphic handling of RapidOCROutput dataclass and tuple/list formats. |
+| Notion security & redirect defense | PASS: DisallowRedirectHandler blocks all HTTP 3xx redirects on NotionHttpClient to eliminate Bearer token forwarding leakage across redirect chains; API version pinned at stable 2022-06-28. |
+| Local regression | PASS: 226/226 Python test suite methods passed in 88.7s; 12/12 automated real-browser CDP test stages passed in 23.5s (`tools/e2e_browser_test.mjs`). |
+| Hosted CI | PASS: [run 41314417879](https://github.com/KAIYI7/settle-table/actions/runs/41314417879) passed all Python and browser steps on exact PR head `d65d383857229600252a7c1d206bb5e59280a0f1` in ubuntu-24.04 (Python 3.14). |
+| Code review & hygiene | PASS: independent review APPROVE (conversation `dd8929f9-5be4-467c-8547-cd29620df349`); zero critical/high/medium findings; audited publication diff contains zero authentic receipt images, ONNX models, virtualenvs, or personal paths. |
+| Live Notion workspace & deployment | HELD: live smoke test procedure documented (`docs/notion-smoke-test.md`) with explicit consent and disposable setup steps; held behind PO authorization. No deployment or multi-payer work authorized. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-01 — Focused UAT corrective milestone: pre-merge decision
 
 **Orchestrator decision: PASS for the bounded corrective merge**, subject to unchanged PR head and base at merge. This is not local MVP acceptance or deployment approval.
