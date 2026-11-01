@@ -155,6 +155,58 @@ class TestMalaysianReceiptParser(unittest.TestCase):
         self.assertIn('candidate_receipt_mismatch', candidate.issues)
         self.assertEqual(candidate.route, 'manual_correction')
 
+    def test_summary_line_without_amounts_does_not_abort_item_scanning(self):
+        # Regression test: table headers containing 'Subtotal' or tax header 'GST ID' without amounts
+        # must NOT prematurely terminate item parsing.
+        box = ((10, 10), (100, 10), (100, 30), (10, 30))
+        lines = [
+            OcrLine("RESTORAN VEGAN JAYA", 0.99, ((10, 10), (100, 10), (100, 30), (10, 30))),
+            OcrLine("GST ID : (000619970560)", 0.98, ((10, 35), (100, 35), (100, 50), (10, 50))),
+            OcrLine("Qty Product Code Unit RM Subtotal RM", 0.97, ((10, 55), (100, 55), (100, 70), (10, 70))),
+            OcrLine("MUSHROOM CURRY 1 16.80", 0.99, ((10, 75), (100, 75), (100, 95), (10, 95))),
+            OcrLine("BROWN RICE 2 3.00 6.00", 0.98, ((10, 100), (100, 100), (100, 120), (10, 120))),
+            OcrLine("SUB-TOTAL 22.80", 0.99, ((10, 130), (100, 130), (100, 150), (10, 150))),
+            OcrLine("TOTAL 22.80", 0.99, ((10, 160), (100, 160), (100, 180), (10, 180))),
+        ]
+        cand = parse_malaysian_receipt(lines)
+        self.assertEqual(len(cand.items), 2)
+        self.assertEqual(cand.items[0].label, "MUSHROOM CURRY")
+        self.assertEqual(cand.items[0].line_sen, 1680)
+        self.assertEqual(cand.items[1].label, "BROWN RICE")
+        self.assertEqual(cand.items[1].quantity, (2, 1))
+        self.assertEqual(cand.items[1].unit_price_sen, 300)
+        self.assertEqual(cand.items[1].line_sen, 600)
+        self.assertTrue(cand.reconciled)
+
+    def test_trailing_item_quantity_extraction(self):
+        lines = [
+            OcrLine("RESTORAN TEST", 0.99, ((10, 10), (100, 10), (100, 30), (10, 30))),
+            OcrLine("NASI LEMAK 3 12.00 36.00", 0.99, ((10, 50), (100, 50), (100, 70), (10, 70))),
+            OcrLine("TEH TARIK 2 3.00 6.00", 0.99, ((10, 75), (100, 75), (100, 95), (10, 95))),
+            OcrLine("SUBTOTAL 42.00", 0.99, ((10, 110), (100, 110), (100, 130), (10, 130))),
+            OcrLine("TOTAL 42.00", 0.99, ((10, 140), (100, 140), (100, 160), (10, 160))),
+        ]
+        cand = parse_malaysian_receipt(lines)
+        self.assertEqual(len(cand.items), 2)
+        self.assertEqual(cand.items[0].label, "NASI LEMAK")
+        self.assertEqual(cand.items[0].quantity, (3, 1))
+        self.assertEqual(cand.items[0].unit_price_sen, 1200)
+        self.assertEqual(cand.items[0].line_sen, 3600)
+        self.assertEqual(cand.items[1].label, "TEH TARIK")
+        self.assertEqual(cand.items[1].quantity, (2, 1))
+        self.assertEqual(cand.items[1].line_sen, 600)
+        self.assertTrue(cand.reconciled)
+
+    def test_trailing_zero_quantity_does_not_set_zero_quantity(self):
+        lines = [
+            OcrLine("RESTORAN TEST", 0.99, ((10, 10), (100, 10), (100, 30), (10, 30))),
+            OcrLine("COKE ZERO 0 5.00", 0.99, ((10, 50), (100, 50), (100, 70), (10, 70))),
+            OcrLine("TOTAL 5.00", 0.99, ((10, 140), (100, 140), (100, 160), (10, 160))),
+        ]
+        cand = parse_malaysian_receipt(lines)
+        self.assertEqual(len(cand.items), 1)
+        self.assertEqual(cand.items[0].quantity, (1, 1))
+
     def test_synthetic_clear_reconciliation(self):
         tokens = self.fixtures.get('synthetic_clear.png')
         if not tokens:
@@ -409,6 +461,52 @@ class TestOcrTransportIntegration(unittest.TestCase):
         with patch.object(socket.socket, 'connect', side_effect=RuntimeError('Outbound network attempt blocked!')):
             code, _, body = self._call('POST', '/api/meals/meal-ocr-test/ocr/extract', headers, self.valid_png_bytes)
             self.assertEqual(code, 200)
+
+
+class TestRapidOcrEngineOutputCompatibility(unittest.TestCase):
+    """Test RapidOcrEngine across different RapidOCR distribution return types."""
+
+    def setUp(self):
+        # Generate minimal valid PNG bytes (10x10)
+        self.valid_png = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + (10).to_bytes(4, 'big') + (10).to_bytes(4, 'big') + b'\x08\x02\x00\x00\x00'
+
+    def test_handles_rapidocr_onnxruntime_tuple_return(self):
+        from settletable.ocr.engine import RapidOcrEngine
+        engine = object.__new__(RapidOcrEngine)
+        # rapidocr_onnxruntime returns (result_list, elapse_list)
+        box = [[10, 10], [100, 10], [100, 30], [10, 30]]
+        engine._engine = lambda img: ([[box, "NASI LEMAK", 0.985]], [0.01, 0.05])
+        lines = engine.recognize(self.valid_png)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0].text, "NASI LEMAK")
+        self.assertEqual(lines[0].score, 0.985)
+        self.assertEqual(lines[0].box, ((10, 10), (100, 10), (100, 30), (10, 30)))
+
+    def test_handles_rapidocr_dataclass_return(self):
+        from settletable.ocr.engine import RapidOcrEngine
+        from dataclasses import dataclass
+
+        @dataclass
+        class MockRapidOCROutput:
+            boxes: list
+            txts: list
+            scores: list
+
+        engine = object.__new__(RapidOcrEngine)
+        box = [[10, 10], [100, 10], [100, 30], [10, 30]]
+        engine._engine = lambda img: MockRapidOCROutput(boxes=[box], txts=["TEH TARIK"], scores=[0.97])
+        lines = engine.recognize(self.valid_png)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0].text, "TEH TARIK")
+        self.assertEqual(lines[0].score, 0.97)
+
+    def test_handles_empty_or_none_recognition(self):
+        from settletable.ocr.engine import RapidOcrEngine
+        engine = object.__new__(RapidOcrEngine)
+        # Empty tuple or None
+        engine._engine = lambda img: (None, None)
+        lines = engine.recognize(self.valid_png)
+        self.assertEqual(lines, [])
 
 
 if __name__ == '__main__':

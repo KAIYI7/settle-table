@@ -1,0 +1,9 @@
+# Optional local OCR dependencies for SettleTable
+# Provides strictly local offline CPU optical character recognition (zero cloud calls)
+rapidocr-onnxruntime>=1.2.3
+onnxruntime>=1.17.0
+numpy>=1.24.0
+pillow>=10.0.0
+pyclipper>=1.2.1
+shapely>=2.0.0
+opencv-python-headless>=4.8.0
