@@ -31,3 +31,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Real browser end-to-end journey tests (Chrome CDP)
         run: node tools/e2e_browser_test.mjs
+      - name: Financial scope and mock export browser regression
+        run: node tools/verify_financial_export.mjs
+      - name: Allocation conflict recovery browser regression
+        run: node tools/verify_conflict_recovery.mjs

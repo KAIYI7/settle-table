@@ -297,6 +297,7 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
             amount_sen=service_sen,
             eligible_item_ids=all_item_ids,
             rationale="Extracted service charge from receipt",
+            scope_mode='all_items',
         ))
 
     if discount_sen is not None and discount_sen > 0:

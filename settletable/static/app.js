@@ -13,6 +13,7 @@ const state = {
   pollTimer: null,
   pollSeq: 0,
   mutationActive: false,
+  allocationConflictPending: false,
   issuedTokens: {},
   ocrCandidate: null,
   notionParentId: '',
@@ -28,6 +29,35 @@ const state = {
   activeMobileSheetItemId: null,
   selectedSplitDiners: new Map(),
 };
+
+// The allocation sheet is rebuilt on each snapshot, so retain descriptors rather
+// than references to DOM nodes that will be replaced.
+let sheetTrigger = null;
+const sheetFocusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+function focusDescriptor(element) {
+  if (!element) return null;
+  return ['data-action', 'data-item', 'data-target', 'data-frac', 'data-step', 'id']
+    .map(name => [name, element.getAttribute(name)]);
+}
+function findDescribedElement(root, descriptor) {
+  if (!descriptor) return null;
+  return [...root.querySelectorAll(sheetFocusableSelector)].find(el =>
+    descriptor.every(([name, value]) => el.getAttribute(name) === value));
+}
+function sheetFocusables(sheet) {
+  return [...sheet.querySelectorAll(sheetFocusableSelector)].filter(el => el.getClientRects().length);
+}
+function closeMobileSheet() {
+  state.activeMobileSheetItemId = null;
+  updateMealUI();
+}
+
+function freshReceiptItemId(items, adjustments) {
+  const occupied = new Set([...items, ...adjustments].map(source => source.id));
+  let id;
+  do { id = `item-${crypto.randomUUID()}`; } while (occupied.has(id));
+  return id;
+}
 
 function gcd(a, b) {
   a = Math.abs(a);
@@ -517,14 +547,32 @@ window.addEventListener('resize', () => {
   syncAlertContainerPlacement();
 });
 window.addEventListener('keydown', (e) => {
+  const sheet = document.getElementById('hybrid-bottom-sheet');
+  if (sheet && e.key === 'Tab') {
+    const controls = sheetFocusables(sheet);
+    const index = controls.indexOf(document.activeElement);
+    if (!controls.length) {
+      e.preventDefault();
+      sheet.focus();
+    } else if (index < 0 || (e.shiftKey && index === 0) || (!e.shiftKey && index === controls.length - 1)) {
+      e.preventDefault();
+      controls[e.shiftKey ? controls.length - 1 : 0].focus();
+    }
+  }
   if (e.key === 'Escape') {
     if (state.activeMobileSheetItemId) {
-      state.activeMobileSheetItemId = null;
-      updateMealUI();
+      closeMobileSheet();
     } else if (state.expandedHybridItemIds && state.expandedHybridItemIds.size > 0) {
       state.expandedHybridItemIds.clear();
       updateMealUI();
     }
+  }
+});
+
+document.addEventListener('focusin', (e) => {
+  const sheet = document.getElementById('hybrid-bottom-sheet');
+  if (sheet && !sheet.contains(e.target)) {
+    (sheetFocusables(sheet)[0] || sheet).focus();
   }
 });
 
@@ -589,12 +637,26 @@ async function fetchSnapshot(force = false) {
         updateMealUI();
         if (snap.finalized && !prevFinalized) loadSimulationReads(snap);
       }
+      if (state.allocationConflictPending) {
+        state.allocationConflictPending = false;
+        showAlert('⚠️ Allocation Conflict: Latest state reloaded. Review the allocations before trying again.', 'conflict');
+      }
+      return true;
     }
+    if (seq === state.pollSeq && state.allocationConflictPending) {
+      showAlert('⚠️ Allocation Conflict: Refresh failed. Check your connection or session, close Details / Split if open, then use the refresh button to retry.', 'conflict');
+    }
+    return false;
   } catch (err) {
-    if (err.status === 401) {
-      stopPolling();
-      showAlert('Session expired. Please rejoin or request a new invite.', 'error');
+    if (seq === state.pollSeq) {
+      if (err.status === 401) stopPolling();
+      if (state.allocationConflictPending) {
+        showAlert('⚠️ Allocation Conflict: Refresh failed. Check your connection or session, close Details / Split if open, then use the refresh button to retry.', 'conflict');
+      } else if (err.status === 401) {
+        showAlert('Session expired. Please rejoin or request a new invite.', 'error');
+      }
     }
+    return false;
   }
 }
 
@@ -614,6 +676,7 @@ async function handleLeaveRoom() {
   resetSimulationView();
   state.mealId = null;
   state.snapshot = null;
+  state.allocationConflictPending = false;
   state.currentUserId = null;
   state.isOrganizer = false;
   state.ocrCandidate = null;
@@ -1078,8 +1141,21 @@ function updateMealUI() {
   const snap = state.snapshot;
   if (!snap) return;
 
-  // Preserve any in-progress input values and active focus across re-renders
+  // Preserve receipt drafts during conflict recovery, including closing the sheet.
+  const draftSelector = state.allocationConflictPending
+    ? '#new-item-label, #new-item-qty, #new-item-price, [id^="ocr-item-"], [id^="ocr-adj-"], #ocr-edit-included-tax'
+    : '#new-item-label, #new-item-qty, #new-item-price';
+  const conflictDrafts = Array.from(document.querySelectorAll(draftSelector)).map(el => [el.id, el.value]);
+  const scopeDrafts = Array.from(document.querySelectorAll('details[data-service-scope]')).map(details => {
+    const inputs = [...details.querySelectorAll('.service-scope-item')];
+    const dirty = inputs.some(input => input.checked !== input.defaultChecked);
+    return { adjustment: details.dataset.serviceScope, open: details.open,
+      revision: details.dataset.financialRevision, warned: !!details.querySelector('.scope-draft-warning'),
+      selected: dirty ? inputs.map(input => [input.value, input.checked]) : null };
+  }).filter(draft => draft.open || draft.selected);
   const activeElem = document.activeElement;
+  const previousSheet = document.getElementById('hybrid-bottom-sheet');
+  const sheetFocus = previousSheet?.contains(activeElem) ? focusDescriptor(activeElem) : null;
   const activeId = activeElem?.id;
   const selectionStart = activeElem?.selectionStart;
   const selectionEnd = activeElem?.selectionEnd;
@@ -1094,6 +1170,41 @@ function updateMealUI() {
   }
 
   const restoreFocus = () => {
+    for (const [id, value] of conflictDrafts) {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    }
+    for (const draft of scopeDrafts) {
+      const details = Array.from(document.querySelectorAll('details[data-service-scope]'))
+        .find(el => el.dataset.serviceScope === draft.adjustment);
+      if (!details) continue;
+      details.open = draft.open;
+      if (draft.selected) {
+        if (draft.warned || draft.revision !== String(snap.financial_revision)) {
+          details.open = true;
+          const warning = document.createElement('p');
+          warning.className = 'scope-draft-warning';
+          warning.setAttribute('role', 'status');
+          warning.textContent = 'Receipt changed while you were editing this selection. Review the latest receipt and your selection before applying it.';
+          details.insertBefore(warning, details.querySelector('summary')?.nextSibling || null);
+        }
+        const selected = new Map(draft.selected);
+        for (const input of details.querySelectorAll('.service-scope-item')) {
+          if (selected.has(input.value)) input.checked = selected.get(input.value);
+        }
+      }
+    }
+    const sheet = document.getElementById('hybrid-bottom-sheet');
+    if (sheet) {
+      (findDescribedElement(sheet, sheetFocus) || sheetFocusables(sheet)[0] || sheet).focus({ preventScroll: true });
+      return;
+    }
+    if (previousSheet) {
+      const trigger = findDescribedElement(document, sheetTrigger);
+      sheetTrigger = null;
+      if (trigger) trigger.focus({ preventScroll: true });
+      return;
+    }
     if (activeId) {
       const el = document.getElementById(activeId);
       if (el) {
@@ -1241,7 +1352,11 @@ function renderOrganizerSection(snap) {
   if (items.length > 0 && receipt?.subtotal_sen !== null && receipt?.subtotal_sen !== undefined) {
     let adjRows = (receipt?.adjustments || []).map(a => `
       <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 2px;">
-        <span>${escapeHtml(a.label || a.kind)}</span>
+        <span>${escapeHtml(a.label || a.kind)} ${a.scope_mode === 'all_items' ? '(all receipt items)' : '(selected items)'}
+          ${a.kind === 'service' && !state.ocrCandidate ? `<details data-service-scope="${escapeHtml(a.id)}" data-financial-revision="${escapeHtml(snap.financial_revision)}"><summary>Change service charge scope</summary><small>Changing the scope changes who shares this charge; its amount stays the same and receipt review is required again.</small>
+            <div>${items.map(it => `<label style="display:inline-block; margin:4px 8px 4px 0"><input type="checkbox" class="service-scope-item" data-adjustment="${escapeHtml(a.id)}" value="${escapeHtml(it.id)}" ${(a.eligible_item_ids || []).includes(it.id) ? 'checked' : ''}> ${escapeHtml(it.label)}</label>`).join('')}</div>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="service-fixed-items" data-adjustment="${escapeHtml(a.id)}">Apply to selected items</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="service-all-items" data-adjustment="${escapeHtml(a.id)}">Apply to all receipt items</button></details>` : ''}</span>
         <span>${formatSen(a.amount_sen)}</span>
       </div>
     `).join('');
@@ -1408,6 +1523,14 @@ function renderOrganizerSection(snap) {
                   </div>
                   <div class="ocr-adj-field ocr-adj-field-action">
                     <button type="button" class="ocr-del-btn ocr-del-adj-btn" data-adj-idx="${idx}" title="Remove adjustment" aria-label="Remove adjustment ${escapeHtml(adj.label || '')}">✕</button>
+                  </div>
+                  <div>
+                    <label>Applies to <select class="ocr-adj-scope form-input" data-adj-idx="${idx}">
+                      <option value="all_items" ${adj.scope_mode === 'all_items' ? 'selected' : ''}>All receipt items, including later additions</option>
+                      <option value="fixed" ${adj.scope_mode !== 'all_items' ? 'selected' : ''}>Selected items only</option>
+                    </select></label>
+                    ${adj.kind === 'service' ? '<small>Check this scope against the printed receipt; scanning cannot determine item-specific charges.</small>' : ''}
+                    <div>${state.ocrCandidate.items.map(it => `<label style="display:inline-block; margin:4px 8px 4px 0"><input type="checkbox" class="ocr-scope-item" data-adj-idx="${idx}" value="${escapeHtml(it.id)}" ${adj.scope_mode === 'all_items' || (adj.eligible_item_ids || []).includes(it.id) ? 'checked' : ''} ${adj.scope_mode === 'all_items' ? 'disabled' : ''}> ${escapeHtml(it.label)}</label>`).join('')}</div>
                   </div>
                 </div>
               `).join('')}
@@ -1597,8 +1720,9 @@ function renderInvitationList(snap) {
   }).join('');
 }
 
-function openItemEditor(itemId) {
+function openItemEditor(itemId, trigger = document.activeElement) {
   if (window.innerWidth < 768) {
+    sheetTrigger = focusDescriptor(trigger);
     state.activeMobileSheetItemId = itemId;
   } else {
     state.expandedHybridItemIds.add(itemId);
@@ -1606,11 +1730,12 @@ function openItemEditor(itemId) {
   updateMealUI();
 }
 
-function toggleItemEditor(itemId) {
+function toggleItemEditor(itemId, trigger = document.activeElement) {
   if (window.innerWidth < 768) {
     if (state.activeMobileSheetItemId === itemId) {
       state.activeMobileSheetItemId = null;
     } else {
+      sheetTrigger = focusDescriptor(trigger);
       state.activeMobileSheetItemId = itemId;
     }
   } else {
@@ -1626,6 +1751,10 @@ function toggleItemEditor(itemId) {
 async function executeSetItemAllocations(itemId, allocations, expectedItemRevision) {
   const snap = state.snapshot;
   if (!snap || !snap.meal_id) return;
+  if (state.allocationConflictPending) {
+    showAlert('⚠️ Allocation Conflict: Refresh failed. Check your connection or session, close Details / Split if open, then use the refresh button to retry.', 'conflict');
+    return;
+  }
 
   const payload = {
     command_id: `alloc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1644,7 +1773,8 @@ async function executeSetItemAllocations(itemId, allocations, expectedItemRevisi
   } catch (err) {
     state.mutationActive = false;
     if (err.status === 409 || err.code === 'item_revision_conflict' || err.code === 'financial_revision_conflict' || err.code === 'revision_conflict') {
-      showAlert('⚠️ Allocation Conflict: Another diner or organizer modified this item or receipt. Latest state reloaded.', 'conflict');
+      state.allocationConflictPending = true;
+      showAlert('⚠️ Allocation Conflict: Another diner or organizer modified this item or receipt. Refreshing latest state…', 'conflict');
       await fetchSnapshot(true);
     } else if (err.code === 'quantity_capacity') {
       showAlert('⚠️ Capacity Exceeded: Total allocated quantity cannot exceed item quantity.', 'error');
@@ -1996,7 +2126,7 @@ function renderClaimsSection(snap) {
 
       mobileSheetHtml = `
         <div class="bottom-sheet-scrim" data-action="close-sheet"></div>
-        <div class="bottom-sheet-modal" role="dialog" aria-modal="true" aria-labelledby="bottom-sheet-title" id="hybrid-bottom-sheet">
+        <div class="bottom-sheet-modal" role="dialog" aria-modal="true" aria-labelledby="bottom-sheet-title" id="hybrid-bottom-sheet" tabindex="-1">
           <div class="bottom-sheet-handle"></div>
           <div class="bottom-sheet-header">
             <div>
@@ -2245,12 +2375,63 @@ function bindEvents(snap) {
     button.addEventListener('click', () => requestSimulation(button.dataset.participantId, button.dataset.simulationAction === 'initiate'));
   });
   // 1. Add Item Form
+  document.querySelectorAll('[data-action="service-all-items"], [data-action="service-fixed-items"]').forEach(button => {
+    button.addEventListener('click', async () => {
+      const adjustment = button.getAttribute('data-adjustment');
+      const receipt = snap.receipt;
+      if (!receipt || !receipt.items.length) return;
+      const mode = button.getAttribute('data-action') === 'service-all-items' ? 'all_items' : 'fixed_items';
+      const submittedSelection = [...document.querySelectorAll('.service-scope-item')]
+        .filter(el => el.dataset.adjustment === adjustment).map(el => [el.value, el.checked]);
+      const selected = mode === 'all_items' ? receipt.items.map(i => i.id)
+        : [...document.querySelectorAll('.service-scope-item')].filter(el => el.dataset.adjustment === adjustment && el.checked).map(el => el.value);
+      if (!selected.length) {
+        showAlert('Select at least one eligible item for the service charge.', 'error');
+        return;
+      }
+      const adjustments = receipt.adjustments.map(a => a.id === adjustment
+        ? { ...a, scope_mode: mode, eligible_item_ids: selected }
+        : a);
+      button.disabled = true;
+      state.mutationActive = true;
+      try {
+        await apiCall(`/api/meals/${snap.meal_id}/apply`, 'POST', {
+          kind: 'ReplaceReceipt', command_id: `scope-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          expected_revision: snap.revision, expected_financial_revision: snap.financial_revision,
+          receipt: { ...receipt, adjustments },
+        });
+        state.mutationActive = false;
+        const currentDetails = Array.from(document.querySelectorAll('details[data-service-scope]'))
+          .find(el => el.dataset.serviceScope === adjustment);
+        if (currentDetails) {
+          const currentInputs = [...currentDetails.querySelectorAll('.service-scope-item')];
+          if (currentInputs.length === submittedSelection.length && currentInputs.every((input, index) =>
+            input.value === submittedSelection[index][0] && input.checked === submittedSelection[index][1])) {
+            currentDetails.open = false;
+            for (const input of currentInputs) {
+              input.checked = selected.includes(input.value);
+              input.defaultChecked = input.checked;
+            }
+          }
+        }
+        await fetchSnapshot(true);
+        showAlert('Service charge scope updated. Review the receipt again before finalizing.', 'success');
+      } catch (err) {
+        handleApiError(err);
+      } finally {
+        state.mutationActive = false;
+        button.disabled = false;
+      }
+    });
+  });
   const addItemForm = document.getElementById('add-item-form');
   if (addItemForm) {
     addItemForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const label = document.getElementById('new-item-label').value.trim();
-      const qty = parseInt(document.getElementById('new-item-qty').value, 10);
+      const submittedDraft = ['new-item-label', 'new-item-qty', 'new-item-price']
+        .map(id => document.getElementById(id).value);
+      const label = submittedDraft[0].trim();
+      const qty = parseInt(submittedDraft[1], 10);
       if (!label) {
         showAlert('Item name is required', 'error');
         return;
@@ -2273,7 +2454,10 @@ function bindEvents(snap) {
       }
 
       const currentItems = snap.receipt?.items ? [...snap.receipt.items] : [];
-      const newItemId = `item-${currentItems.length + 1}`;
+      // Initial empty meals retain the familiar ID. Subsequent corrections use
+      // fresh identities because deleted IDs are permanently retired by authority.
+      const newItemId = snap.financial_revision === 0 && currentItems.length === 0
+        ? 'item-1' : freshReceiptItemId(currentItems, snap.receipt?.adjustments || []);
       currentItems.push({
         id: newItemId,
         label,
@@ -2301,6 +2485,12 @@ function bindEvents(snap) {
           }
         });
         state.mutationActive = false;
+        const currentForm = document.getElementById('add-item-form');
+        const currentDraft = ['new-item-label', 'new-item-qty', 'new-item-price']
+          .map(id => document.getElementById(id)?.value);
+        if (currentForm && currentDraft.every((value, index) => value === submittedDraft[index])) {
+          currentForm.reset();
+        }
         await fetchSnapshot(true);
         showAlert(`Added "${label}" (${formatSen(priceSen)}) ✓`, 'success');
       } catch (err) {
@@ -2451,9 +2641,9 @@ function bindEvents(snap) {
       const existingRationale = (cand.adjustments && cand.adjustments[j] && cand.adjustments[j].rationale)
         ? cand.adjustments[j].rationale
         : `${label} adjustment`;
-      const eligible = (cand.adjustments && cand.adjustments[j] && cand.adjustments[j].eligible_item_ids)
-        ? cand.adjustments[j].eligible_item_ids
-        : items.map(it => it.id);
+      const mode = row.querySelector('.ocr-adj-scope')?.value === 'all_items' ? 'all_items' : 'fixed_items';
+      const eligible = mode === 'all_items' ? items.map(it => it.id)
+        : [...row.querySelectorAll('.ocr-scope-item:checked')].map(el => el.value);
       adjustments.push({
         id: existingId,
         label,
@@ -2461,6 +2651,7 @@ function bindEvents(snap) {
         amount_sen: amountSen,
         eligible_item_ids: eligible,
         rationale: existingRationale,
+        scope_mode: mode,
       });
     });
 
@@ -2492,6 +2683,9 @@ function bindEvents(snap) {
   };
 
   if (state.ocrCandidate) {
+    document.querySelectorAll('.ocr-adj-scope, .ocr-scope-item').forEach(el => {
+      el.addEventListener('change', () => { syncCandidateInputs(); updateMealUI(); });
+    });
     document.querySelectorAll('.ocr-edit-item-label, .ocr-edit-item-qty, .ocr-edit-item-price, .ocr-edit-adj-label, .ocr-edit-adj-kind, .ocr-edit-adj-amount, #ocr-edit-included-tax').forEach(el => {
       el.addEventListener('input', syncCandidateInputs);
       el.addEventListener('change', syncCandidateInputs);
@@ -2578,7 +2772,7 @@ function bindEvents(snap) {
       syncCandidateInputs();
       const items = state.ocrCandidate.items || [];
       items.push({
-        id: `item-${items.length + 1}`,
+        id: freshReceiptItemId(items, state.ocrCandidate.adjustments || []),
         label: `Item ${items.length + 1}`,
         quantity: 1,
         line_sen: 1000,
@@ -2657,7 +2851,7 @@ function bindEvents(snap) {
       const itemIdSet = new Set(allItemIds);
       const cleanAdjustments = (candidate.adjustments || []).map((adj, idx) => {
         const filteredEligible = (adj.eligible_item_ids || []).filter(id => itemIdSet.has(id));
-        const finalEligible = filteredEligible.length > 0 ? filteredEligible : allItemIds;
+        const finalEligible = adj.scope_mode === 'all_items' ? allItemIds : filteredEligible;
         const fallbackRationale = `${adj.label || adj.kind || 'Receipt'} adjustment`;
         return {
           id: adj.id || `adj-${idx + 1}`,
@@ -2666,8 +2860,13 @@ function bindEvents(snap) {
           amount_sen: adj.amount_sen,
           eligible_item_ids: finalEligible,
           rationale: (adj.rationale && adj.rationale.trim()) ? adj.rationale.trim() : fallbackRationale,
+          scope_mode: adj.scope_mode || null,
         };
       });
+      if (cleanAdjustments.some(adj => adj.eligible_item_ids.length === 0)) {
+        showAlert('An adjustment has no eligible items. Remove or correct the adjustment before applying the receipt.', 'error');
+        return;
+      }
 
       ocrAcceptBtn.disabled = true;
       state.mutationActive = true;
@@ -2866,14 +3065,14 @@ function bindEvents(snap) {
     document.querySelectorAll('[data-action="hybrid-open-details"]').forEach(btn => {
       btn.addEventListener('click', () => {
         const itemId = btn.getAttribute('data-item');
-        openItemEditor(itemId);
+        openItemEditor(itemId, btn);
       });
     });
 
     document.querySelectorAll('[data-action="hybrid-toggle-details"]').forEach(btn => {
       btn.addEventListener('click', () => {
         const itemId = btn.getAttribute('data-item');
-        toggleItemEditor(itemId);
+        toggleItemEditor(itemId, btn);
       });
     });
 
@@ -3030,8 +3229,7 @@ function bindEvents(snap) {
     // 9. Close Sheet / Close Details
     document.querySelectorAll('[data-action="close-sheet"]').forEach(el => {
       el.addEventListener('click', () => {
-        state.activeMobileSheetItemId = null;
-        updateMealUI();
+        closeMobileSheet();
       });
     });
 
@@ -3073,7 +3271,7 @@ function bindEvents(snap) {
       try {
         const payload = {
           kind: 'SetOwnQuantity',
-          command_id: `setownquantity-${Date.now()}-${itemId}`,
+          command_id: `own-${crypto.randomUUID()}`,
           item_id: itemId,
           quantity: targetVal === 0 ? null : targetVal,
           expected_item_revision: rev,

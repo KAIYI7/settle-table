@@ -726,8 +726,29 @@ class SettleTableApp:
             if not active_cred:
                 raise TransportError('invalid_session', 401)
             meal_id = m.group(1)
-            command = self._build_command(body_data)
-            accepted = authority.apply(active_cred, meal_id, command)
+            # Earlier transports normalized invalid explicit scopes. Permit only
+            # exact accepted-command replay under that historical normalization;
+            # never use it to accept a new silently widened adjustment.
+            legacy_scope = False
+            omitted_scope_ids = []
+            if isinstance(body_data, dict) and body_data.get('kind') == 'ReplaceReceipt':
+                rcpt = body_data.get('receipt')
+                if isinstance(rcpt, dict):
+                    raw_items = rcpt.get('items', [])
+                    raw_adjustments = rcpt.get('adjustments', [])
+                    if not isinstance(raw_items, list) or not isinstance(raw_adjustments, list):
+                        raise TransportError('invalid_input', 400)
+                    ids = {i.get('id') for i in raw_items if isinstance(i, dict) and isinstance(i.get('id'), str)}
+                    for index, adj in enumerate(raw_adjustments, start=1):
+                        if isinstance(adj, dict) and adj.get('scope_mode') is None and adj.get('eligible_item_ids') is None:
+                            omitted_scope_ids.append(str(adj.get('id') or f'adj-{index}'))
+                        if isinstance(adj, dict) and adj.get('scope_mode') is None and adj.get('eligible_item_ids') is not None:
+                            scope = adj['eligible_item_ids']
+                            if not isinstance(scope, list) or not scope or any(not isinstance(i, str) or i not in ids for i in scope):
+                                legacy_scope = True
+            command = self._build_command(body_data, legacy_scope=legacy_scope)
+            accepted = authority.apply(active_cred, meal_id, command, replay_only=legacy_scope,
+                                       omitted_scope_ids=tuple(omitted_scope_ids))
             out = {
                 'ok': True,
                 'kind': accepted.kind,
@@ -974,7 +995,7 @@ class SettleTableApp:
             return qty
         raise TransportError('invalid_input', 400)
 
-    def _build_command(self, data):
+    def _build_command(self, data, *, legacy_scope=False):
         if not isinstance(data, dict):
             raise TransportError('invalid_input', 400)
         # Actor/organizer spoofing defense: callers cannot provide actor/organizer
@@ -1000,10 +1021,24 @@ class SettleTableApp:
                 item_id_set = {item.id for item in items}
                 adjustments = []
                 for idx, adj in enumerate(raw_adjustments, start=1):
-                    raw_eligible = adj.get('eligible_item_ids') or ()
-                    eligible = tuple(eid for eid in raw_eligible if eid in item_id_set)
-                    if not eligible:
+                    mode = adj.get('scope_mode')
+                    if mode not in (None, 'all_items', 'fixed_items'):
+                        raise TransportError('invalid_input', 400)
+                    raw_eligible = adj.get('eligible_item_ids')
+                    if mode == 'fixed_items' and not isinstance(raw_eligible, list):
+                        raise TransportError('invalid_input', 400)
+                    if mode == 'all_items' or raw_eligible is None:
                         eligible = tuple(item.id for item in items)
+                    elif legacy_scope:
+                        if not raw_eligible:
+                            raw_eligible = ()
+                        if not isinstance(raw_eligible, (list, tuple, str, dict)):
+                            raise TransportError('invalid_input', 400)
+                        eligible = tuple(eid for eid in raw_eligible if isinstance(eid, str) and eid in item_id_set)
+                        if not eligible:
+                            eligible = tuple(item.id for item in items)
+                    else:
+                        eligible = tuple(raw_eligible)
                     adj_id = adj.get('id') or f"adj-{idx}"
                     label = adj.get('label') or adj.get('kind') or f"Adjustment {idx}"
                     rationale = adj.get('rationale')
@@ -1018,6 +1053,7 @@ class SettleTableApp:
                         amount_sen=adj.get('amount_sen'),
                         eligible_item_ids=eligible,
                         rationale=rationale,
+                        scope_mode=mode,
                     ))
                 receipt = Receipt(
                     items=tuple(items),
