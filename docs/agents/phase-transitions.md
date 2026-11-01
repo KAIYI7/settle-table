@@ -1,5 +1,20 @@
 # Phase transition decisions
 
+## 2026-11-01 — Focused UAT corrective milestone: pre-merge decision
+
+**Orchestrator decision: PASS for the bounded corrective merge**, subject to unchanged PR head and base at merge. This is not local MVP acceptance or deployment approval.
+
+Merged [PR #24](https://github.com/KAIYI7/settle-table/pull/24) as `7aaf2b32a72462d956f93e8f54adfd627a7ff86e`; GitHub confirmed that SHA on remote `main` and PR head `0cfb96119fc17cb21f0d77b76c0362b1fe8acfcb`. The merge has both expected parents and its tree equals the reviewed head tree.
+
+| Gate | Disposition |
+| --- | --- |
+| Financial policy and compatibility | PASS: owner confirmed fixed legacy scope and blocking empty fixed scopes; independent financial/security review and historical replay checks passed; calculator unchanged. |
+| Modal and recovery | PASS: independent specification and recovery reviews, keyboard tests, competing identities, blocked and superseded refreshes, and preserved drafts. |
+| Local regression | PASS: 216 Python tests; 12 Chrome E2E stages; focused financial/export and recovery tests; ten Concept C scenarios. Path cleanup independently reviewed and affected browser tests rerun. |
+| Hosted CI | PASS: [run 41276975790](https://github.com/KAIYI7/settle-table/actions/runs/41276975790) passed all Python and browser steps on PR head `0cfb96119fc17cb21f0d77b76c0362b1fe8acfcb`. |
+| Final review | PASS: 17 audited publication files matched reviewed local blob hashes; private repository, PR head, and base `73806f67338461ed169a47f4e639c02d71e56e56` rechecked. |
+| Independent UAT and release | OPEN: separate manual UAT, physical mobile and screen-reader validation remain outstanding; no public deployment authorized. |
+
 Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
 
 ## 2026-10-16 — Phase 1 → revised Phase 2
