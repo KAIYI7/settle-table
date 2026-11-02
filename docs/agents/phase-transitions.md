@@ -1,5 +1,21 @@
 # Phase transition decisions
 
+## 2026-11-02 — OCR fixture privacy sanitization & all-items scope guard milestone: PR #31 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `3d5f05c580b6a2edcaf7e67bda521cd4516c5fb2` merged autonomously under orchestrator governance policy into `main` at `7ca36be35006e296683765288acecc26cec4e210`. GitHub PR #31 ([#31](https://github.com/KAIYI7/settle-table/pull/31)) verified on hosted CI before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Fixture privacy sanitization | PASS: sanitized 17 business and visit-identifying tokens in `tests/fixtures/ocr/tokens.json` (`brewhouse_receipt.png`) into generic Malaysian dining data while maintaining 100% of spatial 2D coordinates, scores, menu items, line totals, and tax breakdown tables. |
+| All-items scope synchronization | PASS: in `settletable/static/app.js` (`add-item-form`), dynamically mapped `eligible_item_ids` to include all current receipt items for `scope_mode === 'all_items'` adjustments, preventing client-side `AuthorityError('invalid_input')` without altering financial calculation or fixed-item scopes. |
+| Authority scope regression | PASS: added regression assertion in `tests/test_authority.py` confirming authority strictly rejects `ReplaceReceipt` commands with `all_items` adjustments that omit receipt items. |
+| Local regression | PASS: 232/232 Python test suite methods passed in 65.0s; 12/12 automated real-browser CDP test stages passed (`tools/e2e_browser_test.mjs`); financial scope and conflict recovery browser suites passed; repository hygiene audit 0 findings. |
+| Hosted CI | PASS: [run 41467848944](https://github.com/KAIYI7/settle-table/actions/runs/41467848944) passed all Python and browser steps on exact PR head `3d5f05c580b6a2edcaf7e67bda521cd4516c5fb2` in ubuntu-24.04 (Python 3.14). |
+| Code review & hygiene | PASS: independent review APPROVE (conversation `c8bb5895-516a-4bff-8f41-6df5c04f3052`); zero critical/high/medium findings; git history preserved intact without rewrites. |
+| Acceptance status | OBSERVED: real OCR extraction succeeded for The Brew House genuine receipt, but video capture did not complete finalization. Human review and explicit approval required prior to final calculation. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-02 — Malaysian restaurant receipt OCR corrections milestone: PR #30 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `03574cbff7687808fcb6ac2bbcf769ff47cffe72` merged autonomously under orchestrator governance policy into `main` at `f1661188845d086f5217d68bbee26d7103fe9830`. GitHub PR #30 ([#30](https://github.com/KAIYI7/settle-table/pull/30)) verified on hosted CI before merge.
