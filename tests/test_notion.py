@@ -238,6 +238,81 @@ class TestNotionModelsAndFormatting(unittest.TestCase):
         # 9 fixed + 5 participants + 15 items = 29 blocks
         self.assertEqual(total, 9 + 5 + 15)
 
+    def test_table_rows_have_block_object_structure(self):
+        """Verify that all table_row children generated for tables (including rollups) have object='block'."""
+        snapshot_small = {
+            "finalized": True,
+            "revision": 1,
+            "receipt": {
+                "merchant": "Test",
+                "subtotal_sen": 2000,
+                "total_sen": 2000,
+                "items": [{"id": "i1", "label": "Dish", "quantity": 1, "line_sen": 2000}],
+                "adjustments": [],
+            },
+            "calculation": {
+                "consumption": {"P1": {"base_sen": 2000, "adjustments_sen": 0, "total_sen": 2000}}
+            },
+            "participants": [{"id": "P1", "name": "Alice", "is_organizer": True}],
+            "claims": {},
+        }
+        snapshot_large = {
+            "finalized": True,
+            "revision": 2,
+            "receipt": {
+                "merchant": "Large Banquet",
+                "subtotal_sen": 50000,
+                "total_sen": 50000,
+                "items": [{"id": f"it_{i}", "label": f"Dish {i}", "quantity": 1, "line_sen": 1000} for i in range(1, 31)],
+                "adjustments": [],
+            },
+            "calculation": {
+                "consumption": {f"P{i}": {"base_sen": 2000, "adjustments_sen": 0, "total_sen": 2000} for i in range(1, 26)}
+            },
+            "participants": [{"id": f"P{i}", "name": f"Diner {i}", "is_organizer": (i == 1)} for i in range(1, 26)],
+            "claims": {},
+        }
+        for snap in (snapshot_small, snapshot_large):
+            for fn in (format_compact_meal_blocks, format_full_meal_blocks):
+                blocks = fn("meal-test", snap)
+                for b in blocks:
+                    if b.get("type") == "table":
+                        tbl = b.get("table", {})
+                        rows = tbl.get("children", [])
+                        self.assertTrue(len(rows) > 0)
+                        for r in rows:
+                            self.assertEqual(r.get("object"), "block")
+                            self.assertEqual(r.get("type"), "table_row")
+                            self.assertIn("cells", r.get("table_row", {}))
+
+    def test_mock_notion_client_enforces_table_row_block_object(self):
+        """Verify that MockNotionClient rejects table_row missing object='block'."""
+        cli = MockNotionClient()
+        valid_row = {
+            "object": "block",
+            "type": "table_row",
+            "table_row": {"cells": [text_cell("A"), text_cell("B")]},
+        }
+        invalid_row = {
+            "type": "table_row",
+            "table_row": {"cells": [text_cell("A"), text_cell("B")]},
+        }
+        table_block = {
+            "object": "block",
+            "type": "table",
+            "table": {"table_width": 2, "children": [invalid_row]},
+        }
+        parent = {"page_id": "11111111-2222-3333-4444-555555555555"}
+        properties = {"title": {"title": [{"type": "text", "text": {"content": "Test"}}]}}
+        with self.assertRaises(NotionValidationError) as ctx:
+            cli.create_page("token", parent, properties, [table_block])
+        self.assertIn("object='block'", str(ctx.exception))
+
+        # With valid_row it succeeds
+        table_block["table"]["children"] = [valid_row]
+        res = cli.create_page("token", parent, properties, [table_block])
+        self.assertIsNotNone(res.get("id"))
+
 
 class TestMockNotionClient(unittest.TestCase):
     """Test MockNotionClient validation and error injection."""
@@ -763,6 +838,74 @@ class TestNotionTransportIntegration(unittest.TestCase):
             self.assertIsNotNone(status_data)
             self.assertEqual(status_data["export"]["status"], "failed")
             self.assertEqual(status_data["export"]["export_digest"], "notion_rate_limited")
+        finally:
+            authority.close()
+
+    def test_async_export_records_granular_page_not_found_and_validation(self):
+        """Verify that async background export records page_not_found and validation_error."""
+        authority = Authority(self.db_path)
+        try:
+            from settletable.notion import NotionNotFoundError
+            # Force NotionNotFoundError
+            self.mock_client._forced_error = (NotionNotFoundError, "Could not find block with ID: 11111111-2222-3333-4444-555555555555")
+            headers = {
+                "Authorization": f"Bearer {self.org_cred}",
+                "X-SettleTable-Action": "1",
+            }
+            body = {
+                "parent_id": "11111111-2222-3333-4444-555555555555",
+                "token": "secret_12345678901234567890",
+            }
+            code, _, _ = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+            self.assertEqual(code, 202)
+
+            deadline = time.time() + 5.0
+            status_data = None
+            while time.time() < deadline:
+                _, _, get_res = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers, None)
+                status_data = json.loads(get_res.decode("utf-8"))
+                if status_data.get("export", {}).get("status") == "failed":
+                    break
+                time.sleep(0.05)
+
+            self.assertIsNotNone(status_data)
+            self.assertEqual(status_data["export"]["status"], "failed")
+            self.assertIn("page_not_found", status_data["export"]["export_digest"])
+            self.assertIn("Could not find block", status_data["export"]["export_digest"])
+        finally:
+            authority.close()
+
+    def test_async_export_records_granular_validation_error(self):
+        """Verify that async background export records validation_error when Notion rejects payload schema."""
+        authority = Authority(self.db_path)
+        try:
+            from settletable.notion import NotionValidationError
+            # Force NotionValidationError
+            self.mock_client._forced_error = (NotionValidationError, "body.children[0].object should be defined")
+            headers = {
+                "Authorization": f"Bearer {self.org_cred}",
+                "X-SettleTable-Action": "1",
+            }
+            body = {
+                "parent_id": "11111111-2222-3333-4444-555555555555",
+                "token": "secret_12345678901234567890",
+            }
+            code, _, _ = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+            self.assertEqual(code, 202)
+
+            deadline = time.time() + 5.0
+            status_data = None
+            while time.time() < deadline:
+                _, _, get_res = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers, None)
+                status_data = json.loads(get_res.decode("utf-8"))
+                if status_data.get("export", {}).get("status") == "failed":
+                    break
+                time.sleep(0.05)
+
+            self.assertIsNotNone(status_data)
+            self.assertEqual(status_data["export"]["status"], "failed")
+            self.assertIn("validation_error", status_data["export"]["export_digest"])
+            self.assertIn("body.children", status_data["export"]["export_digest"])
         finally:
             authority.close()
 

@@ -189,6 +189,7 @@ def format_compact_meal_blocks(
     apportionment_rows = [
         # Table Header Row
         {
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -238,6 +239,7 @@ def format_compact_meal_blocks(
             owed_sen = raw_con[pid].get("total_sen", owed_sen)
 
         apportionment_rows.append({
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -253,6 +255,7 @@ def format_compact_meal_blocks(
     if rollup_part_keys:
         other_sen = sum(consumption_by_part.get(r_pid, 0) for r_pid in rollup_part_keys)
         apportionment_rows.append({
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -288,6 +291,7 @@ def format_compact_meal_blocks(
     items_rows = [
         # Table Header Row
         {
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -335,6 +339,7 @@ def format_compact_meal_blocks(
         split_str = ", ".join(splitters) if splitters else "Unclaimed"
 
         items_rows.append({
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -350,6 +355,7 @@ def format_compact_meal_blocks(
     if rollup_items:
         rollup_sen = sum(it.get("line_sen", 0) for it in rollup_items)
         items_rows.append({
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -507,6 +513,7 @@ def format_full_meal_blocks(
 
     apportionment_rows = [
         {
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -545,6 +552,7 @@ def format_full_meal_blocks(
             owed_sen = raw_con[pid].get("total_sen", owed_sen)
 
         apportionment_rows.append({
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -578,6 +586,7 @@ def format_full_meal_blocks(
 
     items_rows = [
         {
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
@@ -609,6 +618,7 @@ def format_full_meal_blocks(
         split_str = ", ".join(splitters) if splitters else "Unclaimed"
 
         items_rows.append({
+            "object": "block",
             "type": "table_row",
             "table_row": {
                 "cells": [
