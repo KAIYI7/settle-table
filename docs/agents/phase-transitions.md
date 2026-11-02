@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-02 — Malaysian restaurant receipt OCR corrections milestone: PR #30 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `03574cbff7687808fcb6ac2bbcf769ff47cffe72` merged autonomously under orchestrator governance policy into `main` at `f1661188845d086f5217d68bbee26d7103fe9830`. GitHub PR #30 ([#30](https://github.com/KAIYI7/settle-table/pull/30)) verified on hosted CI before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Negative currency & rounding parsing | PASS: enhanced `MONEY_PATTERN` regex and `parse_sen` to parse currency-prefixed negative numbers (e.g. `-RM0.02`, `-RM 0.02`, `RM -0.02`, `(RM 0.02)`) without floating-point conversion, yielding exact `-2` sen. |
+| Post-total tax summary isolation | PASS: added `total_found` barrier and `TAX SUMMARY` detection to prevent post-total tax breakdown tables (such as taxable basis RM 169.20) from clobbering extracted bill charges (`tax_sen`). |
+| Item label & modifier cleaning | PASS: stripped stray trailing currency symbols (`RM`, `MYR`, `$`), trailing modifier quantities (`x 1`, `× 1`), leading item multipliers, and normalized inline dashes (`—`). |
+| Spatial row grouping | PASS: upgraded `group_lines_into_rows` using vertical bounding-box overlap heuristic (`overlap >= min_h * 0.35` and `|y - r_mid_y| <= min_h * 0.55`) so multi-line modifiers cluster reliably without contaminating adjacent items. |
+| Granular mismatch feedback | PASS: enhanced UI mismatch alert and scan toasts to detail exact computed charges sum vs printed bill total and exact discrepancy in sen. |
+| Local regression | PASS: 232/232 Python test suite methods passed; 12/12 automated real-browser CDP test stages passed (`tools/e2e_browser_test.mjs`); financial scope and conflict recovery browser suites passed. |
+| Hosted CI | PASS: [run 41416668397](https://github.com/KAIYI7/settle-table/actions/runs/41416668397) passed all Python and browser steps on exact PR head `03574cbff7687808fcb6ac2bbcf769ff47cffe72` in ubuntu-24.04 (Python 3.14). |
+| Code review & hygiene | PASS: independent review APPROVE (conversation `e5bdaee4-90ba-45c4-8257-3da97ef76b78`); zero critical/high/medium findings; non-blocking cosmetic note addressed; no authentic images or secrets committed. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-02 — Notion block schema and error diagnostics milestone: PR #28 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `02302e95bba8ce9adab621d9c523e59f09d31ffe` merged autonomously under orchestrator governance policy into `main` at `5c0a8d88e049d956241dd23328cc2ef4af499858`. GitHub PR #28 ([#28](https://github.com/KAIYI7/settle-table/pull/28)) verified on hosted CI before merge.
