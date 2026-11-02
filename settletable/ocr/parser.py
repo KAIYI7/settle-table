@@ -11,7 +11,10 @@ from .models import (
     OcrLine,
 )
 
-MONEY_PATTERN = re.compile(r"(?<![\d.])[-+]?\s*\d+[.,]\d{2}(?!\d)")
+MONEY_PATTERN = re.compile(
+    r"(?<![\w.])(?:[-+]|\((?=[^)]*?\d))?\s*(?:RM|MYR|\$)?\s*[-+]?\s*\d+[.,]\d{2}\)?(?!\d)",
+    re.IGNORECASE,
+)
 DATE_PATTERN = re.compile(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b")
 TIME_PATTERN = re.compile(r"\b([012]?\d:[0-5]\d(?::[0-5]\d)?)\b")
 
@@ -19,14 +22,28 @@ TIME_PATTERN = re.compile(r"\b([012]?\d:[0-5]\d(?::[0-5]\d)?)\b")
 def parse_sen(raw: str) -> int:
     """Parse monetary string into integer sen without floating-point conversion."""
     clean = re.sub(r"\s+", "", raw).replace(",", ".")
-    sign = -1 if clean.startswith("-") else 1
-    clean = clean.lstrip("+-")
+    is_neg = "-" in clean or ("(" in clean and ")" in clean)
+    clean = re.sub(r"[^\d.]", "", clean)
     parts = clean.split(".")
     if len(parts) != 2:
         raise ValueError(f"Ambiguous money string: {raw}")
     whole = int(parts[0])
     frac = int(parts[1].ljust(2, "0")[:2])
-    return sign * (whole * 100 + frac)
+    return (-1 if is_neg else 1) * (whole * 100 + frac)
+
+
+def clean_item_label(text: str) -> str:
+    """Clean item text from leading/trailing quantities, currency markers, and modifier artifacts."""
+    # Strip leading quantity if any: e.g. "1 ", "4x ", "2 × "
+    text = re.sub(r"^\s*\d+(?:\.\d+)?\s*(?:[xX×*]\s*)?", "", text)
+    # Strip trailing currency or price markers: RM, MYR, $, @, :, -
+    text = re.sub(r"[\s:@-]+(?:RM|MYR|\$)?[\s:@-]*$", "", text, flags=re.IGNORECASE)
+    # Strip trailing modifier quantities like 'x 1', '× 1', 'x1', '×1', 'x4', '×4'
+    text = re.sub(r"[\s\-–—]+[xX×*]\s*\d+\s*$", "", text)
+    text = re.sub(r"\s+[xX×*]\s*\d+\s*$", "", text)
+    # Normalize internal hyphen to em-dash separator: e.g. "Item - Side Dish" -> "Item — Side Dish"
+    text = re.sub(r"\s+[-–—]\s+", " — ", text)
+    return text.strip()
 
 
 def group_lines_into_rows(lines: list[OcrLine]) -> list[list[OcrLine]]:
@@ -46,22 +63,29 @@ def group_lines_into_rows(lines: list[OcrLine]) -> list[list[OcrLine]]:
             'line': line,
             'x': min_x,
             'y': mid_y,
+            'min_y': min_y,
+            'max_y': max_y,
             'height': height,
         })
-
-    median_h = statistics.median(t['height'] for t in tokens)
-    threshold = max(4.0, median_h * 0.55)
 
     tokens.sort(key=lambda t: (t['y'], t['x']))
     grouped: list[list[dict]] = []
     for token in tokens:
-        if grouped:
-            avg_y = statistics.mean(t['y'] for t in grouped[-1])
-            if abs(token['y'] - avg_y) <= threshold:
-                grouped[-1].append(token)
-                continue
-        grouped.append([token])
+        placed = False
+        for group in grouped:
+            r_min_y = min(t['min_y'] for t in group)
+            r_max_y = max(t['max_y'] for t in group)
+            r_mid_y = statistics.mean(t['y'] for t in group)
+            overlap = min(token['max_y'], r_max_y) - max(token['min_y'], r_min_y)
+            min_h = min(token['height'], min(t['height'] for t in group))
+            if overlap >= min_h * 0.35 and abs(token['y'] - r_mid_y) <= min_h * 0.55:
+                group.append(token)
+                placed = True
+                break
+        if not placed:
+            grouped.append([token])
 
+    grouped.sort(key=lambda g: statistics.mean(t['y'] for t in g))
     result: list[list[OcrLine]] = []
     for group in grouped:
         group.sort(key=lambda t: t['x'])
@@ -124,6 +148,7 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
     # 2. Section scanning
     in_items = False
     past_items = False
+    total_found = False
     tax_included = False
     printed_net_subtotal_sen: int | None = None
     printed_subtotal_sen: int | None = None
@@ -150,32 +175,43 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
         if any(kw in lbl for kw in ("INCLUSIVE OF", "INCL SST", "INCL GST", "TAX INCL", "TAX INCLUSIVE")):
             tax_included = True
 
+        # Ignore informational tax summary tables printed after grand total
+        if re.search(r"\bTAX\s*SUMMARY\b", lbl):
+            past_items = True
+            total_found = True
+            continue
+
         # Check for summary lines (must contain monetary amounts)
         summary_matched = False
         if amounts and (re.search(r"\b(?:SUB[-\s]*TOTAL|STTL|NET SALES|TOTAL SALES)\b", lbl) or re.search(r"\bTOTAL.*EXCLUD", lbl)):
-            printed_subtotal_sen = amounts[-1]
+            if printed_subtotal_sen is None or not total_found:
+                printed_subtotal_sen = amounts[-1]
             summary_matched = True
             in_items = False
             past_items = True
         elif amounts and re.search(r"\b(?:ROUNDING|ROUND|ROUNDING ADJ)\b", lbl):
-            rounding_sen = amounts[-1]
+            if rounding_sen is None or not total_found:
+                rounding_sen = amounts[-1]
             summary_matched = True
             in_items = False
             past_items = True
         elif amounts and re.search(r"\b(?:DISCOUNT|DISC|VOUCHER|REBATE|PROMO)\b", lbl):
-            discount_sen = abs(amounts[-1])
+            if discount_sen is None or not total_found:
+                discount_sen = abs(amounts[-1])
             summary_matched = True
             in_items = False
             past_items = True
         elif amounts and re.search(r"\b(?:SERVICE\s*(?:CHARGE|CHG)|SVC\s*CHG)\b", lbl):
-            service_sen = amounts[-1]
+            if service_sen is None or not total_found:
+                service_sen = amounts[-1]
             summary_matched = True
             in_items = False
             past_items = True
         elif amounts and re.search(r"\b(?:SST|GST|SERVICE TAX|SALES TAX|GOVT TAX)\b", lbl) and not re.search(r"\b(?:NO\.?|REG|INVOICE|SUMMARY|CODE|AMOUNT|TOTAL|TTL|ID)\b", lbl):
-            tax_sen = amounts[-1]
-            if "GST" in lbl:
-                tax_kind = "GST"
+            if tax_sen is None or not total_found:
+                tax_sen = amounts[-1]
+                if "GST" in lbl:
+                    tax_kind = "GST"
             summary_matched = True
             in_items = False
             past_items = True
@@ -189,6 +225,7 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
             total_candidates.append((priority, amounts[-1]))
             in_items = False
             past_items = True
+            total_found = True
             continue
 
         if past_items:
@@ -209,8 +246,8 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
         # Item line extraction
         if amounts:
             before = row[:matches[0].start()].strip()
-            # Match quantity: e.g. "2x", "2 x", "2", "1" at start or trailing before price
-            q_match = re.match(r"^(\d+(?:\.\d+)?)\s*(?:[xX]\s*)?", before)
+            # Match quantity: e.g. "2x", "2 x", "2 ×", "2", "1" at start or trailing before price
+            q_match = re.match(r"^(\d+(?:\.\d+)?)\s*(?:[xX×*]\s*)?", before)
             quantity = (1, 1)
             item_text = before
             if q_match:
@@ -223,7 +260,7 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
                     except (ValueError, ZeroDivisionError):
                         quantity = (1, 1)
             if quantity == (1, 1):
-                trailing_q = re.search(r"\b(\d+(?:\.\d+)?)\s*[xX]?$", before)
+                trailing_q = re.search(r"\b(\d+(?:\.\d+)?)\s*[xX×*]?$", before)
                 if trailing_q:
                     potential_text = before[:trailing_q.start()].strip()
                     if potential_text and any(c.isalpha() for c in potential_text):
@@ -235,10 +272,17 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
                         except (ValueError, ZeroDivisionError):
                             pass
             
-            # Clean alphanumeric internal codes (e.g. "T01", "102")
-            if re.fullmatch(r"[A-Za-z]*\d+[A-Za-z]*", item_text):
-                item_text = ""
-            label = item_text or prefix_name or "Item"
+            clean_label = clean_item_label(item_text)
+            if re.fullmatch(r"[A-Za-z]*\d+[A-Za-z]*", clean_label):
+                clean_label = ""
+            if clean_label:
+                if prefix_name and raw_items:
+                    raw_items[-1]["label"] += " " + prefix_name.strip()
+                    prefix_name = None
+                label = clean_label
+            else:
+                label = prefix_name or "Item"
+                prefix_name = None
             unit_sen = amounts[-2] if len(amounts) > 1 else None
             line_sen = amounts[-1]
             raw_items.append({
@@ -249,8 +293,15 @@ def parse_malaysian_receipt(lines: list[OcrLine]) -> CandidateReceipt:
             })
             prefix_name = None
         elif any(c.isalpha() for c in row):
-            if raw_items and not raw_items[-1]['label']:
-                raw_items[-1]['label'] = row
+            clean_sub = clean_item_label(row)
+            if raw_items and in_items and not past_items:
+                stripped = clean_sub.lstrip("-–— ")
+                if clean_sub.startswith("-") or clean_sub.startswith("–") or clean_sub.startswith("—"):
+                    raw_items[-1]["label"] += " — " + stripped
+                elif not re.match(r"^\d+\b", clean_sub) and not re.search(r"\b(?:TABLE|GUEST|CHECK|INV|CASHIER|DATE|TIME|STAFF)\b", clean_sub.upper()):
+                    raw_items[-1]["label"] += " " + stripped
+                else:
+                    prefix_name = row
             else:
                 prefix_name = row
 
