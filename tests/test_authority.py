@@ -214,6 +214,10 @@ class AuthorityTests(unittest.TestCase):
         snap = self.authority.snapshot(credentials['A'], 'meal')
         self.authority.apply(credentials['A'], 'meal', ReviewReceipt('review', 1, 1, snap.receipt_digest))
         new_items = items + (ReceiptItem('dessert', 'Dessert', 1, 500),)
+        with self.assertRaises(AuthorityError) as missing_scope:
+            self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('invalid-add', 2, 1,
+                Receipt(new_items, 2000, 2150, (replace(service, eligible_item_ids=('dish', 'tea')),))))
+        self.assertEqual(missing_scope.exception.code, 'invalid_input')
         corrected = Receipt(new_items, 2000, 2150,
                             (replace(service, eligible_item_ids=('dish', 'tea', 'dessert')),))
         self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('add', 2, 1, corrected))

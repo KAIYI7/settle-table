@@ -2499,7 +2499,12 @@ function bindEvents(snap) {
             items: currentItems,
             subtotal_sen: subtotalSen,
             total_sen: totalSen,
-            adjustments: snap.receipt?.adjustments || [],
+            adjustments: (snap.receipt?.adjustments || []).map(adj => {
+              if (adj.scope_mode === 'all_items') {
+                return { ...adj, eligible_item_ids: currentItems.map(i => i.id) };
+              }
+              return adj;
+            }),
             included_tax_sen: snap.receipt?.included_tax_sen || 0,
           }
         });
