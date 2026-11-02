@@ -293,6 +293,22 @@ function formatSen(sen) {
   return `RM ${val.toFixed(2)}`;
 }
 
+function formatOcrIssue(issue, cand) {
+  if (issue === 'candidate_receipt_mismatch') {
+    const printedTotal = cand && cand.total_sen != null ? formatSen(cand.total_sen) : 'unknown';
+    const adjSum = ((cand && cand.adjustments) || []).reduce((acc, a) => acc + (a.amount_sen || 0), 0);
+    const computedTotal = ((cand && cand.subtotal_sen) || 0) + adjSum;
+    const diff = cand && cand.discrepancy_sen != null ? formatSen(Math.abs(cand.discrepancy_sen)) : '0';
+    return `Charges mismatch: Sum of extracted items + adjustments (${formatSen(computedTotal)}) does not reconcile with printed bill total (${printedTotal}) [Discrepancy: ${diff}]. Please verify items or adjustments.`;
+  }
+  if (issue === 'low_confidence') return 'Low scan confidence (< 85%). Please verify item names and prices carefully.';
+  if (issue === 'unidentified_items') return 'Some item descriptions could not be clearly identified.';
+  if (issue === 'missing_items') return 'No receipt items recognized from photo.';
+  if (issue === 'missing_receipt_total') return 'Printed total could not be determined.';
+  if (issue === 'invalid_rounding_adjustment') return 'Extracted rounding adjustment exceeds standard BNM 5-sen guidelines.';
+  return issue;
+}
+
 function parseSen(input, allowNegative = false) {
   if (typeof input !== 'string') {
     throw new Error('Price must be a string');
@@ -1417,8 +1433,11 @@ function renderOrganizerSection(snap) {
             Review scanned items, taxes, or discounts before applying them to the receipt.
           </p>
           ${state.ocrCandidate.issues && state.ocrCandidate.issues.length > 0 ? `
-            <div class="ocr-verification-note">
-              <strong>Verification Note:</strong> ${escapeHtml(state.ocrCandidate.issues.join('; '))}
+            <div class="ocr-verification-note" role="alert">
+              <strong>Verification Note:</strong>
+              <ul style="margin: 4px 0 0 16px; padding: 0;">
+                ${state.ocrCandidate.issues.map(iss => `<li>${escapeHtml(formatOcrIssue(iss, state.ocrCandidate))}</li>`).join('')}
+              </ul>
             </div>
           ` : ''}
           <div class="ocr-meta-bar">
@@ -2548,7 +2567,10 @@ function bindEvents(snap) {
         updateMealUI();
 
         if (candidate.route === 'manual_correction' || (candidate.issues && candidate.issues.length > 0)) {
-          showAlert(`⚠️ Scanned ${candidate.items.length} items (${formatSen(candidate.total_sen)}) — Review needed`, 'conflict', true);
+          const detail = candidate.discrepancy_sen
+            ? `Charges differ by ${formatSen(Math.abs(candidate.discrepancy_sen))}`
+            : 'Review needed';
+          showAlert(`⚠️ Scanned ${candidate.items.length} items (${formatSen(candidate.total_sen)}) — ${detail}`, 'conflict', true);
         } else {
           showAlert(`✓ Scanned ${candidate.items.length} items (${formatSen(candidate.total_sen)})`, 'success', true);
         }

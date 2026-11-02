@@ -226,6 +226,78 @@ class TestMalaysianReceiptParser(unittest.TestCase):
         self.assertTrue(candidate.reconciled)
         self.assertEqual(candidate.route, 'human_verification')
 
+    def test_brew_house_genuine_receipt_reconciliation(self):
+        # Genuine Malaysian restaurant receipt (The Brew House) with 7 items,
+        # zero-priced items, modifier continuation lines, negative rounding (-RM0.02),
+        # 10% service charge, 6% SST, and post-total tax summary breakdown table.
+        tokens = self.fixtures.get('brewhouse_receipt.png')
+        if not tokens:
+            self.skipTest('Token fixtures for brewhouse_receipt.png not found')
+        candidate = parse_malaysian_receipt(tokens)
+
+        self.assertEqual(len(candidate.items), 7)
+        self.assertEqual(candidate.items[0].label, "VL Pork Katsu Rice — Side Dish")
+        self.assertEqual(candidate.items[0].quantity, (1, 1))
+        self.assertEqual(candidate.items[0].line_sen, 1480)
+
+        self.assertEqual(candidate.items[1].label, "VL Chicken Karaage Fried Rice — Side Dish")
+        self.assertEqual(candidate.items[1].quantity, (4, 1))
+        self.assertEqual(candidate.items[1].line_sen, 5920)
+
+        self.assertEqual(candidate.items[2].label, "VL Hamburg Rice Onsen Egg — Side Dish")
+        self.assertEqual(candidate.items[2].quantity, (1, 1))
+        self.assertEqual(candidate.items[2].line_sen, 1680)
+
+        self.assertEqual(candidate.items[3].label, "F38 Signature Pork Chop")
+        self.assertEqual(candidate.items[3].quantity, (2, 1))
+        self.assertEqual(candidate.items[3].line_sen, 4960)
+
+        self.assertEqual(candidate.items[4].label, "F62 Takoyaki Pizza")
+        self.assertEqual(candidate.items[4].quantity, (1, 1))
+        self.assertEqual(candidate.items[4].line_sen, 2880)
+
+        self.assertEqual(candidate.items[5].label, "Ice Water")
+        self.assertEqual(candidate.items[5].quantity, (4, 1))
+        self.assertEqual(candidate.items[5].line_sen, 0)
+
+        self.assertEqual(candidate.items[6].label, "Warm Water")
+        self.assertEqual(candidate.items[6].quantity, (4, 1))
+        self.assertEqual(candidate.items[6].line_sen, 0)
+
+        # Financial verification
+        self.assertEqual(candidate.subtotal_sen, 16920)
+        self.assertEqual(candidate.service_sen, 1692)
+        # Verify SST is 10.15 (1015 sen), NOT subtotal 169.20 (16920 sen) from tax summary table
+        self.assertEqual(candidate.tax_sen, 1015)
+        # Verify negative rounding -0.02 (-2 sen) parsed correctly with -RM prefix
+        self.assertEqual(candidate.rounding_sen, -2)
+        self.assertEqual(candidate.total_sen, 19625)
+
+        # Exact cent reconciliation: 16920 + 1692 + 1015 - 2 == 19625
+        self.assertEqual(candidate.discrepancy_sen, 0)
+        self.assertTrue(candidate.reconciled)
+        self.assertEqual(candidate.issues, ())
+        self.assertEqual(candidate.route, 'human_verification')
+
+        # No RM or modifier quantity leakage in any item label
+        for item in candidate.items:
+            self.assertFalse(item.label.endswith("RM"))
+            self.assertFalse("×1" in item.label)
+            self.assertFalse("x 1" in item.label)
+
+    def test_monetary_parser_currency_prefixes_and_negatives(self):
+        self.assertEqual(parse_sen("12.50"), 1250)
+        self.assertEqual(parse_sen("-0.02"), -2)
+        self.assertEqual(parse_sen("-RM0.02"), -2)
+        self.assertEqual(parse_sen("-RM 0.02"), -2)
+        self.assertEqual(parse_sen("RM -0.02"), -2)
+        self.assertEqual(parse_sen("(RM 0.02)"), -2)
+        self.assertEqual(parse_sen("(0.02)"), -2)
+        self.assertEqual(parse_sen("RM196.25"), 19625)
+        self.assertEqual(parse_sen("+1.00"), 100)
+        self.assertEqual(parse_sen("0.00"), 0)
+        self.assertEqual(parse_sen("RM0.00"), 0)
+
 
 class TestOcrTransportIntegration(unittest.TestCase):
     """Test wire transport endpoint POST /api/meals/{meal_id}/ocr/extract."""
