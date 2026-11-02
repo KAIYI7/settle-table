@@ -308,6 +308,10 @@ class MockNotionClient:
                         raise NotionValidationError("Table block requires table_width > 0 and at least 1 row child")
                     for r in rows:
                         block_count += 1
+                        if r.get("object") != "block":
+                            raise NotionValidationError("Table row must contain object='block'")
+                        if r.get("type") != "table_row":
+                            raise NotionValidationError("Table row must have type='table_row'")
                         cells = r.get("table_row", {}).get("cells", [])
                         if len(cells) != width:
                             raise NotionValidationError(

@@ -883,6 +883,7 @@ class SettleTableApp:
                 NotionError,
                 export_finalized_meal,
             )
+            from settletable.notion.client import sanitize_notion_error_message
             config = NotionExportConfig(
                 token=token,
                 parent_id=parent_id.strip(),
@@ -909,14 +910,21 @@ class SettleTableApp:
                 except NotionAuthError:
                     authority.record_notion_export_failed(meal_id, rev, 'notion_auth_error')
                     raise TransportError('notion_auth_error', 400) from None
-                except (NotionValidationError, NotionNotFoundError):
-                    authority.record_notion_export_failed(meal_id, rev, 'invalid_input')
+                except NotionNotFoundError as err:
+                    clean = sanitize_notion_error_message(str(err))
+                    authority.record_notion_export_failed(meal_id, rev, f'page_not_found: {clean}'[:128])
+                    raise TransportError('notion_page_not_found', 400) from None
+                except NotionValidationError as err:
+                    clean = sanitize_notion_error_message(str(err))
+                    authority.record_notion_export_failed(meal_id, rev, f'validation_error: {clean}'[:128])
                     raise TransportError('invalid_input', 400) from None
-                except NotionError:
-                    authority.record_notion_export_failed(meal_id, rev, 'notion_error')
+                except NotionError as err:
+                    clean = sanitize_notion_error_message(str(err))
+                    authority.record_notion_export_failed(meal_id, rev, f'notion_error: {clean}'[:128])
                     raise TransportError('notion_error', 502) from None
-                except Exception:
-                    authority.record_notion_export_failed(meal_id, rev, 'notion_error')
+                except Exception as err:
+                    clean = sanitize_notion_error_message(str(err))
+                    authority.record_notion_export_failed(meal_id, rev, f'unexpected_error: {clean}'[:128])
                     raise TransportError('notion_error', 502) from None
             else:
                 # Asynchronous delivery: dispatch in background thread, return 202 immediately
@@ -938,12 +946,18 @@ class SettleTableApp:
                         bg_auth.record_notion_export_failed(meal_id, rev, 'notion_rate_limited')
                     except NotionAuthError:
                         bg_auth.record_notion_export_failed(meal_id, rev, 'notion_auth_error')
-                    except (NotionValidationError, NotionNotFoundError):
-                        bg_auth.record_notion_export_failed(meal_id, rev, 'invalid_input')
-                    except NotionError:
-                        bg_auth.record_notion_export_failed(meal_id, rev, 'notion_error')
-                    except Exception:
-                        bg_auth.record_notion_export_failed(meal_id, rev, 'unexpected_error')
+                    except NotionNotFoundError as err:
+                        clean = sanitize_notion_error_message(str(err))
+                        bg_auth.record_notion_export_failed(meal_id, rev, f'page_not_found: {clean}'[:128])
+                    except NotionValidationError as err:
+                        clean = sanitize_notion_error_message(str(err))
+                        bg_auth.record_notion_export_failed(meal_id, rev, f'validation_error: {clean}'[:128])
+                    except NotionError as err:
+                        clean = sanitize_notion_error_message(str(err))
+                        bg_auth.record_notion_export_failed(meal_id, rev, f'notion_error: {clean}'[:128])
+                    except Exception as err:
+                        clean = sanitize_notion_error_message(str(err))
+                        bg_auth.record_notion_export_failed(meal_id, rev, f'unexpected_error: {clean}'[:128])
                     finally:
                         self.close()
 
