@@ -1,5 +1,20 @@
 # Phase transition decisions
 
+## 2026-11-02 — Notion block schema and error diagnostics milestone: PR #28 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `02302e95bba8ce9adab621d9c523e59f09d31ffe` merged autonomously under orchestrator governance policy into `main` at `5c0a8d88e049d956241dd23328cc2ef4af499858`. GitHub PR #28 ([#28](https://github.com/KAIYI7/settle-table/pull/28)) verified on hosted CI before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Notion block schema compliance | PASS: enforced `"object": "block"` and `type="table_row"` on all 9 `table_row` child block constructors across compact and full formats; updated `MockNotionClient` to strictly validate block object compliance. |
+| Granular export diagnostics | PASS: differentiated `NotionNotFoundError` (HTTP 404, `page_not_found`) from `NotionValidationError` (HTTP 400, `validation_error`); sanitized error messages to prevent token exposure in `export_digest`. |
+| Local regression | PASS: 230/230 Python test suite methods passed in 93.2s; 12/12 automated real-browser CDP test stages passed (`tools/e2e_browser_test.mjs --port 8095`). |
+| Hosted CI | PASS: [run 41386556198](https://github.com/KAIYI7/settle-table/actions/runs/41386556198) passed all Python and browser steps on exact PR head `02302e95bba8ce9adab621d9c523e59f09d31ffe` in ubuntu-24.04 (Python 3.14). |
+| Code review & hygiene | PASS: independent review APPROVE (conversation `ecebd01c-1413-4d68-a9a7-cf720a72e231`); zero critical/high/medium findings; all 3 low polish points remediated; no credentials or secrets committed. |
+| Live Notion smoke test guidance | PASS: identified live connection prerequisites (integrations require explicit UI connection to target parent page via Notion `...` -> **Connect to** to avoid 404 `object_not_found`). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-01 — Local OCR parsing and Notion redirect defense milestone: PR #26 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `d65d383857229600252a7c1d206bb5e59280a0f1` merged autonomously under orchestrator governance policy into `main` at `e06f606d5f9ff822ce54de7334fe9bc4daf1e63b`. GitHub PR #26 ([#26](https://github.com/KAIYI7/settle-table/pull/26)) verified on hosted CI before merge.
