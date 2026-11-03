@@ -1,5 +1,20 @@
 # Phase transition decisions
 
+## 2026-11-03 — Browser reload synchronization & receipt DOM readiness: PR #35 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `6dadc0222c80cb60c360472a4ea1fd50cd84a402` merged autonomously under orchestrator governance policy into `main`. GitHub PR #35 ([#35](https://github.com/KAIYI7/settle-table/pull/35)) verified on hosted CI ([run 41600343451](https://github.com/KAIYI7/settle-table/actions/runs/41600343451)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| CDP Reload Context Renewal | PASS: in `tools/e2e_browser_test.mjs`, `CDPPage.prototype.reload` sets `window.__reloading_marker = true` before sending `Page.reload` and awaits `window.__reloading_marker === undefined`. Guarantees context recreation across reloads and eliminates race condition where post-reload assertions evaluated on stale pre-reload contexts. |
+| Explicit Observable DOM Readiness | PASS: in `checkReceiptDom`, explicitly polls for the presence of the `Receipt & Charges` card container and all 5 `Quantity case` rows before accessing properties. Eliminates `TypeError: Cannot read properties of undefined` during asynchronous DOM rendering. |
+| Diagnostic Forensics | PASS: if `Receipt & Charges` card is absent during extraction, outputs visible card titles and `#app` inner text in error details instead of crashing on property dereferences. |
+| Production Code Untouched | PASS: `settletable/calculation.py` and all backend/frontend application code remain 100% byte-untouched. |
+| Local Regression Suite | PASS: 257/257 Python tests passed (`python -m unittest discover tests`); 12/12 real-browser CDP test stages passed (`tools/e2e_browser_test.mjs`); 8/8 headless Chrome receipt photo & pattern tests passed (`tools/verify_receipt_photo_flow.mjs`). |
+| Code & Security Review | PASS: independent review APPROVE with 0 critical, 0 high, 0 medium findings. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-03 — Receipt photo CSP blob: support & Chromium UnicodeSets meal ID pattern: PR #34 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `a852bd9826a4f3acc52c4f24bf8ab12e55a1a9c0` merged autonomously under orchestrator governance policy into `main` at `4da3bde`. GitHub PR #34 ([#34](https://github.com/KAIYI7/settle-table/pull/34)) verified on hosted CI ([run 41596591754](https://github.com/KAIYI7/settle-table/actions/runs/41596591754)) before merge.
