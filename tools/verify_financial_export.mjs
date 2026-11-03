@@ -148,7 +148,9 @@ class CDPPage {
   }
 
   async reload() {
+    await this.evaluate('window.__reloading_marker = true');
     await this.send('Page.reload');
+    await this.waitFor('window.__reloading_marker === undefined');
   }
 
   async screenshot(filePath) {

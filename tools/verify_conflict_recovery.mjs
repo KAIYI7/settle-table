@@ -152,7 +152,9 @@ class CDPPage {
   }
 
   async reload() {
+    await this.evaluate('window.__reloading_marker = true');
     await this.send('Page.reload');
+    await this.waitFor('window.__reloading_marker === undefined');
   }
 
   async screenshot(filePath) {
@@ -299,7 +301,7 @@ try {
  if (await ev(a, `document.querySelector('.alert-message').textContent.includes('Refresh failed')`)) throw Error('Superseded failed request claimed latest refresh failed');
  await ev(a, `window.releaseRace2()`); await wait(a,"document.querySelector('.alert-message')?.textContent.includes('Latest state reloaded') && !state.snapshot.claims.some(c=>c.participant_id==='D1')"); await ev(a, `window.fetch=window.baseRaceFetch`); if (mutations !== 4) throw Error('Automatic recovery issued another mutation'); if (await ev(a, `document.getElementById('new-item-label').value`) !== 'Unsaved draft') throw Error('Draft lost during automatic recovery');
  await ev(a,`document.querySelector('[data-action="hybrid-quick-assign"][data-item="item-1"][data-target="O"]').click()`); await wait(a,"state.snapshot.claims.length===2");console.log('RECOVERED',JSON.stringify(await ev(a,'state.snapshot.claims')));
- await a.reload(); await wait(a,"state.snapshot?.claims?.length===2"); console.log('RELOAD',JSON.stringify(await ev(a,'state.snapshot.claims')));
+ await a.reload(); await wait(a, "Boolean(typeof state !== 'undefined' && state?.snapshot?.claims?.length === 2 && document.getElementById('add-item-form'))"); console.log('RELOAD',JSON.stringify(await ev(a,'state.snapshot.claims')));
  // Preserve a draft entered before opening the sheet, and handle a form redraw
  // while an accepted Add Item response is delayed.
  await ev(a, `document.getElementById('new-item-label').value='Delayed item'; document.getElementById('new-item-price').value='2.00'; document.querySelector('[data-action="hybrid-toggle-details"][data-item="item-1"]').click()`);

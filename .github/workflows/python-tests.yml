@@ -35,3 +35,7 @@ jobs:
         run: node tools/verify_financial_export.mjs
       - name: Allocation conflict recovery browser regression
         run: node tools/verify_conflict_recovery.mjs
+      - name: Multi-payer contributions and funding browser regression
+        run: node tools/verify_multi_payer_flow.mjs
+      - name: Peer transfers and settlement tracking browser regression
+        run: node tools/verify_peer_settlement_flow.mjs

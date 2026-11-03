@@ -110,6 +110,12 @@ class CDPPage {
     await this.waitFor(() => document.readyState === 'complete');
   }
 
+  async reload() {
+    await this.evaluate('window.__reloading_marker = true');
+    await this.send('Page.reload');
+    await this.waitFor('window.__reloading_marker === undefined');
+  }
+
   async waitFor(expr, timeoutMs = 10000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -131,7 +137,9 @@ class CDPPage {
 
 async function startChrome(chromeBin, port, dataDir) {
   const proc = spawn(chromeBin, [
+    '--headless=new',
     `--remote-debugging-port=${port}`,
+    '--remote-debugging-address=127.0.0.1',
     `--user-data-dir=${dataDir}`,
     '--no-first-run',
     '--no-default-browser-check',
