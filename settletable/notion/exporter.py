@@ -81,6 +81,7 @@ def format_meal_properties(
 def format_compact_meal_blocks(
     meal_id: str,
     snapshot: dict[str, Any],
+    image_block: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Format high-density, compact Notion blocks (<= 40 blocks total) for a finalized meal."""
     receipt = snapshot.get("receipt") or {}
@@ -307,9 +308,10 @@ def format_compact_meal_blocks(
 
     # Fixed blocks so far:
     # 5 top-level non-table (Callout, Apport Heading, Items Heading, Divider, Audit Paragraph)
+    # (+ 1 if image_block is included)
     # + 1 (Apportionment Table) + len(apportionment_rows)
     # + 1 (Items Table) + 1 (Items Header Row)
-    used_blocks = 5 + 1 + len(apportionment_rows) + 1 + 1
+    used_blocks = (6 if image_block is not None else 5) + 1 + len(apportionment_rows) + 1 + 1
     remaining_item_budget = max(1, MAX_COMPACT_BLOCKS - used_blocks)
 
     if len(items) > remaining_item_budget:
@@ -403,9 +405,13 @@ def format_compact_meal_blocks(
         apportionment_table,
         items_heading,
         items_table,
+    ]
+    if image_block is not None:
+        blocks.append(image_block)
+    blocks.extend([
         divider_block,
         audit_paragraph,
-    ]
+    ])
     assert count_notion_blocks(blocks) <= MAX_COMPACT_BLOCKS, f"Compact blocks {count_notion_blocks(blocks)} exceeds {MAX_COMPACT_BLOCKS}"
     return blocks
 
@@ -413,6 +419,7 @@ def format_compact_meal_blocks(
 def format_full_meal_blocks(
     meal_id: str,
     snapshot: dict[str, Any],
+    image_block: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Format full, unconstrained Notion blocks listing every participant and receipt item without rollup."""
     receipt = snapshot.get("receipt") or {}
@@ -659,15 +666,20 @@ def format_full_meal_blocks(
         },
     }
 
-    return [
+    blocks = [
         callout_block,
         apportionment_heading,
         apportionment_table,
         items_heading,
         items_table,
+    ]
+    if image_block is not None:
+        blocks.append(image_block)
+    blocks.extend([
         divider_block,
         audit_paragraph,
-    ]
+    ])
+    return blocks
 
 
 def export_finalized_meal(
@@ -719,14 +731,34 @@ def export_finalized_meal(
         except Exception:
             pass
 
+    image_block = None
+    if config.include_receipt_photo and config.receipt_photo_data:
+        file_bytes, filename, content_type = config.receipt_photo_data
+        file_upload_id = client.upload_file(
+            token=config.token,
+            filename=filename,
+            content_type=content_type,
+            file_bytes=file_bytes,
+        )
+        image_block = {
+            "object": "block",
+            "type": "image",
+            "image": {
+                "type": "file_upload",
+                "file_upload": {
+                    "id": file_upload_id,
+                },
+            },
+        }
+
     parent_key = "database_id" if config.parent_type == "database_id" else "page_id"
     parent = {parent_key: clean_parent_id}
 
     properties = format_meal_properties(meal_id, snapshot, parent_type=config.parent_type)
     if config.mode == "full":
-        children = format_full_meal_blocks(meal_id, snapshot)
+        children = format_full_meal_blocks(meal_id, snapshot, image_block=image_block)
     else:
-        children = format_compact_meal_blocks(meal_id, snapshot)
+        children = format_compact_meal_blocks(meal_id, snapshot, image_block=image_block)
 
     page_obj = client.create_page(
         token=config.token,

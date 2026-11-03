@@ -66,6 +66,21 @@ def extract_notion_id(val: str) -> str | None:
     return None
 
 
+def encode_multipart_file(field_name: str, filename: str, content_type: str, file_bytes: bytes) -> tuple[bytes, str]:
+    """Encode binary file into multipart/form-data body and Content-Type header."""
+    import uuid
+    boundary = f"----SettleTableBoundary{uuid.uuid4().hex}"
+    header = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode('utf-8')
+    footer = f"\r\n--{boundary}--\r\n".encode('utf-8')
+    body = header + file_bytes + footer
+    content_type_header = f"multipart/form-data; boundary={boundary}"
+    return body, content_type_header
+
+
 class NotionClientProtocol(Protocol):
     """Protocol for Notion API clients."""
 
@@ -94,6 +109,36 @@ class NotionClientProtocol(Protocol):
         block_id: str,
     ) -> list[dict[str, Any]]:
         """Retrieve block children for a block."""
+        ...
+
+    def create_file_upload(
+        self,
+        token: str,
+        filename: str,
+        content_type: str,
+    ) -> dict[str, Any]:
+        """Initiate single-part file upload with Notion API."""
+        ...
+
+    def send_file_upload(
+        self,
+        token: str,
+        file_upload_id: str,
+        file_bytes: bytes,
+        content_type: str,
+        filename: str = "receipt.jpg",
+    ) -> dict[str, Any]:
+        """Send raw binary file contents to Notion file upload object."""
+        ...
+
+    def upload_file(
+        self,
+        token: str,
+        filename: str,
+        content_type: str,
+        file_bytes: bytes,
+    ) -> str:
+        """2-step upload returning file_upload_id."""
         ...
 
 
@@ -241,6 +286,89 @@ class NotionHttpClient:
             cursor = res.get("next_cursor")
         return all_results
 
+    def create_file_upload(
+        self,
+        token: str,
+        filename: str,
+        content_type: str,
+    ) -> dict[str, Any]:
+        """Initiate single-part file upload with Notion API."""
+        payload = {
+            "mode": "single_part",
+            "filename": filename,
+            "content_type": content_type,
+        }
+        return self._request(token, "POST", "file_uploads", payload)
+
+    def send_file_upload(
+        self,
+        token: str,
+        file_upload_id: str,
+        file_bytes: bytes,
+        content_type: str,
+        filename: str = "receipt.jpg",
+    ) -> dict[str, Any]:
+        """Send raw binary file contents to Notion file upload object."""
+        body, ct_header = encode_multipart_file("file", filename, content_type, file_bytes)
+        url = f"{self.BASE_URL}/file_uploads/{file_upload_id}/send"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Notion-Version": self.api_version,
+            "Content-Type": ct_header,
+            "User-Agent": "SettleTable/1.0",
+        }
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with self._opener.open(req, timeout=self.timeout_seconds) as resp:
+                raw = resp.read().decode("utf-8")
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as err:
+            status = err.code
+            err_body_raw = err.read().decode("utf-8", errors="replace")
+            err_msg = ""
+            try:
+                err_json = json.loads(err_body_raw)
+                err_msg = err_json.get("message", err_body_raw)
+            except Exception:
+                err_msg = err_body_raw
+
+            if not err_msg and getattr(err, "msg", ""):
+                err_msg = getattr(err, "msg", "")
+
+            clean_msg = sanitize_notion_error_message(err_msg)
+
+            if status == 429 or status == 503:
+                raise NotionRateLimitError(f"Notion rate limit exceeded: {clean_msg}") from None
+            if status in (401, 403):
+                raise NotionAuthError(f"Notion authentication error ({status}): {clean_msg}") from None
+            if status == 404:
+                raise NotionNotFoundError(f"Notion resource not found ({status}): {clean_msg}") from None
+            if status == 400:
+                raise NotionValidationError(f"Notion validation error (400): {clean_msg}") from None
+
+            raise NotionError(f"Notion API error ({status}): {clean_msg}") from None
+        except urllib.error.URLError as err:
+            clean_err = sanitize_notion_error_message(str(err.reason))
+            raise NotionError(f"Network error communicating with Notion: {clean_err}") from None
+        except Exception as err:
+            clean_err = sanitize_notion_error_message(str(err))
+            raise NotionError(f"Unexpected error communicating with Notion: {clean_err}") from None
+
+    def upload_file(
+        self,
+        token: str,
+        filename: str,
+        content_type: str,
+        file_bytes: bytes,
+    ) -> str:
+        """2-step upload returning file_upload_id."""
+        init_res = self.create_file_upload(token, filename, content_type)
+        file_upload_id = init_res.get("id") or init_res.get("file_upload_id")
+        if not file_upload_id:
+            raise NotionValidationError("Notion file_uploads did not return an upload id")
+        self.send_file_upload(token, file_upload_id, file_bytes, content_type, filename)
+        return file_upload_id
+
 
 class MockNotionClient:
     """In-memory deterministic Notion client for air-gapped testing and CI.
@@ -254,6 +382,7 @@ class MockNotionClient:
     def __init__(self):
         self.pages: dict[str, dict[str, Any]] = {}
         self.blocks: dict[str, list[dict[str, Any]]] = {}
+        self.file_uploads: dict[str, dict[str, Any]] = {}
         self._next_id = 1
         self._forced_error: tuple[type[Exception], str] | None = None
         self._rate_limit_attempts = 0
@@ -317,6 +446,14 @@ class MockNotionClient:
                             raise NotionValidationError(
                                 f"Table row has {len(cells)} cells, expected {width} (table_width)"
                             )
+                elif btype == "image":
+                    img = blk.get("image", {})
+                    itype = img.get("type")
+                    if itype == "file_upload":
+                        f_info = img.get("file_upload", {})
+                        fid = f_info.get("id")
+                        if not fid or fid not in self.file_uploads or self.file_uploads[fid].get("status") != "uploaded":
+                            raise NotionValidationError("Image block references invalid or un-uploaded file_upload id")
 
         page_uuid = f"11111111-2222-3333-4444-{self._next_id:012d}"
         self._next_id += 1
@@ -372,3 +509,55 @@ class MockNotionClient:
             self._forced_error = None
             raise err_type(msg)
         return list(self.blocks.get(block_id, []))
+
+    def create_file_upload(
+        self,
+        token: str,
+        filename: str,
+        content_type: str,
+    ) -> dict[str, Any]:
+        if self._forced_error:
+            err_type, msg = self._forced_error
+            self._forced_error = None
+            raise err_type(msg)
+        upload_uuid = f"33333333-4444-5555-6666-{self._next_id:012d}"
+        self._next_id += 1
+        upload_obj = {
+            "object": "file_upload",
+            "id": upload_uuid,
+            "status": "pending",
+            "filename": filename,
+            "content_type": content_type,
+        }
+        self.file_uploads[upload_uuid] = upload_obj
+        return upload_obj
+
+    def send_file_upload(
+        self,
+        token: str,
+        file_upload_id: str,
+        file_bytes: bytes,
+        content_type: str,
+        filename: str = "receipt.jpg",
+    ) -> dict[str, Any]:
+        if self._forced_error:
+            err_type, msg = self._forced_error
+            self._forced_error = None
+            raise err_type(msg)
+        if file_upload_id not in self.file_uploads:
+            raise NotionNotFoundError(f"File upload {file_upload_id} not found")
+        self.file_uploads[file_upload_id]["status"] = "uploaded"
+        self.file_uploads[file_upload_id]["_bytes"] = file_bytes
+        return {"object": "file_upload", "id": file_upload_id, "status": "uploaded"}
+
+    def upload_file(
+        self,
+        token: str,
+        filename: str,
+        content_type: str,
+        file_bytes: bytes,
+    ) -> str:
+        init_res = self.create_file_upload(token, filename, content_type)
+        fid = init_res["id"]
+        self.send_file_upload(token, fid, file_bytes, content_type, filename)
+        return fid

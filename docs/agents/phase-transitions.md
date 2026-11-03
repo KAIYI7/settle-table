@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-03 — Receipt photo retention, interactive zoom modal, and optional Notion export milestone: PR #32 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA merged autonomously under orchestrator governance policy into `main`. GitHub PR #32 verified on hosted CI before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Local Receipt Photo Storage & Isolation | PASS: created `receipt_photos` table and private directory `<db_dir>/receipt_photos/`. Binary image bytes strictly excluded from `meals.state`, snapshots, and audit logs. Filenames strictly synthesized as `{safe_meal_id}_{sha256[:16]}.{ext}`, sanitizing path separators and Windows Alternate Data Streams (ADS). All serving resolves `target_path.is_relative_to(storage_dir.resolve())`. Temporary files cleaned up reliably on failure. |
+| Organizer-Only Access Control & CSRF | PASS: enforced authenticated organizer authority across `POST /ocr/extract`, `POST /receipt/photo`, `GET /receipt/photo`, and `DELETE /receipt/photo` (401 for unauthenticated, 403 for diners/non-members). Extended `X-SettleTable-Action: 1` and Origin/Referer matching to all `POST` and `DELETE` methods. |
+| Finalized Meal Immutability | PASS: `store_receipt_photo` and `delete_receipt_photo` acquire SQLite `BEGIN IMMEDIATE` locks and assert `state.get('calculation') is None`, rejecting mutations on finalized meals with HTTP 409 `finalized`. Organizers retain read-only GET access post-finalization. |
+| Calculation Engine Untouched | PASS: `settletable/calculation.py` remains 100% byte-untouched. Photo storage and deletion produce 0 changes to `receipt_digest` or financial apportionment math. |
+| Responsive Preview & Zoom Modal UI | PASS: implemented responsive preview bar during OCR candidate staging and attached receipt photo card in organizer view with View & Zoom, Replace Photo, and Remove Photo. Added accessible `#receipt-modal` with zoom in/out/reset, mouse wheel zoom, drag-to-pan, touch support, and Escape key dismissal. Preserved photo access after finalization. |
+| Notion 2-Step File Upload & Budget | PASS: implemented Notion official 2-step single-part file upload API (`POST /v1/file_uploads` then `POST /v1/file_uploads/{id}/send` with standard library multipart) and referenced via `image.file_upload.id` block. Enforced compact block budget reserving 6 non-table blocks to guarantee total page blocks remain $\le 40$ blocks without assertion failure. |
+| View-Only Sharing Guidance & Privacy Warning | PASS: added organizer checkbox `[ ] Include original receipt photo in Notion report` (default OFF, enabled only when photo exists). Rendered verified 4-step manual "Publish to web" guidance upon export with an explicit privacy warning regarding confidential data exposure. |
+| Local Regression Suite | PASS: 249/249 Python tests passed (`python -m unittest discover tests`); 17/17 dedicated receipt photo tests passed (`tests/test_receipt_photo.py`); 12/12 automated real-browser CDP test stages passed (`tools/e2e_browser_test.mjs`); dedicated 7-stage headless Chrome receipt photo suite passed (`tools/verify_receipt_photo_flow.mjs`); repo audit passed with 0 findings. |
+| Code & Security Review | PASS: independent security and code review APPROVE (`research/phase-3/receipt-photo-independent-review.md`) with zero critical/high/medium findings; 1 informational low note on standard REST delete idempotency recorded. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-02 — OCR fixture privacy sanitization & all-items scope guard milestone: PR #31 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `3d5f05c580b6a2edcaf7e67bda521cd4516c5fb2` merged autonomously under orchestrator governance policy into `main` at `7ca36be35006e296683765288acecc26cec4e210`. GitHub PR #31 ([#31](https://github.com/KAIYI7/settle-table/pull/31)) verified on hosted CI before merge.
