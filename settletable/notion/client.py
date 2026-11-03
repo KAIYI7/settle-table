@@ -494,6 +494,16 @@ class MockNotionClient:
 
         if block_id not in self.blocks:
             self.blocks[block_id] = []
+        for blk in children:
+            btype = blk.get("type")
+            if btype == "image":
+                img = blk.get("image", {})
+                itype = img.get("type")
+                if itype == "file_upload":
+                    f_info = img.get("file_upload", {})
+                    fid = f_info.get("id")
+                    if not fid or fid not in self.file_uploads or self.file_uploads[fid].get("status") != "uploaded":
+                        raise NotionValidationError("Image block references invalid or un-uploaded file_upload id")
         self.blocks[block_id].extend(children)
         return {"results": children}
 

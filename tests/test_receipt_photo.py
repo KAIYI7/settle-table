@@ -105,6 +105,50 @@ class TestReceiptPhotoAuthority(unittest.TestCase):
             self.authority.get_receipt_photo(self.diner_cred, self.meal_id)
         self.assertEqual(ctx.exception.code, 'forbidden')
 
+    def test_get_receipt_photo_corrupted_hash(self):
+        meta = self.authority.store_receipt_photo(
+            self.org_cred, self.meal_id, self.png_bytes, 'image/png', 100, 100
+        )
+        file_path = self.storage_dir / meta['filename']
+        # Corrupt one byte in the file without changing length
+        corrupted_bytes = bytearray(self.png_bytes)
+        corrupted_bytes[-1] ^= 0xFF
+        file_path.write_bytes(bytes(corrupted_bytes))
+
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.get_receipt_photo(self.org_cred, self.meal_id)
+        self.assertEqual(ctx.exception.code, 'photo_corrupted')
+
+    def test_get_receipt_photo_truncated_size(self):
+        meta = self.authority.store_receipt_photo(
+            self.org_cred, self.meal_id, self.png_bytes, 'image/png', 100, 100
+        )
+        file_path = self.storage_dir / meta['filename']
+        # Truncate file
+        file_path.write_bytes(self.png_bytes[:10])
+
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.get_receipt_photo(self.org_cred, self.meal_id)
+        self.assertEqual(ctx.exception.code, 'photo_corrupted')
+
+    def test_snapshot_disk_missing_file_recovery(self):
+        meta = self.authority.store_receipt_photo(
+            self.org_cred, self.meal_id, self.png_bytes, 'image/png', 100, 100
+        )
+        # Snapshot reports photo present
+        snap = self.authority.snapshot(self.org_cred, self.meal_id)
+        self.assertTrue(snap.has_receipt_photo)
+        self.assertIsNotNone(snap.receipt_photo)
+
+        # Physically delete the file from disk (simulate disk crash/unmounted volume)
+        file_path = self.storage_dir / meta['filename']
+        file_path.unlink()
+
+        # Snapshot safely recovers: reports photo not present, preventing broken UI links
+        recovered_snap = self.authority.snapshot(self.org_cred, self.meal_id)
+        self.assertFalse(recovered_snap.has_receipt_photo)
+        self.assertIsNone(recovered_snap.receipt_photo)
+
     def test_store_receipt_photo_diner_forbidden(self):
         with self.assertRaises(AuthorityError) as ctx:
             self.authority.store_receipt_photo(
@@ -192,7 +236,8 @@ class TestReceiptPhotoTransport(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / 'settletable.sqlite'
         self.storage_dir = Path(self.temp_dir.name) / 'receipt_photos'
-        self.app = SettleTableApp(str(self.db_path), storage_dir=self.storage_dir)
+        self.mock_notion_client = MockNotionClient()
+        self.app = SettleTableApp(str(self.db_path), storage_dir=self.storage_dir, notion_client=self.mock_notion_client, allow_sync_export=True)
 
         # Setup meal
         auth = self.app.get_authority()
@@ -362,6 +407,178 @@ class TestReceiptPhotoTransport(unittest.TestCase):
         )
         self.assertEqual(code, 413)
 
+    def _setup_finalized_meal(self, upload_photo=True):
+        auth = self.app.get_authority()
+        rcpt = Receipt(
+            items=(ReceiptItem('item-1', 'Nasi Lemak', 1, 1000),),
+            subtotal_sen=1000,
+            total_sen=1000,
+            adjustments=(),
+        )
+        snap0 = auth.snapshot(self.org_cred, self.meal_id)
+        auth.apply(self.org_cred, self.meal_id, ReplaceReceipt("c1", snap0.revision, snap0.financial_revision, rcpt))
+        snap1 = auth.snapshot(self.org_cred, self.meal_id)
+        auth.apply(self.org_cred, self.meal_id, ReviewReceipt("c2", snap1.revision, snap1.financial_revision, snap1.receipt_digest))
+        snap2 = auth.snapshot(self.org_cred, self.meal_id)
+        auth.apply(self.org_cred, self.meal_id, SetOwnQuantity("c3", "item-1", 1, snap2.items[0].item_revision, snap2.financial_revision))
+        snap3 = auth.snapshot(self.org_cred, self.meal_id)
+        return auth.apply(self.org_cred, self.meal_id, Finalize("c4", snap3.revision, snap3.financial_revision))
+
+    def test_export_notion_fails_when_photo_requested_but_missing(self):
+        # Setup finalized meal without uploading any photo
+        self._setup_finalized_meal(upload_photo=False)
+        payload = json.dumps({
+            'token': 'secret_test_notion_token_12345',
+            'parent_id': '11111111-2222-3333-4444-555555555555',
+            'include_receipt_photo': True,
+        }).encode('utf-8')
+        code, _, body = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/export/notion?sync=1',
+            body=payload,
+            headers={
+                'CONTENT_TYPE': 'application/json',
+                'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}',
+            },
+        )
+        self.assertEqual(code, 404)
+        data = json.loads(body.decode('utf-8'))
+        self.assertFalse(data['ok'])
+        self.assertEqual(data['error'], 'photo_not_found')
+
+        # Verify export was NOT recorded as completed in authority
+        auth = self.app.get_authority()
+        snap = auth.snapshot(self.org_cred, self.meal_id)
+        rec = auth.get_notion_export(self.meal_id, snap.revision)
+        self.assertIsNone(rec)
+
+    def test_export_notion_fails_when_photo_corrupted(self):
+        auth = self.app.get_authority()
+        meta = auth.store_receipt_photo(self.org_cred, self.meal_id, self.png_bytes, 'image/png', 50, 50)
+        self._setup_finalized_meal(upload_photo=False)
+
+        # Corrupt file on disk
+        target_file = self.storage_dir / meta['filename']
+        target_file.write_bytes(b'CORRUPTED_BYTES_WITHOUT_VALID_HASH')
+
+        payload = json.dumps({
+            'token': 'secret_test_notion_token_12345',
+            'parent_id': '11111111-2222-3333-4444-555555555555',
+            'include_receipt_photo': True,
+        }).encode('utf-8')
+        code, _, body = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/export/notion?sync=1',
+            body=payload,
+            headers={
+                'CONTENT_TYPE': 'application/json',
+                'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}',
+            },
+        )
+        self.assertEqual(code, 500)
+        data = json.loads(body.decode('utf-8'))
+        self.assertFalse(data['ok'])
+        self.assertEqual(data['error'], 'photo_corrupted')
+
+    def test_export_notion_upgrade_text_only_in_place(self):
+        auth = self.app.get_authority()
+        auth.store_receipt_photo(self.org_cred, self.meal_id, self.png_bytes, 'image/png', 50, 50)
+        self._setup_finalized_meal(upload_photo=False)
+
+        # 1. First export: text-only (include_receipt_photo=False)
+        payload1 = json.dumps({
+            'token': 'secret_test_notion_token_12345',
+            'parent_id': '11111111-2222-3333-4444-555555555555',
+            'include_receipt_photo': False,
+        }).encode('utf-8')
+        code1, _, body1 = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/export/notion?sync=1',
+            body=payload1,
+            headers={
+                'CONTENT_TYPE': 'application/json',
+                'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}',
+            },
+        )
+        self.assertEqual(code1, 200)
+        data1 = json.loads(body1.decode('utf-8'))
+        self.assertTrue(data1['ok'])
+        page_id = data1['export']['page_id']
+        self.assertIsNotNone(page_id)
+
+        # Check export record in DB: has photo=0
+        snap = auth.snapshot(self.org_cred, self.meal_id)
+        rec1 = auth.get_notion_export(self.meal_id, snap.revision)
+        self.assertEqual(rec1['status'], 'completed')
+        self.assertTrue(rec1['export_digest'].endswith(':photo=0'))
+
+        # Check mock client: page has no image block
+        mock_cli = self.app.get_notion_client()
+        blocks1 = mock_cli.blocks[page_id]
+        self.assertEqual(len([b for b in blocks1 if b.get('type') == 'image']), 0)
+
+        # 2. Second export: organizer now requests include_receipt_photo=True
+        payload2 = json.dumps({
+            'token': 'secret_test_notion_token_12345',
+            'parent_id': '11111111-2222-3333-4444-555555555555',
+            'include_receipt_photo': True,
+        }).encode('utf-8')
+        code2, _, body2 = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/export/notion?sync=1',
+            body=payload2,
+            headers={
+                'CONTENT_TYPE': 'application/json',
+                'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}',
+            },
+        )
+        self.assertEqual(code2, 200)
+        data2 = json.loads(body2.decode('utf-8'))
+        self.assertTrue(data2['ok'])
+        self.assertEqual(data2['export']['page_id'], page_id, "Must upgrade existing page in-place, not create duplicate")
+        self.assertEqual(data2['export']['status'], 'completed')
+
+        # Check export record in DB: upgraded to photo=1
+        rec2 = auth.get_notion_export(self.meal_id, snap.revision)
+        self.assertEqual(rec2['status'], 'completed')
+        self.assertTrue(rec2['export_digest'].endswith(':photo=1'))
+
+        # Check mock client: image block was appended in-place
+        blocks2 = mock_cli.blocks[page_id]
+        self.assertEqual(len([b for b in blocks2 if b.get('type') == 'image']), 1)
+
+        # 3. Third export: include_receipt_photo=True again -> idempotent no-op (already_exported)
+        code3, _, body3 = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/export/notion?sync=1',
+            body=payload2,
+            headers={
+                'CONTENT_TYPE': 'application/json',
+                'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}',
+            },
+        )
+        self.assertEqual(code3, 200)
+        data3 = json.loads(body3.decode('utf-8'))
+        self.assertTrue(data3['ok'])
+        self.assertEqual(data3['export']['status'], 'already_exported')
+        self.assertEqual(data3['export']['page_id'], page_id)
+
+        # 4. Fourth export: include_receipt_photo=False -> idempotent no-op (already_exported)
+        code4, _, body4 = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/export/notion?sync=1',
+            body=payload1,
+            headers={
+                'CONTENT_TYPE': 'application/json',
+                'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}',
+            },
+        )
+        self.assertEqual(code4, 200)
+        data4 = json.loads(body4.decode('utf-8'))
+        self.assertTrue(data4['ok'])
+        self.assertEqual(data4['export']['status'], 'already_exported')
+        self.assertEqual(data4['export']['page_id'], page_id)
+
 
 class TestNotionPhotoExport(unittest.TestCase):
     def setUp(self):
@@ -463,6 +680,62 @@ class TestNotionPhotoExport(unittest.TestCase):
         total_blocks = count_notion_blocks(blocks)
         self.assertLessEqual(total_blocks, 40)
         self.assertIn(image_blk, blocks)
+
+    def test_export_finalized_meal_fails_on_missing_photo_data(self):
+        token = 'secret_test_notion_token_12345'
+        parent_id = '11111111-2222-3333-4444-555555555555'
+        config = NotionExportConfig(
+            token=token,
+            parent_id=parent_id,
+            mode='compact',
+            include_receipt_photo=True,
+            receipt_photo_data=None,  # Missing photo data
+        )
+        res = export_finalized_meal(self.mock_client, self.meal_id, self.snapshot, config)
+        self.assertFalse(res.ok)
+        self.assertEqual(res.status, 'failed')
+        self.assertEqual(res.error, 'missing_receipt_photo_data')
+        self.assertEqual(len(self.mock_client.pages), 0)
+
+    def test_export_upgrade_in_place_without_duplicate_page(self):
+        token = 'secret_test_notion_token_12345'
+        parent_id = '11111111-2222-3333-4444-555555555555'
+
+        # 1. First export: text-only
+        config1 = NotionExportConfig(
+            token=token,
+            parent_id=parent_id,
+            mode='compact',
+            include_receipt_photo=False,
+        )
+        res1 = export_finalized_meal(self.mock_client, self.meal_id, self.snapshot, config1)
+        self.assertTrue(res1.ok)
+        self.assertEqual(res1.status, 'completed')
+        page_id = res1.page_id
+        self.assertEqual(len(self.mock_client.pages), 1)
+
+        # 2. Second export: upgrade in-place with photo
+        config2 = NotionExportConfig(
+            token=token,
+            parent_id=parent_id,
+            mode='compact',
+            include_receipt_photo=True,
+            receipt_photo_data=(self.png_bytes, 'receipt.png', 'image/png'),
+            existing_page_id=page_id,
+        )
+        res2 = export_finalized_meal(self.mock_client, self.meal_id, self.snapshot, config2)
+        self.assertTrue(res2.ok)
+        self.assertEqual(res2.status, 'completed')
+        self.assertEqual(res2.page_id, page_id)
+        self.assertEqual(len(self.mock_client.pages), 1, "Must not create a duplicate Notion page")
+        self.assertEqual(res2.blocks_created, 1)
+
+        # 3. Third export: same photo -> already_exported
+        res3 = export_finalized_meal(self.mock_client, self.meal_id, self.snapshot, config2)
+        self.assertTrue(res3.ok)
+        self.assertEqual(res3.status, 'already_exported')
+        self.assertEqual(res3.page_id, page_id)
+        self.assertEqual(len(self.mock_client.pages), 1)
 
 
 if __name__ == '__main__':

@@ -308,10 +308,10 @@ def format_compact_meal_blocks(
 
     # Fixed blocks so far:
     # 5 top-level non-table (Callout, Apport Heading, Items Heading, Divider, Audit Paragraph)
-    # (+ 1 if image_block is included)
+    # + 1 reserved for optional image_block (guaranteeing total compact blocks <= 40 even if appended later)
     # + 1 (Apportionment Table) + len(apportionment_rows)
     # + 1 (Items Table) + 1 (Items Header Row)
-    used_blocks = (6 if image_block is not None else 5) + 1 + len(apportionment_rows) + 1 + 1
+    used_blocks = 6 + 1 + len(apportionment_rows) + 1 + 1
     remaining_item_budget = max(1, MAX_COMPACT_BLOCKS - used_blocks)
 
     if len(items) > remaining_item_budget:
@@ -704,13 +704,23 @@ def export_finalized_meal(
     if not NOTION_ID_REGEX.match(clean_parent_id):
         raise NotionValidationError(f"Invalid Notion parent_id UUID: '{clean_parent_id}'")
 
+    if config.include_receipt_photo and not config.receipt_photo_data:
+        return NotionExportResult(
+            ok=False,
+            status="failed",
+            error="missing_receipt_photo_data",
+        )
+
     receipt = snapshot.get("receipt") or {}
     merchant = receipt.get("merchant") or meal_id
     title_text = f"🍽️ SettleTable: {merchant} ({meal_id})"
 
+    existing_id = config.existing_page_id
+    existing_url = f"https://notion.so/{existing_id.replace('-', '')}" if existing_id else None
+
     # Pre-creation title reconciliation: check if page already exists under page parent
     # to prevent duplicate pages if a previous network response was lost
-    if config.parent_type == "page_id":
+    if not existing_id and config.parent_type == "page_id":
         try:
             existing_blocks = client.query_block_children(config.token, clean_parent_id)
             for blk in existing_blocks:
@@ -719,17 +729,70 @@ def export_finalized_meal(
                     if child_info.get("title") == title_text:
                         existing_id = blk.get("id")
                         existing_url = f"https://notion.so/{existing_id.replace('-', '')}" if existing_id else None
-                        return NotionExportResult(
-                            ok=True,
-                            status="already_exported",
-                            page_id=existing_id,
-                            page_url=existing_url,
-                            blocks_created=0,
-                        )
+                        break
         except (NotionAuthError, NotionValidationError, NotionNotFoundError, NotionRateLimitError):
             raise
         except Exception:
             pass
+
+    if existing_id:
+        if not config.include_receipt_photo:
+            return NotionExportResult(
+                ok=True,
+                status="already_exported",
+                page_id=existing_id,
+                page_url=existing_url,
+                blocks_created=0,
+            )
+
+        # Organizer requested photo inclusion for an existing page.
+        # Check if the existing page already contains an image block.
+        try:
+            page_blocks = client.query_block_children(config.token, existing_id)
+            has_image = any(blk.get("type") == "image" for blk in page_blocks)
+            if has_image:
+                return NotionExportResult(
+                    ok=True,
+                    status="already_exported",
+                    page_id=existing_id,
+                    page_url=existing_url,
+                    blocks_created=0,
+                )
+
+            # Upload receipt photo and append image block in-place
+            file_bytes, filename, content_type = config.receipt_photo_data
+            file_upload_id = client.upload_file(
+                token=config.token,
+                filename=filename,
+                content_type=content_type,
+                file_bytes=file_bytes,
+            )
+            image_block = {
+                "object": "block",
+                "type": "image",
+                "image": {
+                    "type": "file_upload",
+                    "file_upload": {
+                        "id": file_upload_id,
+                    },
+                },
+            }
+            client.append_block_children(config.token, existing_id, [image_block])
+            return NotionExportResult(
+                ok=True,
+                status="completed",
+                page_id=existing_id,
+                page_url=existing_url,
+                blocks_created=1,
+            )
+        except (NotionAuthError, NotionValidationError, NotionNotFoundError, NotionRateLimitError):
+            raise
+        except Exception as err:
+            return NotionExportResult(
+                ok=False,
+                status="failed",
+                error=f"append_photo_failed: {str(err)}"[:128],
+            )
 
     image_block = None
     if config.include_receipt_photo and config.receipt_photo_data:
