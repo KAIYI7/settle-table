@@ -702,17 +702,20 @@ class Authority:
                 'SELECT filename, content_type, byte_size, width, height, uploaded_at FROM receipt_photos WHERE meal_id=?',
                 (meal_id,)
             ).fetchone()
-            has_receipt_photo = photo_row is not None
+            has_receipt_photo = False
             receipt_photo = None
             if photo_row:
-                receipt_photo = {
-                    'filename': photo_row[0],
-                    'content_type': photo_row[1],
-                    'byte_size': photo_row[2],
-                    'width': photo_row[3],
-                    'height': photo_row[4],
-                    'uploaded_at': photo_row[5],
-                }
+                photo_path = (self.storage_dir / photo_row[0]).resolve()
+                if photo_path.is_relative_to(self.storage_dir.resolve()) and photo_path.is_file():
+                    has_receipt_photo = True
+                    receipt_photo = {
+                        'filename': photo_row[0],
+                        'content_type': photo_row[1],
+                        'byte_size': photo_row[2],
+                        'width': photo_row[3],
+                        'height': photo_row[4],
+                        'uploaded_at': photo_row[5],
+                    }
             result = DraftSnapshot(meal_id, state['revision'], state['financial_revision'],
                                    _receipt_digest(state['receipt']), _decode_receipt(state['receipt']),
                                    tuple(ItemState(i, revision) for i, revision in sorted(state['item_revisions'].items())),
@@ -1687,6 +1690,7 @@ class Authority:
         dest_path = self.storage_dir / filename
 
         old_filename = None
+        new_file_created = False
         try:
             _require(self._db is not None, 'storage_error')
             tmp_path.write_bytes(image_bytes)
@@ -1705,6 +1709,11 @@ class Authority:
                 old_filename = existing_row[0]
 
             now = self._now()
+
+            # Atomically move staging file into destination BEFORE committing database metadata
+            tmp_path.replace(dest_path)
+            new_file_created = True
+
             self._db.execute('''
                 INSERT INTO receipt_photos (meal_id, filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1721,15 +1730,13 @@ class Authority:
 
             self._db.execute('COMMIT')
 
-            tmp_path.replace(dest_path)
-
             if old_filename and old_filename != filename:
-                old_path = self.storage_dir / old_filename
-                try:
-                    if old_path.exists():
+                old_path = (self.storage_dir / old_filename).resolve()
+                if old_path.is_relative_to(self.storage_dir.resolve()) and old_path.exists():
+                    try:
                         old_path.unlink()
-                except OSError:
-                    pass
+                    except OSError:
+                        pass
 
             return {
                 'meal_id': meal_id,
@@ -1744,26 +1751,26 @@ class Authority:
             }
         except AuthorityError:
             self._rollback()
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
+            if new_file_created and dest_path.exists() and dest_path != (self.storage_dir / (old_filename or '')):
+                try:
+                    dest_path.unlink()
+                except OSError:
+                    pass
             raise
         except sqlite3.Error as error:
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
+            if new_file_created and dest_path.exists() and dest_path != (self.storage_dir / (old_filename or '')):
+                try:
+                    dest_path.unlink()
+                except OSError:
+                    pass
             self._storage_failure(error)
         except Exception:
             self._rollback()
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
+            if new_file_created and dest_path.exists() and dest_path != (self.storage_dir / (old_filename or '')):
+                try:
+                    dest_path.unlink()
+                except OSError:
+                    pass
             raise AuthorityError('storage_error') from None
         finally:
             try:
@@ -1791,6 +1798,7 @@ class Authority:
             _require(target_path.is_relative_to(self.storage_dir.resolve()), 'forbidden')
             _require(target_path.is_file(), 'photo_not_found')
             data = target_path.read_bytes()
+            _require(len(data) == byte_size and hashlib.sha256(data).hexdigest() == sha256, 'photo_corrupted')
             self._db.execute('COMMIT')
             meta = {
                 'meal_id': meal_id,

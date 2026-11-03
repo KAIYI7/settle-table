@@ -13,6 +13,7 @@ class NotionExportConfig:
     api_version: str = '2022-06-28'
     include_receipt_photo: bool = False
     receipt_photo_data: tuple[bytes, str, str] | None = None
+    existing_page_id: str | None = None
 
 
 @dataclass(frozen=True)

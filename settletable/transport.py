@@ -98,6 +98,7 @@ STATUS_MAP = {
     'header_too_large': 431,
     # 500 Internal Server Error
     'storage_error': 500,
+    'photo_corrupted': 500,
     'internal_error': 500,
     # 502 Bad Gateway
     'notion_error': 502,
@@ -906,20 +907,45 @@ class SettleTableApp:
                 raise TransportError('invalid_input', 400)
 
             rev = snap.get('revision', 0)
-            digest = snap.get('calculation_digest') or ''
+            calc_digest = snap.get('calculation_digest') or ''
+            include_photo = bool(body_data.get('include_receipt_photo'))
+            photo_flag = "photo=1" if include_photo else "photo=0"
+            export_digest = f"{calc_digest}:{photo_flag}"
+
+            receipt_photo_data = None
+            if include_photo:
+                try:
+                    img_bytes, meta = authority.get_receipt_photo(active_cred, meal_id)
+                    receipt_photo_data = (img_bytes, meta['filename'], meta['content_type'])
+                except AuthorityError as err:
+                    if err.code == 'photo_not_found':
+                        raise TransportError('photo_not_found', 404) from None
+                    if err.code == 'photo_corrupted':
+                        raise TransportError('photo_corrupted', 500) from None
+                    raise TransportError(err.code, STATUS_MAP.get(err.code, 500)) from None
+                except Exception:
+                    raise TransportError('storage_error', 500) from None
+
             rec = authority.get_notion_export(meal_id, rev)
+            existing_page_id = None
             if rec and rec.get('status') == 'completed':
-                out = {
-                    'ok': True,
-                    'export': {
+                rec_digest = rec.get('export_digest', '')
+                rec_has_photo = rec_digest.endswith(':photo=1')
+                if rec_has_photo or not include_photo:
+                    out = {
                         'ok': True,
-                        'status': 'already_exported',
-                        'page_id': rec['page_id'],
-                        'page_url': rec['page_url'],
-                        'blocks_created': 0,
-                    },
-                }
-                return 200, self._default_headers(), serialize_json(out)
+                        'export': {
+                            'ok': True,
+                            'status': 'already_exported',
+                            'page_id': rec['page_id'],
+                            'page_url': rec['page_url'],
+                            'blocks_created': 0,
+                        },
+                    }
+                    return 200, self._default_headers(), serialize_json(out)
+                else:
+                    existing_page_id = rec.get('page_id')
+
             if rec and rec.get('status') == 'in_progress':
                 elapsed = time.time() - rec.get('exported_at', 0)
                 if elapsed < 60.0:
@@ -933,7 +959,7 @@ class SettleTableApp:
                         }
                     })
 
-            authority.record_notion_export_in_progress(meal_id, rev, digest)
+            authority.record_notion_export_in_progress(meal_id, rev, export_digest)
 
             qs = environ.get('QUERY_STRING', '')
             requested_sync = ('sync=1' in qs) or (environ.get('HTTP_X_SETTLETABLE_SYNC_EXPORT') == '1')
@@ -949,14 +975,6 @@ class SettleTableApp:
                 export_finalized_meal,
             )
             from settletable.notion.client import sanitize_notion_error_message
-            include_photo = bool(body_data.get('include_receipt_photo'))
-            receipt_photo_data = None
-            if include_photo:
-                try:
-                    img_bytes, meta = authority.get_receipt_photo(active_cred, meal_id)
-                    receipt_photo_data = (img_bytes, meta['filename'], meta['content_type'])
-                except Exception:
-                    receipt_photo_data = None
 
             config = NotionExportConfig(
                 token=token,
@@ -965,6 +983,7 @@ class SettleTableApp:
                 mode=body_data.get('mode', 'compact'),
                 include_receipt_photo=include_photo,
                 receipt_photo_data=receipt_photo_data,
+                existing_page_id=existing_page_id,
             )
 
             if is_sync:
@@ -973,7 +992,7 @@ class SettleTableApp:
                     result = export_finalized_meal(client, meal_id, snap, config)
                     if result.ok:
                         authority.record_notion_export_completed(
-                            meal_id, rev, result.page_id or '', result.page_url or '', digest
+                            meal_id, rev, result.page_id or '', result.page_url or '', export_digest
                         )
                         out = {'ok': True, 'export': result.to_dict()}
                         return 200, self._default_headers(), serialize_json(out)
@@ -1014,7 +1033,7 @@ class SettleTableApp:
                         result = export_finalized_meal(client, meal_id, snap, config)
                         if result.ok:
                             bg_auth.record_notion_export_completed(
-                                meal_id, rev, result.page_id or '', result.page_url or '', digest
+                                meal_id, rev, result.page_id or '', result.page_url or '', export_digest
                             )
                         else:
                             bg_auth.record_notion_export_failed(meal_id, rev, result.error or 'notion_error')
