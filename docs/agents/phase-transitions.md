@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-03 — Suggested Peer Transfers, Partial Reimbursements & Settlement Tracking: PR #37 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `ad0c5a9c166fa18d7f0ca7277545097bf9defde4` merged autonomously under orchestrator governance policy into `main`. GitHub PR #37 ([#37](https://github.com/KAIYI7/settle-table/pull/37)) verified on hosted CI ([run 41618225730](https://github.com/KAIYI7/settle-table/actions/runs/41618225730)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Peer Settlement Engine & Cent Conservation | PASS: Greedy transfer suggestion algorithm in `settletable/settlement.py` computes deterministic peer-to-peer transfer recommendations respecting cent conservation $\sum_{p \in \mathcal{P}} \text{OutstandingNet}(p) \equiv -\text{UnfundedAmount}$ (and 0 when fully funded). Enforced unconditionally via runtime assertion. |
+| Additive SQLite Transfer Ledger & Immutability Triggers | PASS: Created `peer_transfers` table with database triggers `prevent_peer_transfers_delete` and `prevent_peer_transfers_tamper`. Historical records are never deleted; adjustments require explicit `ReverseTransfer` commands. |
+| Over-Settlement & Invariant Defenses | PASS: `RecordTransfer` validates sender is debtor ($< 0$), receiver is creditor ($> 0$), `sender_id != receiver_id`, and strictly caps `amount_sen <= min(-sender_debt, receiver_credit)`. Bipartite matching ensures acyclic, deadlock-free transfers. |
+| Cross-Feature Balance Guard | PASS: In `_reverse_contribution`, rejects with `active_peer_transfers_exist` if reversing a restaurant contribution would reduce a participant's active contributions below the peer reimbursements they have already received. |
+| Organizer Authority & Security | PASS: `RecordTransfer` and `ReverseTransfer` mutations are strictly restricted to organizers via `_permission()`. Replay safety guaranteed by deterministic ID derivation `derive_transfer_id(meal_id, command_id)`. |
+| Zero Calculation Drift | PASS: `settletable/calculation.py` remains 100% byte-untouched. Authoritative finalized meal consumption liabilities are immutable. |
+| Local Regression Suite | PASS: 290/290 Python tests passed (`python -m unittest discover tests`); 16/16 dedicated settlement unit tests passed; 12/12 real-browser CDP test stages passed (`tools/e2e_browser_test.mjs`); 8/8 headless Chrome peer settlement flow tests passed (`tools/verify_peer_settlement_flow.mjs`); 8/8 headless Chrome multi-payer funding flow tests passed (`tools/verify_multi_payer_flow.mjs`). |
+| Independent Code & Security Review | PASS: Two-axis independent reviews (Standards: APPROVE, Spec & Financial Safety: APPROVE) completed with 0 blocking defects. Hosted GitHub Actions CI passed on exact head SHA `ad0c5a9` ([run 41618225730](https://github.com/KAIYI7/settle-table/actions/runs/41618225730)). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-03 — Multi-Payer Contributions & Net Balance Reconciliation: PR #36 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `9fce84a9a4aba68f0dcde6fdd48a2a26edb45183` merged autonomously under orchestrator governance policy into `main`. GitHub PR #36 ([#36](https://github.com/KAIYI7/settle-table/pull/36)) verified on hosted CI ([run 41612866522](https://github.com/KAIYI7/settle-table/actions/runs/41612866522)) before merge.
