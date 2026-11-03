@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-03 — Multi-Payer Contributions & Net Balance Reconciliation: PR #36 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `9fce84a9a4aba68f0dcde6fdd48a2a26edb45183` merged autonomously under orchestrator governance policy into `main`. GitHub PR #36 ([#36](https://github.com/KAIYI7/settle-table/pull/36)) verified on hosted CI ([run 41612866522](https://github.com/KAIYI7/settle-table/actions/runs/41612866522)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Multi-Payer Accounting & Ledger Immutability | PASS: created additive `payer_contributions` table in SQLite with database triggers `prevent_payer_contributions_delete` and `prevent_payer_contributions_tamper` (including `payment_method` immutability). Historical records are never deleted; corrections use additive `ReverseContribution` commands. |
+| Deterministic Cent Conservation | PASS: $\sum_{p \in \mathcal{P}} \text{Base Net Balance}(p) \equiv \text{Total Contributed} - \text{Receipt Total} \equiv -\text{Unfunded Amount}$ enforced unconditionally via runtime assertion in `compute_net_balances`. Includes post-finalization revoked participants in net balance calculations. |
+| Zero Calculation Drift | PASS: `settletable/calculation.py` remains 100% byte-untouched. Authoritative finalized meal consumption liabilities are immutable. |
+| Notion Cache Decoupling & Historical Backfill | PASS: Notion export lookup decouples from mutable live `revision` by binding to immutable `finalized_revision`. In `Authority.apply`, historical meals finalized prior to schema update automatically backfill `finalized_revision = state['revision']` on post-finalization commands. |
+| Security, Anti-Enumeration & Concurrency | PASS: command mutations use SQLite `BEGIN IMMEDIATE` locks. Replay safety guaranteed by deterministic ID derivation `derive_contribution_id`. Overpayment beyond bill total rejected. Session credentials verified with anti-enumeration protection. |
+| Local Regression Suite | PASS: 273/273 Python tests passed (`python -m unittest discover tests`); 12/12 real-browser CDP test stages passed (`tools/e2e_browser_test.mjs`); 8/8 headless Chrome multi-payer and funding flow tests passed (`tools/verify_multi_payer_flow.mjs`). |
+| Independent Code & Security Review | PASS: independent reviewer findings remediated (backfill `finalized_revision`, single-quote SQL literals, `payment_method` trigger immutability, unified command limits, mobile input attributes) with passing regression tests. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-03 — Browser reload synchronization & receipt DOM readiness: PR #35 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `6dadc0222c80cb60c360472a4ea1fd50cd84a402` merged autonomously under orchestrator governance policy into `main`. GitHub PR #35 ([#35](https://github.com/KAIYI7/settle-table/pull/35)) verified on hosted CI ([run 41600343451](https://github.com/KAIYI7/settle-table/actions/runs/41600343451)) before merge.
