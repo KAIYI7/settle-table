@@ -12,6 +12,13 @@ import time
 import unicodedata
 
 from . import calculation as calc
+from .funding import (
+    FundingSnapshot,
+    ParticipantNetBalance,
+    PayerContributionRecord,
+    compute_net_balances,
+    derive_contribution_id,
+)
 
 
 class AuthorityError(ValueError):
@@ -184,6 +191,23 @@ class RevokeInvitation:
 
 
 @dataclass(frozen=True, slots=True)
+class RecordContribution:
+    command_id: str
+    expected_revision: int
+    participant_id: str
+    amount_sen: int
+    payment_method: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReverseContribution:
+    command_id: str
+    expected_revision: int
+    contribution_id: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Claim:
     item_id: str
     participant_id: str
@@ -216,6 +240,7 @@ class AcceptedResult:
     changed_claims: tuple[Claim, ...]
     calculation: calc.Calculation | None
     canonical_bytes: bytes = field(repr=False)
+    contribution_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +262,9 @@ class DraftSnapshot:
     join_requests: tuple[JoinRequestRecord, ...] = ()
     has_receipt_photo: bool = False
     receipt_photo: dict | None = None
+    finalized_revision: int | None = None
+    funding: FundingSnapshot | None = None
+    contributions: tuple[PayerContributionRecord, ...] = ()
 
 
 def _require(condition, code='invalid_input'):
@@ -370,7 +398,8 @@ def _receipt_digest(receipt):
 
 def _command_data(command):
     _require(type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, ReviewReceipt, Finalize,
-                               RevokeSession, RevokeMembership, RevokeInvitation))
+                               RevokeSession, RevokeMembership, RevokeInvitation,
+                               RecordContribution, ReverseContribution))
     _id(command.command_id)
     data = {'contract': 'settletable-command-v1', 'kind': type(command).__name__, 'command_id': command.command_id}
     if type(command) is SetOwnQuantity:
@@ -406,6 +435,25 @@ def _command_data(command):
         data.update(item_id=command.item_id,
                     allocations=alloc_data,
                     expected_item_revision=command.expected_item_revision)
+    elif type(command) is RecordContribution:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.participant_id)
+        _money(command.amount_sen)
+        _require(1 <= command.amount_sen <= 1_000_000_000, 'invalid_input')
+        method = command.payment_method
+        if method is not None:
+            _require(method in ('cash', 'card', 'ewallet', 'bank_transfer', 'other'), 'invalid_input')
+        data.update(participant_id=command.participant_id, amount_sen=command.amount_sen,
+                    payment_method=method)
+    elif type(command) is ReverseContribution:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.contribution_id)
+        reason = command.reason
+        if reason is not None:
+            _text(reason, 200)
+        data.update(contribution_id=command.contribution_id, reason=reason)
     else:
         _revision(command.expected_revision)
         data['expected_revision'] = command.expected_revision
@@ -435,7 +483,8 @@ def _decode_result(wire):
     claims = tuple(Claim(c['item_id'], c['participant_id'], Fraction(*c['quantity']),
                          c['financial_revision'], c['status'], c.get('assigned_by')) for c in data['changed_claims'])
     return AcceptedResult(data['command_id'], data['kind'], data['revision'],
-                          data['financial_revision'], claims, _decode_calculation(data['calculation']), wire)
+                          data['financial_revision'], claims, _decode_calculation(data['calculation']), wire,
+                          data.get('contribution_id'))
 
 
 def _calculation_data(result):
@@ -567,6 +616,47 @@ class Authority:
                     PRIMARY KEY(integration_id,meal_id,finalize_actor_id,finalize_command_id,participant_id,purpose_version),
                     UNIQUE(integration_id,client_reference),
                     FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id));
+                CREATE TABLE IF NOT EXISTS payer_contributions (
+                    meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+                    contribution_id TEXT NOT NULL,
+                    command_id TEXT NOT NULL,
+                    participant_id TEXT NOT NULL,
+                    amount_sen INTEGER NOT NULL CHECK (amount_sen >= 1 AND amount_sen <= 1000000000),
+                    payment_method TEXT CHECK (payment_method IN ('cash', 'card', 'ewallet', 'bank_transfer', 'other') OR payment_method IS NULL),
+                    created_at REAL NOT NULL,
+                    created_by TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'reversed')),
+                    reversed_at REAL,
+                    reversed_by TEXT,
+                    reversal_command_id TEXT,
+                    reversal_reason TEXT,
+                    PRIMARY KEY(meal_id, contribution_id),
+                    UNIQUE(meal_id, command_id),
+                    FOREIGN KEY(meal_id, participant_id) REFERENCES participants(meal_id, id),
+                    FOREIGN KEY(meal_id, created_by) REFERENCES participants(meal_id, id),
+                    FOREIGN KEY(meal_id, reversed_by) REFERENCES participants(meal_id, id));
+                CREATE INDEX IF NOT EXISTS idx_payer_contributions_status ON payer_contributions(meal_id, status);
+                CREATE TRIGGER IF NOT EXISTS prevent_payer_contributions_delete
+                BEFORE DELETE ON payer_contributions
+                BEGIN
+                    SELECT RAISE(FAIL, 'payer_contributions rows cannot be deleted');
+                END;
+                CREATE TRIGGER IF NOT EXISTS prevent_payer_contributions_tamper
+                BEFORE UPDATE ON payer_contributions
+                FOR EACH ROW
+                BEGIN
+                    SELECT CASE
+                        WHEN OLD.status != 'active' THEN
+                            RAISE(FAIL, 'cannot modify inactive contribution')
+                        WHEN NEW.status != 'reversed' THEN
+                            RAISE(FAIL, 'invalid status transition')
+                        WHEN NEW.meal_id != OLD.meal_id OR NEW.contribution_id != OLD.contribution_id
+                          OR NEW.command_id != OLD.command_id OR NEW.participant_id != OLD.participant_id
+                          OR NEW.amount_sen != OLD.amount_sen OR NEW.created_at != OLD.created_at
+                          OR NEW.created_by != OLD.created_by THEN
+                            RAISE(FAIL, 'immutable contribution columns cannot be modified')
+                    END;
+                END;
             ''')
         except sqlite3.Error:
             self.close()
@@ -631,7 +721,7 @@ class Authority:
         _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
         state = {'revision': 0, 'financial_revision': 0, 'receipt': None,
                  'item_revisions': {}, 'claims': [], 'review': None,
-                 'calculation': None, 'retired_ids': []}
+                 'calculation': None, 'retired_ids': [], 'finalized_revision': None}
         committed = False
         commit_attempted = False
         try:
@@ -716,6 +806,49 @@ class Authority:
                         'height': photo_row[4],
                         'uploaded_at': photo_row[5],
                     }
+            finalized_revision = state.get('finalized_revision')
+            if finalized_revision is None and state['calculation'] is not None:
+                finalized_revision = state['revision']
+            contributions = ()
+            funding = None
+            if state['calculation'] is not None:
+                contrib_rows = self._db.execute('''
+                    SELECT contribution_id, command_id, participant_id, amount_sen, payment_method,
+                           created_at, created_by, status, reversed_at, reversed_by,
+                           reversal_command_id, reversal_reason
+                    FROM payer_contributions
+                    WHERE meal_id=?
+                    ORDER BY created_at ASC, contribution_id ASC
+                ''', (meal_id,)).fetchall()
+                part_names = {p[0]: p[1] for p in people}
+                active_set = {p[0] for p in people if p[3]}
+                contrib_records = tuple(
+                    PayerContributionRecord(
+                        contribution_id=r[0],
+                        command_id=r[1],
+                        participant_id=r[2],
+                        participant_name=part_names.get(r[2], r[2]),
+                        amount_sen=r[3],
+                        payment_method=r[4],
+                        created_at=r[5],
+                        created_by=r[6],
+                        status=r[7],
+                        reversed_at=r[8],
+                        reversed_by=r[9],
+                        reversal_command_id=r[10],
+                        reversal_reason=r[11],
+                    ) for r in contrib_rows
+                )
+                contributions = contrib_records
+                calc_consumption = [(p['participant_id'], p['sen']) for p in state['calculation']['consumption']]
+                receipt_total = state['receipt']['total_sen']
+                funding, _ = compute_net_balances(
+                    consumption_records=calc_consumption,
+                    participant_names=part_names,
+                    active_participants=active_set,
+                    active_contributions=contrib_records,
+                    receipt_total_sen=receipt_total,
+                )
             result = DraftSnapshot(meal_id, state['revision'], state['financial_revision'],
                                    _receipt_digest(state['receipt']), _decode_receipt(state['receipt']),
                                    tuple(ItemState(i, revision) for i, revision in sorted(state['item_revisions'].items())),
@@ -727,7 +860,10 @@ class Authority:
                                    invitations,
                                    join_requests,
                                    has_receipt_photo,
-                                   receipt_photo)
+                                   receipt_photo,
+                                   finalized_revision,
+                                   funding,
+                                   contributions)
             self._db.execute('COMMIT')
             return result
         except AuthorityError:
@@ -1468,6 +1604,7 @@ class Authority:
         except calc.CalculationError:
             raise AuthorityError('calculation_rejected') from None
         state['calculation'] = _calculation_data(result)
+        state['finalized_revision'] = state['revision'] + 1
 
     def _revoke(self, meal_id, data):
         now = self._now()
@@ -1494,6 +1631,44 @@ class Authority:
                                       (meal_id, data['participant_id'], now)).rowcount
             _require(inv_up > 0, 'already_revoked')
 
+    def _record_contribution(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        participant_id = data['participant_id']
+        amount_sen = data['amount_sen']
+        payment_method = data.get('payment_method')
+        calc_data = state['calculation']
+        consumption_participants = {p['participant_id'] for p in calc_data['consumption']}
+        _require(participant_id in consumption_participants, 'invalid_participant')
+        row = self._db.execute('SELECT COALESCE(SUM(amount_sen), 0) FROM payer_contributions WHERE meal_id=? AND status="active"',
+                               (meal_id,)).fetchone()
+        active_sum = row[0] if row else 0
+        receipt_total = state['receipt']['total_sen']
+        _require(active_sum + amount_sen <= receipt_total, 'overpayment_prohibited')
+        contribution_id = derive_contribution_id(meal_id, command_id)
+        now = self._now()
+        self._db.execute('''
+            INSERT INTO payer_contributions (
+                meal_id, contribution_id, command_id, participant_id, amount_sen,
+                payment_method, created_at, created_by, status
+            ) VALUES (?,?,?,?,?,?,?,?,'active')
+        ''', (meal_id, contribution_id, command_id, participant_id, amount_sen, payment_method, now, actor))
+        return contribution_id
+
+    def _reverse_contribution(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        contribution_id = data['contribution_id']
+        reason = data.get('reason')
+        row = self._db.execute('SELECT status FROM payer_contributions WHERE meal_id=? AND contribution_id=?',
+                               (meal_id, contribution_id)).fetchone()
+        _require(row is not None, 'contribution_not_found')
+        _require(row[0] == 'active', 'invalid_contribution_status')
+        now = self._now()
+        self._db.execute('''
+            UPDATE payer_contributions
+            SET status='reversed', reversed_at=?, reversed_by=?, reversal_command_id=?, reversal_reason=?
+            WHERE meal_id=? AND contribution_id=?
+        ''', (now, actor, command_id, reason, meal_id, contribution_id))
+
     def apply(self, credential, meal_id, command, *, replay_only=False, omitted_scope_ids=()):
         verifier = _verifier(credential)
         _id(meal_id)
@@ -1517,7 +1692,12 @@ class Authority:
             _require(not replay_only)
             state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
             security = data['kind'] in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation')
-            if not security:
+            post_finalization = data['kind'] in ('RecordContribution', 'ReverseContribution')
+            if post_finalization:
+                _require(state['calculation'] is not None, 'not_finalized')
+                _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=0', (meal_id,)).fetchone()[0] < 10_000,
+                         'resource_limit')
+            elif not security:
                 _require(state['calculation'] is None, 'finalized')
                 _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=0', (meal_id,)).fetchone()[0] < 10_000,
                          'resource_limit')
@@ -1528,6 +1708,7 @@ class Authority:
                 _require(data['expected_revision'] == state['revision'], 'revision_conflict')
             if 'expected_financial_revision' in data:
                 _require(data['expected_financial_revision'] == state['financial_revision'], 'financial_revision_conflict')
+            contrib_id = None
             if data['kind'] == 'ReplaceReceipt':
                 changed = self._replace_receipt(state, data, omitted_scope_ids)
             elif data['kind'] == 'SetOwnQuantity':
@@ -1542,6 +1723,12 @@ class Authority:
             elif data['kind'] == 'Finalize':
                 self._finalize(state, meal_id)
                 changed = ()
+            elif data['kind'] == 'RecordContribution':
+                contrib_id = self._record_contribution(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'ReverseContribution':
+                self._reverse_contribution(meal_id, state, actor, command.command_id, data)
+                changed = ()
             elif security:
                 self._revoke(meal_id, data)
                 changed = ()
@@ -1553,10 +1740,13 @@ class Authority:
             _require(security or len(state_bytes) <= 900_000, 'resource_limit')
             self._db.execute('UPDATE meals SET state=? WHERE id=?', (state_bytes, meal_id))
             self._hook('after_state')
-            result_bytes = _wire({'command_id': command.command_id, 'kind': data['kind'],
-                                  'revision': state['revision'], 'financial_revision': state['financial_revision'],
-                                  'changed_claims': [_claim_data(c) for c in changed],
-                                  'calculation': state['calculation'] if data['kind'] == 'Finalize' else None})
+            result_dict = {'command_id': command.command_id, 'kind': data['kind'],
+                           'revision': state['revision'], 'financial_revision': state['financial_revision'],
+                           'changed_claims': [_claim_data(c) for c in changed],
+                           'calculation': state['calculation'] if data['kind'] == 'Finalize' else None}
+            if contrib_id is not None:
+                result_dict['contribution_id'] = contrib_id
+            result_bytes = _wire(result_dict)
             self._db.execute('INSERT INTO commands VALUES (?,?,?,?,?,?,?)',
                              (meal_id, actor, command.command_id, body, digest, result_bytes, int(security)))
             self._hook('after_result')
