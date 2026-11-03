@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-03 — Conflict recovery reload context renewal & CI suite expansion: PR #38 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `79c684d7b6d615ea8689725a05a0c9bd7df03522` merged autonomously under orchestrator governance policy into `main`. GitHub PR #38 ([#38](https://github.com/KAIYI7/settle-table/pull/38)) verified on hosted CI ([run 41622668317](https://github.com/KAIYI7/settle-table/actions/runs/41622668317)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Context Renewal & Reload Synchronization | PASS: in `tools/verify_conflict_recovery.mjs`, `CDPPage.prototype.reload` sets `window.__reloading_marker = true` before sending `Page.reload` and waits for `window.__reloading_marker === undefined`. Guarantees context recreation across reloads and eliminates race condition where post-reload assertions evaluated on stale pre-reload contexts. |
+| Explicit Observable DOM Readiness | PASS: in line 302 of `tools/verify_conflict_recovery.mjs`, explicitly waits for `Boolean(typeof state !== 'undefined' && state?.snapshot?.claims?.length === 2 && document.getElementById('add-item-form'))` before logging or reading `state.snapshot.claims`. Eliminates `TypeError: Cannot read properties of null (reading 'claims')`. |
+| CDPPage Implementation Uniformity | PASS: standardized `reload()` context renewal implementation across `tools/verify_conflict_recovery.mjs`, `tools/verify_financial_export.mjs`, `tools/verify_multi_payer_flow.mjs`, and `tools/verify_peer_settlement_flow.mjs`. |
+| Headless Chrome & CI Expansion | PASS: added `--headless=new` and `--remote-debugging-address=127.0.0.1` flags in `tools/verify_multi_payer_flow.mjs` and `tools/verify_peer_settlement_flow.mjs`. Registered both multi-payer and peer settlement browser suites into `.github/workflows/python-tests.yml`. |
+| Zero Production Logic Modification | PASS: `settletable/calculation.py` and all backend/frontend application code remain 100% byte-untouched. |
+| Local Regression Suite | PASS: 290/290 Python tests passed; 12/12 real-browser CDP test stages passed; conflict recovery, financial export, multi-payer funding, and peer settlement browser suites passed with 0 failures. |
+| Independent Code & CI Review | PASS: independent review APPROVE with 0 findings. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-03 — Suggested Peer Transfers, Partial Reimbursements & Settlement Tracking: PR #37 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `ad0c5a9c166fa18d7f0ca7277545097bf9defde4` merged autonomously under orchestrator governance policy into `main`. GitHub PR #37 ([#37](https://github.com/KAIYI7/settle-table/pull/37)) verified on hosted CI ([run 41618225730](https://github.com/KAIYI7/settle-table/actions/runs/41618225730)) before merge.
