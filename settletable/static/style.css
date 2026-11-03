@@ -967,7 +967,10 @@ button:active, .btn:active {
   width: 46px;
 }
 
-/* Stepper Quantity Component */
+/* ==========================================================================
+   Unified Numeric Stepper Component
+   ========================================================================== */
+.numeric-stepper,
 .ocr-qty-stepper {
   display: inline-flex;
   align-items: center;
@@ -976,18 +979,22 @@ button:active, .btn:active {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  height: 38px;
-  width: 104px;
+  height: 40px;
+  width: auto;
+  min-width: 110px;
+  box-sizing: border-box;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.numeric-stepper:focus-within,
 .ocr-qty-stepper:focus-within {
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
 }
 
+.numeric-stepper .stepper-btn,
 .ocr-qty-btn {
-  width: 30px;
+  width: 36px;
   height: 100%;
   min-height: unset;
   min-width: unset;
@@ -995,6 +1002,8 @@ button:active, .btn:active {
   margin: 0;
   background: transparent;
   border: none;
+  box-shadow: none;
+  border-radius: 0;
   color: var(--text-muted);
   font-size: 1.15rem;
   font-weight: 600;
@@ -1006,18 +1015,29 @@ button:active, .btn:active {
   transition: background-color 0.12s ease, color 0.12s ease;
   user-select: none;
   touch-action: manipulation;
+  flex-shrink: 0;
 }
 
+.numeric-stepper .stepper-btn:hover:not(:disabled),
 .ocr-qty-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-main);
 }
 
+.numeric-stepper .stepper-btn:active:not(:disabled),
 .ocr-qty-btn:active:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
-  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.16);
+  transform: scale(0.96);
 }
 
+.numeric-stepper .stepper-btn:focus-visible,
+.ocr-qty-btn:focus-visible {
+  outline: 2px solid var(--accent-indigo);
+  outline-offset: -2px;
+}
+
+.numeric-stepper .stepper-btn:disabled,
+.numeric-stepper .stepper-btn[aria-disabled="true"],
 .ocr-qty-btn:disabled,
 .ocr-qty-btn[aria-disabled="true"] {
   opacity: 0.3;
@@ -1025,8 +1045,11 @@ button:active, .btn:active {
   pointer-events: none;
 }
 
+/* Stepper Editable Numeric Input */
+.numeric-stepper input[type=number].stepper-input,
 input[type=number].ocr-edit-item-qty {
   width: 44px;
+  flex: 1;
   height: 100%;
   min-height: unset;
   background: transparent;
@@ -1044,15 +1067,70 @@ input[type=number].ocr-edit-item-qty {
   -moz-appearance: textfield;
 }
 
+.numeric-stepper input[type=number].stepper-input::-webkit-inner-spin-button,
+.numeric-stepper input[type=number].stepper-input::-webkit-outer-spin-button,
 input[type=number].ocr-edit-item-qty::-webkit-inner-spin-button,
 input[type=number].ocr-edit-item-qty::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
+.numeric-stepper input[type=number].stepper-input:focus,
 input[type=number].ocr-edit-item-qty:focus {
   outline: none;
   box-shadow: none;
+}
+
+/* Stepper Non-Editable Value Label */
+.numeric-stepper .step-val {
+  min-width: 44px;
+  flex: 1;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  border-radius: 0;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  margin: 0;
+}
+
+/* Harmonize .quantity-stepper inside .numeric-stepper */
+.quantity-stepper.numeric-stepper {
+  gap: 0;
+  height: 40px;
+}
+
+.quantity-stepper.numeric-stepper button,
+.quantity-stepper.numeric-stepper .stepper-btn {
+  min-height: unset;
+  min-width: unset;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+}
+
+/* Add Item Form Responsive Grid */
+.add-item-grid {
+  display: grid;
+  grid-template-columns: 2fr 130px 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+
+.add-item-grid .numeric-stepper {
+  width: 100%;
+  height: 44px;
 }
 
 /* Currency Input Wrapper */
@@ -1376,20 +1454,49 @@ input[type=number].ocr-edit-item-qty:focus {
     margin-bottom: 4px;
   }
 
-  .ocr-qty-stepper {
+  .numeric-stepper,
+  .ocr-qty-stepper,
+  .quantity-stepper.numeric-stepper {
     width: 116px;
     height: 44px;
+    min-width: 116px;
   }
 
-  .ocr-qty-btn {
+  .numeric-stepper .stepper-btn,
+  .ocr-qty-btn,
+  .quantity-stepper.numeric-stepper button {
     width: 38px;
     height: 44px;
   }
 
-  input[type=number].ocr-edit-item-qty {
+  .numeric-stepper input[type=number].stepper-input,
+  input[type=number].ocr-edit-item-qty,
+  .numeric-stepper .step-val {
     width: 40px;
     height: 44px;
     font-size: 1rem;
+  }
+
+  .add-item-grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "label label"
+      "qty price";
+    gap: 8px;
+  }
+
+  #new-item-label {
+    grid-area: label;
+  }
+
+  .add-item-grid .numeric-stepper {
+    grid-area: qty;
+    width: 100%;
+  }
+
+  #new-item-price {
+    grid-area: price;
+    width: 100%;
   }
 
   .ocr-amount-wrapper {
@@ -1644,9 +1751,15 @@ input[type=number].ocr-edit-item-qty:focus {
   .ocr-cand-item-row td.cell-action { grid-area: action; display: flex; justify-content: flex-end; }
   .ocr-desktop-only { display: none !important; }
   .ocr-mobile-only { display: block; }
-  .ocr-qty-stepper { width: 116px; height: 44px; }
-  .ocr-qty-btn { width: 38px; height: 44px; }
-  input[type=number].ocr-edit-item-qty { width: 40px; height: 44px; font-size: 1rem; }
+  .numeric-stepper,
+  .ocr-qty-stepper,
+  .quantity-stepper.numeric-stepper { width: 116px; height: 44px; min-width: 116px; }
+  .numeric-stepper .stepper-btn,
+  .ocr-qty-btn,
+  .quantity-stepper.numeric-stepper button { width: 38px; height: 44px; }
+  .numeric-stepper input[type=number].stepper-input,
+  input[type=number].ocr-edit-item-qty,
+  .numeric-stepper .step-val { width: 40px; height: 44px; font-size: 1rem; }
   .ocr-amount-wrapper { height: 44px; }
   .ocr-edit-item-label { height: 44px; min-height: 44px; }
   .ocr-del-btn { height: 44px; width: 44px; min-height: 44px; min-width: 44px; }
