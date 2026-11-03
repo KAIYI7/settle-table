@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-03 — Receipt photo reliability hardening, crash consistency, and Notion in-place upgrade: PR #33 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `1fdc75bf5b6b05fae6905dc70b25a35948b8c86a` merged autonomously under orchestrator governance policy into `main` at `6a1cee4`. GitHub PR #33 ([#33](https://github.com/KAIYI7/settle-table/pull/33)) verified on hosted CI ([run 41576630328](https://github.com/KAIYI7/settle-table/actions/runs/41576630328)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Explicit Photo Inclusion Failure Gate | PASS: synchronous photo validation in `transport.py` aborts immediately with 404 (`photo_not_found`) or 500 (`photo_corrupted`) when photo is missing or corrupted, eliminating silent fallback to text-only exports and preventing false `completed` records. Exporter defends against missing photo payloads. |
+| Crash Consistency & Atomic Durability | PASS: `store_receipt_photo` reordered to move staging file into destination before SQLite commit; rolls back and unlinks destination on failure; unlinks replaced files only after successful commit. |
+| Physical Integrity Checksum & Snapshot Recovery | PASS: `get_receipt_photo` enforces byte length and SHA-256 hash match (`photo_corrupted` on failure). `snapshot()` verifies physical file existence on disk, safely recovering `has_receipt_photo=False` if disk files are missing. |
+| Notion In-Place Upgrade & Idempotency | PASS: uniquely identifies photo inclusion in `export_digest` (`:photo=0` vs `:photo=1`). When an export requests photo inclusion for an existing text-only export, upgrades the page in-place using `append_block_children` without duplicate pages. Repeated exports return `already_exported`. |
+| Compact Block Budget Preserved | PASS: `format_compact_meal_blocks` reserves 6 base blocks unconditionally, guaranteeing that upgrading an existing text-only report with an image block strictly maintains total blocks $\le 40$ blocks (`MAX_COMPACT_BLOCKS`). |
+| Calculation Engine Untouched | PASS: `settletable/calculation.py` remains 100% byte-untouched. 0 changes to financial apportionment contract or test suites. |
+| Local Regression Suite | PASS: 257/257 Python tests passed (`python -m unittest discover tests`); 25/25 dedicated receipt photo and reliability tests passed (`tests/test_receipt_photo.py`); 7/7 headless Chrome receipt photo tests passed (`tools/verify_receipt_photo_flow.mjs`); 12/12 real-browser CDP tests passed (`tools/e2e_browser_test.mjs`). |
+| Code & Security Review | PASS: independent review APPROVE with 0 critical, 0 high, 0 medium findings. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-03 — Receipt photo retention, interactive zoom modal, and optional Notion export milestone: PR #32 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `8168d77395a716e35bfbb3636bd606da12bbff0c` merged autonomously under orchestrator governance policy into `main` at `05258db`. GitHub PR #32 ([#32](https://github.com/KAIYI7/settle-table/pull/32)) verified on hosted CI ([run 41572682124](https://github.com/KAIYI7/settle-table/actions/runs/41572682124)) before merge.
