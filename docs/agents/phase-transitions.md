@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-03 — Targeted Numeric Stepper & Financial UX Clarity Refinement: PR #39 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `d0e85af491a581f36c31ea16f297716bc48c82d6` merged autonomously under orchestrator governance policy into `main`. GitHub PR #39 ([#39](https://github.com/KAIYI7/settle-table/pull/39)) verified on hosted CI ([run 41650957160](https://github.com/KAIYI7/settle-table/actions/runs/41650957160)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Unified Numeric Steppers | PASS: unified `.numeric-stepper` component implemented across Manual Add Item (`#new-item-qty`), Scanned OCR editor (`.ocr-qty-stepper`), and Diner portions (`.quantity-stepper`). Typographic minus (`−` / U+2212) used consistently across all steppers. Direct typing preserved with automatic button state synchronization. Accessible `role="group"`, `aria-label`, and `aria-live="polite"` applied. |
+| Financial Terminology & Clarity | PASS: updated Restaurant Funding card prompt to *"Who paid the restaurant bill? Record how much each person actually paid at the counter."* and column headers to *Amount Consumed*, *Paid to Restaurant*, *Base Net (Paid − Consumed)*. Updated Peer Settlement card prompt to *"Who needs to reimburse whom? Suggested transfers help everyone pay their fair share after the restaurant bill has been covered."* and column headers to *Base Net (Bill)*, *Reimbursed Others*, *Received from Peers*, *Still Owed / Recoverable*. |
+| Organizer Attestation Disclaimer | PASS: added prominent settlement attestation banner explaining that suggested transfers and repayments are organizer-recorded and not independently bank-verified. |
+| Product-Owner-Confirmed UAT Evidence | PASS: recorded product owner's confirmed real-browser Microsoft Edge UAT results (all 8/8 checks passed for multi-payer funding and peer settlements) in `PROJECT_STATUS.md` as integration evidence, explicitly distinguishing from formal independent UAT. |
+| Mobile Viewport Compliance (375px) | PASS: responsive `.add-item-grid` layout stacks item name and wraps stepper and price side-by-side with $\ge 44$px touch targets and zero horizontal overflow. |
+| Zero Calculation Drift & Decimal Currency Inputs | PASS: `settletable/calculation.py` remains 100% byte-untouched. Zero floating-point arithmetic added; RM currency inputs remain standard decimal text inputs without spinners. |
+| Local Regression Suite | PASS: 290/290 Python tests passed; 12/12 real-browser CDP test stages passed; conflict recovery, financial export, multi-payer funding, and peer settlement browser suites passed with 0 failures. Dedicated 6-phase test suite `tools/verify_ux_polish.mjs` passed 100%. |
+| Independent Code & CI Review | PASS: independent review APPROVE with 0 findings. Hosted GitHub Actions CI passed on exact PR head SHA `d0e85af` ([run 41650957160](https://github.com/KAIYI7/settle-table/actions/runs/41650957160)). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-03 — Conflict recovery reload context renewal & CI suite expansion: PR #38 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `79c684d7b6d615ea8689725a05a0c9bd7df03522` merged autonomously under orchestrator governance policy into `main`. GitHub PR #38 ([#38](https://github.com/KAIYI7/settle-table/pull/38)) verified on hosted CI ([run 41622668317](https://github.com/KAIYI7/settle-table/actions/runs/41622668317)) before merge.
