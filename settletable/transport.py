@@ -20,6 +20,7 @@ from settletable.authority import (
     Authority, AuthorityError, Participant,
     ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, AllocationSpec, ReviewReceipt, Finalize,
     RevokeInvitation, RevokeSession, RevokeMembership,
+    RecordContribution, ReverseContribution,
     Receipt, ReceiptItem, ReceiptAdjustment,
 )
 
@@ -80,7 +81,12 @@ STATUS_MAP = {
     'already_revoked': 409,
     'finalized': 409,
     'meal_not_finalized': 409,
+    'not_finalized': 409,
     'invalid_finalization_basis': 409,
+    'overpayment_prohibited': 400,
+    'invalid_contribution_status': 409,
+    'contribution_not_found': 404,
+    'invalid_participant': 400,
     'simulation_conflict': 409,
     'export_in_progress': 409,
     'claimed_item_deletion': 409,
@@ -764,6 +770,8 @@ class SettleTableApp:
                 'changed_claims': accepted.changed_claims,
                 'calculation': accepted.calculation,
             }
+            if getattr(accepted, 'contribution_id', None) is not None:
+                out['contribution_id'] = accepted.contribution_id
             return 200, self._default_headers(), serialize_json(out)
 
         # Extract Receipt OCR POST /api/meals/{meal_id}/ocr/extract
@@ -865,7 +873,7 @@ class SettleTableApp:
             if not is_org:
                 raise TransportError('forbidden', 403)
             snap = asdict(authority.snapshot(active_cred, meal_id))
-            rev = snap.get('revision', 0)
+            rev = snap.get('finalized_revision') or snap.get('revision', 0)
             rec = authority.get_notion_export(meal_id, rev)
             if rec:
                 return 200, self._default_headers(), serialize_json({'ok': True, 'export': rec})
@@ -906,7 +914,7 @@ class SettleTableApp:
             if parent_type not in ('page_id', 'database_id'):
                 raise TransportError('invalid_input', 400)
 
-            rev = snap.get('revision', 0)
+            rev = snap.get('finalized_revision') or snap.get('revision', 0)
             calc_digest = snap.get('calculation_digest') or ''
             include_photo = bool(body_data.get('include_receipt_photo'))
             photo_flag = "photo=1" if include_photo else "photo=0"
@@ -1256,6 +1264,42 @@ class SettleTableApp:
                     command_id=cmd_id,
                     expected_revision=data.get('expected_revision'),
                     participant_id=data.get('participant_id'),
+                )
+            elif kind == 'RecordContribution':
+                expected_rev = data.get('expected_revision')
+                part_id = data.get('participant_id')
+                amount_sen = data.get('amount_sen')
+                method = data.get('payment_method')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not part_id or not isinstance(part_id, str):
+                    raise TransportError('invalid_input', 400)
+                if not isinstance(amount_sen, int) or amount_sen < 1 or amount_sen > 1_000_000_000:
+                    raise TransportError('invalid_input', 400)
+                if method is not None and method not in ('cash', 'card', 'ewallet', 'bank_transfer', 'other'):
+                    raise TransportError('invalid_input', 400)
+                return RecordContribution(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    participant_id=part_id,
+                    amount_sen=amount_sen,
+                    payment_method=method,
+                )
+            elif kind == 'ReverseContribution':
+                expected_rev = data.get('expected_revision')
+                contrib_id = data.get('contribution_id')
+                reason = data.get('reason')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not contrib_id or not isinstance(contrib_id, str):
+                    raise TransportError('invalid_input', 400)
+                if reason is not None and (not isinstance(reason, str) or len(reason) > 200):
+                    raise TransportError('invalid_input', 400)
+                return ReverseContribution(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    contribution_id=contrib_id,
+                    reason=reason,
                 )
             else:
                 raise TransportError('invalid_command_kind', 400)

@@ -433,6 +433,140 @@ class BrowserMvpE2ETests(unittest.TestCase):
         })
         self.assertEqual(res_alice_retry['status'], 200)
 
+    def test_multi_payer_contributions_journey(self):
+        """Simulate browser MVP journey for recording multi-payer restaurant contributions."""
+        alice = IsolatedBrowserSession(self.app)
+        bob = IsolatedBrowserSession(self.app)
+
+        # 1. Bootstrap meal
+        boot = alice.post('/api/meals/m-funding/bootstrap', body={
+            'participants': [
+                {'id': 'p-alice', 'name': 'Alice', 'organizer': True},
+                {'id': 'p-bob', 'name': 'Bob', 'organizer': False},
+            ]
+        })
+        self.assertEqual(boot['status'], 201)
+
+        # 2. Invite & redeem Bob
+        inv = alice.post('/api/meals/m-funding/invitations', body={'participant_id': 'p-bob'})
+        token = inv['json']['token']
+        redeem = bob.post(f'/api/meals/m-funding/invitations/{token}/redeem', body={})
+        self.assertEqual(redeem['status'], 200)
+
+        # 3. Organizer sets receipt: Total RM 50.00
+        snap = alice.get('/api/meals/m-funding/snapshot')['json']
+        alice.post('/api/meals/m-funding/apply', body={
+            'kind': 'ReplaceReceipt',
+            'command_id': 'rcpt-1',
+            'expected_revision': snap['revision'],
+            'expected_financial_revision': snap['financial_revision'],
+            'receipt': {
+                'items': [{'id': 'item-1', 'label': 'Nasi Lemak', 'quantity': 1, 'line_sen': 5000}],
+                'subtotal_sen': 5000,
+                'total_sen': 5000,
+            }
+        })
+
+        # 4. Bob claims item-1
+        snap = bob.get('/api/meals/m-funding/snapshot')['json']
+        bob.post('/api/meals/m-funding/apply', body={
+            'kind': 'SetOwnQuantity',
+            'command_id': 'claim-1',
+            'item_id': 'item-1',
+            'quantity': 1,
+            'expected_item_revision': snap['items'][0]['item_revision'],
+            'expected_financial_revision': snap['financial_revision'],
+        })
+
+        # 5. Review & Finalize
+        snap = alice.get('/api/meals/m-funding/snapshot')['json']
+        alice.post('/api/meals/m-funding/apply', body={
+            'kind': 'ReviewReceipt',
+            'command_id': 'rv-1',
+            'expected_revision': snap['revision'],
+            'expected_financial_revision': snap['financial_revision'],
+            'receipt_digest': snap['receipt_digest'],
+        })
+        snap = alice.get('/api/meals/m-funding/snapshot')['json']
+        alice.post('/api/meals/m-funding/apply', body={
+            'kind': 'Finalize',
+            'command_id': 'fin-1',
+            'expected_revision': snap['revision'],
+            'expected_financial_revision': snap['financial_revision'],
+        })
+
+        # 6. Verify Initial Funding: not_funded
+        snap = alice.get('/api/meals/m-funding/snapshot')['json']
+        self.assertEqual(snap['funding']['status'], 'not_funded')
+        self.assertEqual(snap['funding']['unfunded_sen'], 5000)
+
+        # 7. Bob (diner) attempts to record contribution -> 403 Forbidden
+        res_bob_pay = bob.post('/api/meals/m-funding/apply', body={
+            'kind': 'RecordContribution',
+            'command_id': 'pay-bob-unauth',
+            'expected_revision': snap['revision'],
+            'participant_id': 'p-bob',
+            'amount_sen': 2000,
+            'payment_method': 'cash',
+        })
+        self.assertEqual(res_bob_pay['status'], 403)
+
+        # 8. Alice (organizer) records Bob's payment of RM 20.00 cash
+        res_pay1 = alice.post('/api/meals/m-funding/apply', body={
+            'kind': 'RecordContribution',
+            'command_id': 'pay-bob-1',
+            'expected_revision': snap['revision'],
+            'participant_id': 'p-bob',
+            'amount_sen': 2000,
+            'payment_method': 'cash',
+        })
+        self.assertEqual(res_pay1['status'], 200)
+        self.assertTrue(res_pay1['json']['ok'])
+        contrib1_id = res_pay1['json']['contribution_id']
+
+        # 9. Verify Partially Funded
+        snap = alice.get('/api/meals/m-funding/snapshot')['json']
+        self.assertEqual(snap['funding']['status'], 'partially_funded')
+        self.assertEqual(snap['funding']['total_contributed_sen'], 2000)
+        self.assertEqual(snap['funding']['unfunded_sen'], 3000)
+
+        # 10. Alice records her own payment of RM 30.00 card
+        res_pay2 = alice.post('/api/meals/m-funding/apply', body={
+            'kind': 'RecordContribution',
+            'command_id': 'pay-alice-1',
+            'expected_revision': snap['revision'],
+            'participant_id': 'p-alice',
+            'amount_sen': 3000,
+            'payment_method': 'card',
+        })
+        self.assertEqual(res_pay2['status'], 200)
+
+        # 11. Verify Fully Funded & Net Balances
+        snap = alice.get('/api/meals/m-funding/snapshot')['json']
+        self.assertEqual(snap['funding']['status'], 'fully_funded')
+        self.assertEqual(snap['funding']['total_contributed_sen'], 5000)
+        self.assertEqual(snap['funding']['unfunded_sen'], 0)
+        # Alice consumed 0, paid 3000 -> net +3000 (creditor)
+        # Bob consumed 5000, paid 2000 -> net -3000 (debtor)
+        b_map = {b['participant_id']: b['net_sen'] for b in snap['funding']['net_balances']}
+        self.assertEqual(b_map['p-alice'], 3000)
+        self.assertEqual(b_map['p-bob'], -3000)
+
+        # 12. Reverse Bob's payment
+        res_rev = alice.post('/api/meals/m-funding/apply', body={
+            'kind': 'ReverseContribution',
+            'command_id': 'rev-bob-1',
+            'expected_revision': snap['revision'],
+            'contribution_id': contrib1_id,
+            'reason': 'Customer requested refund',
+        })
+        self.assertEqual(res_rev['status'], 200)
+
+        snap = alice.get('/api/meals/m-funding/snapshot')['json']
+        self.assertEqual(snap['funding']['status'], 'partially_funded')
+        self.assertEqual(snap['funding']['total_contributed_sen'], 3000)
+        self.assertEqual(snap['funding']['unfunded_sen'], 2000)
+
 
 if __name__ == '__main__':
     unittest.main()

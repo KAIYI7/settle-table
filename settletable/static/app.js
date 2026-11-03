@@ -1455,9 +1455,10 @@ function updateMealUI() {
     </div>
   `;
 
-  // 2. Finalized View: Apportionment Breakdown
+  // 2. Finalized View: Apportionment Breakdown & Restaurant Funding
   if (finalized && snap.calculation) {
     html += renderFinalizedCalculation(snap);
+    html += renderRestaurantFundingCard(snap);
     app.innerHTML = html;
     bindEvents(snap);
     restoreFocus();
@@ -2657,6 +2658,234 @@ function renderFinalizedCalculation(snap) {
           ${exportResultHtml}
         </div>
       ` : ''}
+    </div>
+  `;
+}
+
+function renderRestaurantFundingCard(snap) {
+  const funding = snap.funding;
+  if (!funding) return '';
+
+  const contributions = snap.contributions || [];
+  const status = funding.status;
+  const totalContributed = funding.total_contributed_sen;
+  const receiptTotal = funding.receipt_total_sen;
+  const unfunded = funding.unfunded_sen;
+  const pct = receiptTotal > 0 ? Math.min(100, Math.round((totalContributed / receiptTotal) * 100)) : 100;
+
+  let badgeHtml = '';
+  if (status === 'fully_funded') {
+    badgeHtml = `<span class="badge" id="funding-status-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; font-weight: 600;">✓ Fully Funded</span>`;
+  } else if (status === 'partially_funded') {
+    badgeHtml = `<span class="badge" id="funding-status-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #60a5fa; font-weight: 600;">⚠️ Partially Funded (${formatSen(unfunded)} remaining)</span>`;
+  } else {
+    badgeHtml = `<span class="badge" id="funding-status-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; font-weight: 600;">⚠️ Not Funded (${formatSen(receiptTotal)} bill)</span>`;
+  }
+
+  // Net balances rows
+  const balanceRows = (funding.net_balances || []).map(b => {
+    const isCreditor = b.net_sen > 0;
+    const isDebtor = b.net_sen < 0;
+    const netFormatted = isCreditor
+      ? `+${formatSen(b.net_sen)}`
+      : (isDebtor ? `-${formatSen(-b.net_sen)}` : `RM 0.00`);
+    const netColor = isCreditor ? '#10b981' : (isDebtor ? '#f87171' : 'var(--text-muted)');
+    const roleBadge = isCreditor
+      ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.72rem;">Creditor (recovers)</span>`
+      : (isDebtor ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; font-size: 0.72rem;">Debtor (owes)</span>`
+                 : `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted); font-size: 0.72rem;">Balanced</span>`);
+    const inactiveNote = !b.is_active ? ` <small style="color: var(--accent-rose);">(Inactive)</small>` : '';
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(b.participant_name)}</strong>${inactiveNote}</td>
+        <td class="amount">${formatSen(b.consumption_sen)}</td>
+        <td class="amount" style="color: #60a5fa;">${formatSen(b.contributed_sen)}</td>
+        <td class="amount" style="color: ${netColor}; font-weight: 700;">${netFormatted}</td>
+        <td style="text-align: right;">${roleBadge}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // Contribution history rows
+  let historyHtml = '';
+  if (contributions.length === 0) {
+    historyHtml = `<p style="color: var(--text-dim); font-size: 0.85rem; font-style: italic; margin-top: 0.5rem;">No restaurant payments recorded yet.</p>`;
+  } else {
+    const historyRows = contributions.map(c => {
+      const isReversed = c.status === 'reversed';
+      const rowStyle = isReversed ? 'opacity: 0.6; text-decoration: line-through;' : '';
+      const methodLabels = {
+        card: '💳 Card',
+        cash: '💵 Cash',
+        ewallet: '📱 E-Wallet',
+        bank_transfer: '🏦 Online Banking',
+        other: 'Other',
+      };
+      const methodLabel = methodLabels[c.payment_method] || (c.payment_method ? escapeHtml(c.payment_method) : '—');
+      const timeStr = new Date(c.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      let actionHtml = '';
+      if (!isReversed && snap.is_organizer) {
+        actionHtml = `
+          <button type="button" class="btn btn-secondary btn-sm reverse-contrib-btn"
+                  data-id="${escapeHtml(c.contribution_id)}"
+                  data-name="${escapeHtml(c.participant_name)}"
+                  data-amount="${formatSen(c.amount_sen)}"
+                  style="padding: 2px 8px; font-size: 0.75rem; color: var(--accent-rose);">
+            ↩ Reverse
+          </button>
+        `;
+      } else if (isReversed) {
+        actionHtml = `<small style="color: var(--accent-rose);">Reversed${c.reversal_reason ? `: ${escapeHtml(c.reversal_reason)}` : ''}</small>`;
+      }
+
+      return `
+        <tr style="${rowStyle}">
+          <td>${escapeHtml(c.participant_name)}</td>
+          <td class="amount" style="font-weight: 600;">${formatSen(c.amount_sen)}</td>
+          <td><span class="badge" style="font-size: 0.72rem;">${methodLabel}</span></td>
+          <td style="font-size: 0.78rem; color: var(--text-dim);">${timeStr}</td>
+          <td style="text-align: right; text-decoration: none;">${actionHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    historyHtml = `
+      <div style="overflow-x: auto; margin-top: 0.5rem;">
+        <table class="breakdown-table" style="font-size: 0.85rem;">
+          <thead>
+            <tr>
+              <th>Payer</th>
+              <th style="text-align: right;">Amount</th>
+              <th>Method</th>
+              <th>Time</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${historyRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // Options for participant select
+  const participantOptions = (funding.net_balances || []).map(b => {
+    return `<option value="${escapeHtml(b.participant_id)}">${escapeHtml(b.participant_name)} (consumed ${formatSen(b.consumption_sen)})</option>`;
+  }).join('');
+
+  return `
+    <div class="card" id="restaurant-funding-card" style="margin-top: 1.5rem; border-color: rgba(59, 130, 246, 0.4); background: rgba(15, 23, 42, 0.5);">
+      <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <span style="color: #60a5fa;">💳 Restaurant Payers & Bill Funding</span>
+        ${badgeHtml}
+      </div>
+      <p class="card-desc">
+        Record how the restaurant bill was paid at the counter. Diner consumption liabilities are locked;
+        restaurant contributions reconcile who covered the bill.
+      </p>
+
+      <!-- Funding Progress Bar -->
+      <div style="margin: 1rem 0;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px;">
+          <span>Funding Progress: <strong>${formatSen(totalContributed)}</strong> of <strong>${formatSen(receiptTotal)}</strong></span>
+          <span><strong>${pct}%</strong></span>
+        </div>
+        <div style="height: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; overflow: hidden;">
+          <div id="funding-progress-bar-fill" style="height: 100%; width: ${pct}%; background: ${status === 'fully_funded' ? '#10b981' : (status === 'partially_funded' ? '#3b82f6' : '#f59e0b')}; transition: width 0.3s ease;"></div>
+        </div>
+      </div>
+
+      <!-- Net Balance Reconciliation Table -->
+      <div style="margin-top: 1.25rem;">
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-main);">
+          Participant Net Balances (Contributed − Consumed)
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="breakdown-table">
+            <thead>
+              <tr>
+                <th>Participant</th>
+                <th style="text-align: right;">Consumed</th>
+                <th style="text-align: right;">Contributed</th>
+                <th style="text-align: right;">Base Net</th>
+                <th style="text-align: right;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${balanceRows}
+              <tr class="breakdown-total-row">
+                <td>Grand Total</td>
+                <td class="amount">${formatSen(receiptTotal)}</td>
+                <td class="amount" style="color: #60a5fa;">${formatSen(totalContributed)}</td>
+                <td class="amount" style="color: ${totalContributed >= receiptTotal ? '#10b981' : '#f87171'};">
+                  ${totalContributed >= receiptTotal ? 'RM 0.00' : `-${formatSen(unfunded)}`}
+                </td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        ${status !== 'fully_funded' ? `
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(245, 158, 11, 0.1); border-left: 3px solid #f59e0b; border-radius: 4px;">
+            ℹ️ <strong>Outstanding restaurant obligation:</strong> The net sum discrepancy (${formatSen(unfunded)}) represents remaining debt to the restaurant. Peer reimbursements cannot be settled until the restaurant bill is fully funded.
+          </p>
+        ` : `
+          <p style="font-size: 0.82rem; color: #10b981; margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; border-radius: 4px;">
+            ✓ <strong>Restaurant bill is 100% funded.</strong> Net balances are fully balanced (sum = RM 0.00).
+          </p>
+        `}
+      </div>
+
+      <!-- Organizer Record Payment Form -->
+      ${(snap.is_organizer && status !== 'fully_funded') ? `
+        <div style="margin-top: 1.5rem; padding: 1rem; border-radius: 8px; background: rgba(59, 130, 246, 0.07); border: 1px solid rgba(59, 130, 246, 0.25);">
+          <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.75rem; color: #93c5fd;">
+            ➕ Record Restaurant Payment
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div>
+              <label for="payer-participant-select" style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Payer Participant:</label>
+              <select id="payer-participant-select" class="form-input" style="width: 100%;">
+                <option value="">Select participant...</option>
+                ${participantOptions}
+              </select>
+            </div>
+            <div>
+              <label for="payer-method-select" style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Payment Method:</label>
+              <select id="payer-method-select" class="form-input" style="width: 100%;">
+                <option value="card">💳 Credit / Debit Card</option>
+                <option value="cash">💵 Cash</option>
+                <option value="ewallet">📱 E-Wallet (TNG / GrabPay)</option>
+                <option value="bank_transfer">🏦 Online Banking / DuitNow</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label for="payer-amount-input" style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Amount (RM):</label>
+              <button type="button" id="fill-remaining-btn" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 2px 8px;">
+                Fill Remaining (${formatSen(unfunded)})
+              </button>
+            </div>
+            <input type="text" id="payer-amount-input" class="form-input" placeholder="e.g. 50.00" inputmode="decimal" autocomplete="off" style="width: 100%; font-size: 1rem; font-weight: 600;" />
+          </div>
+          <button type="button" id="record-contribution-btn" class="btn btn-primary" style="width: 100%;">
+            Record Payment to Restaurant
+          </button>
+        </div>
+      ` : ''}
+
+      <!-- Contribution History Ledger -->
+      <div style="margin-top: 1.5rem;">
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-main);">
+          Recorded Restaurant Payments
+        </div>
+        ${historyHtml}
+      </div>
     </div>
   `;
 }
@@ -3889,6 +4118,109 @@ function bindEvents(snap) {
       }
     });
   }
+
+  // --- Restaurant Funding & Contributions Event Handlers ---
+  const fillRemainingBtn = document.getElementById('fill-remaining-btn');
+  if (fillRemainingBtn && snap.funding) {
+    fillRemainingBtn.addEventListener('click', () => {
+      const amountInput = document.getElementById('payer-amount-input');
+      if (amountInput) {
+        amountInput.value = (snap.funding.unfunded_sen / 100).toFixed(2);
+      }
+    });
+  }
+
+  const recordContributionBtn = document.getElementById('record-contribution-btn');
+  if (recordContributionBtn && snap.funding) {
+    recordContributionBtn.addEventListener('click', async () => {
+      const partSelect = document.getElementById('payer-participant-select');
+      const amountInput = document.getElementById('payer-amount-input');
+      const methodSelect = document.getElementById('payer-method-select');
+      if (!partSelect || !amountInput) return;
+
+      const partId = partSelect.value;
+      if (!partId) {
+        showAlert('Please select a participant who paid.', 'error');
+        return;
+      }
+
+      let amountSen;
+      try {
+        amountSen = parseSen(amountInput.value, false);
+      } catch (err) {
+        showAlert(err.message || 'Invalid payment amount.', 'error');
+        return;
+      }
+
+      if (amountSen <= 0) {
+        showAlert('Payment amount must be greater than zero.', 'error');
+        return;
+      }
+
+      if (amountSen > snap.funding.unfunded_sen) {
+        showAlert(`Contribution (${formatSen(amountSen)}) exceeds remaining unfunded bill (${formatSen(snap.funding.unfunded_sen)}).`, 'error');
+        return;
+      }
+
+      recordContributionBtn.disabled = true;
+      recordContributionBtn.textContent = 'Recording...';
+      try {
+        const cmdId = `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'RecordContribution',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          participant_id: partId,
+          amount_sen: amountSen,
+          payment_method: methodSelect ? methodSelect.value : null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert(`Recorded ${formatSen(amountSen)} contribution ✓`, 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not record payment'}`, 'error');
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Payment recording failed'}`, 'error');
+      } finally {
+        recordContributionBtn.disabled = false;
+        recordContributionBtn.textContent = 'Record Payment to Restaurant';
+      }
+    });
+  }
+
+  document.querySelectorAll('.reverse-contrib-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const contribId = e.currentTarget.dataset.id;
+      const payerName = e.currentTarget.dataset.name;
+      const amountStr = e.currentTarget.dataset.amount;
+      if (!contribId) return;
+
+      const reason = window.prompt(`Reverse contribution of ${amountStr} by ${payerName}?\nEnter reason (optional):`);
+      if (reason === null) return; // User cancelled
+
+      try {
+        const cmdId = `rev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'ReverseContribution',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          contribution_id: contribId,
+          reason: reason.trim() || null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert('Contribution reversed ✓', 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not reverse contribution'}`, 'error');
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Reversal failed'}`, 'error');
+      }
+    });
+  });
 }
 
 // --- Error & Conflict Handling ---
