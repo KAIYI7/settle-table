@@ -150,7 +150,9 @@ class CDPPage {
   }
 
   async reload() {
+    await this.evaluate('window.__reloading_marker = true');
     await this.send('Page.reload');
+    await this.waitFor('window.__reloading_marker === undefined');
   }
 
   async screenshot(filePath) {
@@ -256,11 +258,23 @@ async function runUiRegressions(page, serverOrigin) {
     return JSON.stringify(state.snapshot.receipt);
   });
   const checkReceiptDom = async () => {
+    await page.waitFor(() => {
+      const card = [...document.querySelectorAll('.card')].find(c =>
+        c.querySelector('.card-title')?.textContent.includes('Receipt & Charges'));
+      if (!card) return false;
+      const caseRows = [...card.querySelectorAll('strong')].filter(el => el.textContent.startsWith('Quantity case'));
+      return caseRows.length === 5;
+    });
     const rows = await page.evaluate(() => {
       const card = [...document.querySelectorAll('.card')].find(c =>
         c.querySelector('.card-title')?.textContent.includes('Receipt & Charges'));
+      if (!card) {
+        const titles = [...document.querySelectorAll('.card-title')].map(el => el.textContent.trim());
+        const appText = document.getElementById('app')?.innerText?.slice(0, 300);
+        throw new Error(`Receipt & Charges card not found in DOM. Visible card titles: [${titles.join(', ')}]. App text: ${JSON.stringify(appText)}`);
+      }
       return [...card.querySelectorAll('strong')].filter(el => el.textContent.startsWith('Quantity case'))
-        .map(el => ({ label: el.textContent, quantity: el.nextElementSibling.textContent, row: el.parentElement.parentElement.textContent }));
+        .map(el => ({ label: el.textContent, quantity: el.nextElementSibling?.textContent, row: el.parentElement?.parentElement?.textContent }));
     });
     assert(rows.length === 5, 'Expected five actual Receipt & Charges DOM rows');
     for (const [i, expected] of ['1', '2', '3', '½', '⅓'].entries()) {
