@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-03 — Mobile Stepper Touch Target Compliance & Verification: PR #40 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `49cd56d5aee43f99fa4657866e29274abc99b951` merged autonomously under orchestrator governance policy into `main`. GitHub PR #40 ([#40](https://github.com/KAIYI7/settle-table/pull/40)) verified on hosted CI ([run 41657355223](https://github.com/KAIYI7/settle-table/actions/runs/41657355223)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Effective $\ge 44 \times 44$px Mobile Touch Targets | PASS: in `settletable/static/style.css`, updated `.numeric-stepper .stepper-btn`, `.ocr-qty-btn`, `.quantity-stepper.numeric-stepper button`, and `.quantity-stepper.numeric-stepper .stepper-btn` to `width: 44px; min-width: 44px; height: 44px; min-height: 44px;`. Container widths set to `128px; min-width: 128px; height: 44px;` with input/display at `width: 40px; min-width: 40px; height: 44px;`. |
+| OCR Candidate Grid Adjustment | PASS: adjusted `.ocr-cand-item-row` grid template columns to `128px 1fr 44px;` in both container query and media query breakpoints. |
+| Narrow Viewport Claim Actions Wrapping | PASS: added `flex-wrap: wrap; gap: 8px;` to `.claim-actions` for narrow screens. |
+| Dedicated CDP Touch Target Bounding Box Verification | PASS: expanded `tools/verify_ux_polish.mjs` to measure actual computed clickable bounding rectangles via CDP in real headless Chromium at 375px viewport across OCR item steppers, manual Add Item steppers, and diner portion steppers. All buttons verified $\ge 44 \times 44$px with typographic minus `−` (U+2212). |
+| Zero Page Overflow at 375px | PASS: verified `document.documentElement.scrollWidth === 375` and body `scrollWidth === 375`, confirming zero horizontal overflow, clipping, or overlapping controls. |
+| Zero Calculation Drift & Invariant Preservation | PASS: `settletable/calculation.py` remains 100% byte-untouched. Zero floating-point arithmetic. Direct typing, exact rational portion allocation, and financial balances fully preserved. |
+| Full Regression Suite | PASS: 290/290 Python unit tests passed; 12/12 real-browser CDP test stages passed; conflict recovery, financial export, multi-payer funding, and peer settlement browser suites passed with 0 failures. Dedicated 7-stage suite `tools/verify_ux_polish.mjs` passed 100%. |
+| Independent Code & CI Review | PASS: independent review APPROVE with 0 findings. Hosted GitHub Actions CI passed on exact PR head SHA `49cd56d` ([run 41657355223](https://github.com/KAIYI7/settle-table/actions/runs/41657355223)). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-03 — Targeted Numeric Stepper & Financial UX Clarity Refinement: PR #39 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `d0e85af491a581f36c31ea16f297716bc48c82d6` merged autonomously under orchestrator governance policy into `main`. GitHub PR #39 ([#39](https://github.com/KAIYI7/settle-table/pull/39)) verified on hosted CI ([run 41650957160](https://github.com/KAIYI7/settle-table/actions/runs/41650957160)) before merge.
