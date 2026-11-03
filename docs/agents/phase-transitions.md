@@ -2,7 +2,7 @@
 
 ## 2026-11-03 — Receipt photo retention, interactive zoom modal, and optional Notion export milestone: PR #32 merge
 
-**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA merged autonomously under orchestrator governance policy into `main`. GitHub PR #32 verified on hosted CI before merge.
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `8168d77395a716e35bfbb3636bd606da12bbff0c` merged autonomously under orchestrator governance policy into `main` at `05258db`. GitHub PR #32 ([#32](https://github.com/KAIYI7/settle-table/pull/32)) verified on hosted CI ([run 41572682124](https://github.com/KAIYI7/settle-table/actions/runs/41572682124)) before merge.
 
 | Gate | Disposition |
 | --- | --- |
