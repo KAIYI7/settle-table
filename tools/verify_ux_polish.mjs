@@ -4,17 +4,17 @@
  * Verifies:
  * 1. Unified Numeric Stepper controls:
  *    - Manual Add Item stepper (#new-item-qty, #new-item-qty-dec, #new-item-qty-inc).
- *    - Decrement disabled at min value 1; enabled at > 1.
- *    - Increment/decrement button interactions.
- *    - Direct input typing synchronization.
- *    - Form reset restoration of initial state.
- *    - Portion stepper (.quantity-stepper.numeric-stepper) with typographic minus.
- * 2. Financial Feature Copy & Clarity:
+ *    - Scanned OCR receipt item stepper (.ocr-qty-stepper, .ocr-qty-dec, .ocr-qty-inc).
+ *    - Diner portion steppers (.quantity-stepper, .hybrid-step-btn, .claim-dec-btn, .claim-inc-btn).
+ *    - Typographic minus ('−' / U+2212) on all decrease buttons.
+ *    - Direct input typing synchronization and disabled state at min value 1.
+ * 2. Mobile Touch Target Accessibility (375x667):
+ *    - Measures actual computed clickable bounding rectangles for all stepper buttons.
+ *    - Asserts effective touch targets >= 44x44px for every stepper button.
+ *    - Verifies zero horizontal clipping or page overflow at 375px.
+ * 3. Financial Feature Copy & Clarity:
  *    - Restaurant Funding card explanatory text and column headers.
  *    - Peer Settlement card explanatory text, disclaimer banner, and column headers.
- * 3. Mobile responsive viewport (375x667):
- *    - Stepper touch targets >= 44px on mobile.
- *    - Add Item grid responsive wrapping.
  */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -262,8 +262,8 @@ async function run() {
   const page = chrome.page;
 
   try {
-    // [1/6] Bootstrap meal
-    console.log('[1/6] Bootstrapping room with Alice (Organizer) and Bob (Diner)...');
+    // [1/7] Bootstrap meal
+    console.log('[1/7] Bootstrapping room with Alice (Organizer) and Bob (Diner)...');
     await page.navigate(origin + '/');
     await page.waitFor(() => document.getElementById('create-meal-form') !== null);
     await page.evaluate((id) => {
@@ -275,33 +275,114 @@ async function run() {
     await page.waitFor(() => document.getElementById('manual-refresh-btn') !== null);
     console.log('   ✓ Meal created and Add Item Form rendered');
 
-    // [2/6] Test Manual Add Item Numeric Stepper
-    console.log('[2/6] Testing Manual Add Item Numeric Stepper (#new-item-qty)...');
-    const stepperCheck = await page.evaluate(() => {
+    // [2/7] OCR Staging Quantity Stepper & Mobile Touch Target Measurement (375px)
+    console.log('[2/7] Testing OCR Candidate Stepper & Measuring Button Touch Targets at 375px...');
+    await page.setViewport(375, 667);
+    await new Promise(r => setTimeout(r, 150));
+
+    // Upload minimal synthetic PNG to trigger mock OCR staging
+    await page.evaluate(() => {
+      const b = new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,100,0,0,0,100,8,2,0,0,0,144,145,104,60]);
+      const dt = new DataTransfer();
+      dt.items.add(new File([b], 'synthetic.png', { type: 'image/png' }));
+      const input = document.getElementById('ocr-file-input');
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitFor('document.getElementById("ocr-candidate-card") !== null');
+    await page.waitFor('document.querySelector(".ocr-qty-stepper.numeric-stepper") !== null');
+
+    const ocrStepperRects = await page.evaluate(() => {
+      const stepper = document.querySelector('.ocr-qty-stepper.numeric-stepper');
+      const decBtn = stepper?.querySelector('.ocr-qty-dec');
+      const incBtn = stepper?.querySelector('.ocr-qty-inc');
+      const input = stepper?.querySelector('.ocr-edit-item-qty');
+      const card = document.getElementById('ocr-candidate-card');
+
+      const decRect = decBtn?.getBoundingClientRect();
+      const incRect = incBtn?.getBoundingClientRect();
+      const cardRect = card?.getBoundingClientRect();
+
+      return {
+        decWidth: decRect?.width,
+        decHeight: decRect?.height,
+        incWidth: incRect?.width,
+        incHeight: incRect?.height,
+        decText: decBtn?.textContent,
+        incText: incBtn?.textContent,
+        inputVal: input?.value,
+        cardRight: cardRect?.right,
+        viewportWidth: window.innerWidth,
+      };
+    });
+
+    console.log(`   OCR Stepper Dec Button: ${ocrStepperRects.decWidth}x${ocrStepperRects.decHeight}px (text: "${ocrStepperRects.decText}")`);
+    console.log(`   OCR Stepper Inc Button: ${ocrStepperRects.incWidth}x${ocrStepperRects.incHeight}px (text: "${ocrStepperRects.incText}")`);
+
+    if (ocrStepperRects.decWidth < 44 || ocrStepperRects.decHeight < 44) {
+      throw new Error(`OCR decrement button touch target < 44x44px: ${ocrStepperRects.decWidth}x${ocrStepperRects.decHeight}px`);
+    }
+    if (ocrStepperRects.incWidth < 44 || ocrStepperRects.incHeight < 44) {
+      throw new Error(`OCR increment button touch target < 44x44px: ${ocrStepperRects.incWidth}x${ocrStepperRects.incHeight}px`);
+    }
+    if (ocrStepperRects.decText !== '−') {
+      throw new Error(`Expected typographic minus '−' on OCR decrement, got '${ocrStepperRects.decText}'`);
+    }
+    if (ocrStepperRects.cardRight > ocrStepperRects.viewportWidth) {
+      throw new Error(`OCR card overflowed viewport at 375px: cardRight=${ocrStepperRects.cardRight}, vp=${ocrStepperRects.viewportWidth}`);
+    }
+    console.log('   ✓ OCR Stepper buttons verified >= 44x44px touch targets with zero card overflow');
+
+    // Discard OCR candidate to restore Add Item form
+    await page.evaluate(() => document.getElementById('ocr-discard-btn').click());
+    await page.waitFor('document.getElementById("add-item-form") !== null');
+    console.log('   ✓ Discarded OCR candidate; returned to Add Item form');
+
+    // [3/7] Manual Add Item Stepper & Mobile Touch Target Measurement (375px)
+    console.log('[3/7] Testing Manual Add Item Numeric Stepper & Measuring Button Touch Targets at 375px...');
+    const addStepperRects = await page.evaluate(() => {
       const container = document.querySelector('#add-item-form .numeric-stepper');
       const input = document.getElementById('new-item-qty');
       const decBtn = document.getElementById('new-item-qty-dec');
       const incBtn = document.getElementById('new-item-qty-inc');
+      const form = document.getElementById('add-item-form');
+
+      const decRect = decBtn?.getBoundingClientRect();
+      const incRect = incBtn?.getBoundingClientRect();
+      const formRect = form?.getBoundingClientRect();
+
       return {
         hasContainer: Boolean(container),
-        hasInput: Boolean(input),
-        hasDecBtn: Boolean(decBtn),
-        hasIncBtn: Boolean(incBtn),
         initialVal: input?.value,
         initialDecDisabled: decBtn?.disabled,
-        initialDecAriaDisabled: decBtn?.getAttribute('aria-disabled'),
         decText: decBtn?.textContent,
         incText: incBtn?.textContent,
+        decWidth: decRect?.width,
+        decHeight: decRect?.height,
+        incWidth: incRect?.width,
+        incHeight: incRect?.height,
+        formRight: formRect?.right,
+        viewportWidth: window.innerWidth,
       };
     });
 
-    if (!stepperCheck.hasContainer || !stepperCheck.hasDecBtn || !stepperCheck.hasIncBtn) {
-      throw new Error(`Missing stepper elements: ${JSON.stringify(stepperCheck)}`);
+    console.log(`   Add Item Dec Button: ${addStepperRects.decWidth}x${addStepperRects.decHeight}px (text: "${addStepperRects.decText}")`);
+    console.log(`   Add Item Inc Button: ${addStepperRects.incWidth}x${addStepperRects.incHeight}px (text: "${addStepperRects.incText}")`);
+
+    if (addStepperRects.decWidth < 44 || addStepperRects.decHeight < 44) {
+      throw new Error(`Add Item decrement button touch target < 44x44px: ${addStepperRects.decWidth}x${addStepperRects.decHeight}px`);
     }
-    if (stepperCheck.initialVal !== '1') throw new Error(`Expected initial qty 1, got ${stepperCheck.initialVal}`);
-    if (stepperCheck.initialDecDisabled !== true) throw new Error('Expected dec button disabled at min value 1');
-    if (stepperCheck.decText !== '−') throw new Error(`Expected typographic minus '−', got '${stepperCheck.decText}'`);
-    console.log('   ✓ Stepper container, inputs, and typographic buttons verified');
+    if (addStepperRects.incWidth < 44 || addStepperRects.incHeight < 44) {
+      throw new Error(`Add Item increment button touch target < 44x44px: ${addStepperRects.incWidth}x${addStepperRects.incHeight}px`);
+    }
+    if (addStepperRects.decText !== '−') {
+      throw new Error(`Expected typographic minus '−' on Add Item decrement, got '${addStepperRects.decText}'`);
+    }
+    if (addStepperRects.initialVal !== '1') throw new Error(`Expected initial qty 1, got ${addStepperRects.initialVal}`);
+    if (addStepperRects.initialDecDisabled !== true) throw new Error('Expected dec button disabled at min value 1');
+    if (addStepperRects.formRight > addStepperRects.viewportWidth) {
+      throw new Error(`Add Item form overflowed viewport at 375px: formRight=${addStepperRects.formRight}, vp=${addStepperRects.viewportWidth}`);
+    }
 
     // Test increment
     await page.evaluate(() => document.getElementById('new-item-qty-inc').click());
@@ -350,32 +431,50 @@ async function run() {
     await page.waitFor('state.snapshot?.receipt?.items?.length === 1');
     console.log('   ✓ Added item "Steak" with quantity 2');
 
-    // [3/6] Verify Diner Portion Stepper in Claims View
-    console.log('[3/6] Testing Portion Stepper (.quantity-stepper.numeric-stepper)...');
+    // [4/7] Diner Portion Steppers & Mobile Touch Target Measurement (375px)
+    console.log('[4/7] Testing Diner Portion Stepper & Measuring Button Touch Targets at 375px...');
     await page.evaluate(() => document.querySelector('.hybrid-details-btn').click());
     await page.waitFor('document.querySelector(".quantity-stepper.numeric-stepper") !== null');
-    const portionStepperCheck = await page.evaluate(() => {
+
+    const portionRects = await page.evaluate(() => {
       const stepper = document.querySelector('.quantity-stepper.numeric-stepper');
       const decBtn = stepper?.querySelector('.hybrid-step-btn[data-step="-1"]');
       const incBtn = stepper?.querySelector('.hybrid-step-btn[data-step="1"]');
       const stepVal = stepper?.querySelector('.step-val');
+
+      const decRect = decBtn?.getBoundingClientRect();
+      const incRect = incBtn?.getBoundingClientRect();
+
       return {
-        hasStepper: Boolean(stepper),
-        hasDecBtn: Boolean(decBtn),
-        hasIncBtn: Boolean(incBtn),
+        decWidth: decRect?.width,
+        decHeight: decRect?.height,
+        incWidth: incRect?.width,
+        incHeight: incRect?.height,
         decText: decBtn?.textContent,
         incText: incBtn?.textContent,
         stepValText: stepVal?.textContent,
         decAriaLabel: decBtn?.getAttribute('aria-label'),
         incAriaLabel: incBtn?.getAttribute('aria-label'),
+        viewportWidth: window.innerWidth,
       };
     });
-    if (!portionStepperCheck.hasStepper) throw new Error('Missing .quantity-stepper.numeric-stepper');
-    if (portionStepperCheck.decText !== '−') throw new Error(`Expected typographic minus in portion stepper, got '${portionStepperCheck.decText}'`);
-    console.log('   ✓ Portion stepper has unified .numeric-stepper class and accessible labels');
 
-    // Finalize meal to inspect financial cards
-    console.log('[4/6] Verifying and finalizing meal to render financial cards...');
+    console.log(`   Portion Stepper Dec Button: ${portionRects.decWidth}x${portionRects.decHeight}px (text: "${portionRects.decText}")`);
+    console.log(`   Portion Stepper Inc Button: ${portionRects.incWidth}x${portionRects.incHeight}px (text: "${portionRects.incText}")`);
+
+    if (portionRects.decWidth < 44 || portionRects.decHeight < 44) {
+      throw new Error(`Portion decrement button touch target < 44x44px: ${portionRects.decWidth}x${portionRects.decHeight}px`);
+    }
+    if (portionRects.incWidth < 44 || portionRects.incHeight < 44) {
+      throw new Error(`Portion increment button touch target < 44x44px: ${portionRects.incWidth}x${portionRects.incHeight}px`);
+    }
+    if (portionRects.decText !== '−') {
+      throw new Error(`Expected typographic minus in portion stepper, got '${portionRects.decText}'`);
+    }
+    console.log('   ✓ Portion Stepper buttons verified >= 44x44px touch targets with accessible ARIA labels');
+
+    // [5/7] Verifying and finalizing meal to render financial cards
+    console.log('[5/7] Verifying and finalizing meal to render financial cards...');
     await page.evaluate(() => {
       document.getElementById('review-confirm-check').checked = true;
       document.getElementById('review-confirm-check').dispatchEvent(new Event('change', { bubbles: true }));
@@ -409,8 +508,8 @@ async function run() {
     await page.waitFor('document.getElementById("peer-settlement-card") !== null');
     console.log('   ✓ Meal finalized; Restaurant Funding & Peer Settlement cards rendered');
 
-    // [5/6] Verify Financial Copy & Clarity
-    console.log('[5/6] Verifying Financial UX Clarity Text and Distinctions...');
+    // [6/7] Verify Financial Copy & Clarity
+    console.log('[6/7] Verifying Financial UX Clarity Text and Distinctions...');
     const copyChecks = await page.evaluate(() => {
       const fundingCard = document.getElementById('restaurant-funding-card');
       const fundingDesc = fundingCard?.querySelector('.card-desc')?.textContent;
@@ -457,27 +556,33 @@ async function run() {
     }
     console.log('   ✓ Peer Settlement description, organizer disclaimer notice, and column headers verified');
 
-    // [6/6] Verify Mobile Responsive Viewport (375x667)
-    console.log('[6/6] Verifying Mobile Viewport (375px) Layout and Touch Targets...');
-    await page.setViewport(375, 667);
-    await new Promise(r => setTimeout(r, 200));
-
+    // [7/7] Verify Mobile Responsive Viewport (375x667) Page Layout and Zero Horizontal Overflow
+    console.log('[7/7] Verifying Mobile Viewport (375px) Overall Page Layout and Zero Horizontal Overflow...');
     const mobileMetrics = await page.evaluate(() => {
+      const docScrollWidth = document.documentElement.scrollWidth;
+      const bodyScrollWidth = document.body.scrollWidth;
+      const vpWidth = window.innerWidth;
+
       const fundingCard = document.getElementById('restaurant-funding-card');
       const settleCard = document.getElementById('peer-settlement-card');
-      const fundingBox = fundingCard.getBoundingClientRect();
-      const settleBox = settleCard.getBoundingClientRect();
+      const fundingBox = fundingCard?.getBoundingClientRect();
+      const settleBox = settleCard?.getBoundingClientRect();
 
       return {
-        viewportWidth: window.innerWidth,
-        fundingCardWidth: fundingBox.width,
-        settleCardWidth: settleBox.width,
-        fundingOverflows: fundingBox.right > window.innerWidth,
-        settleOverflows: settleBox.right > window.innerWidth,
+        viewportWidth: vpWidth,
+        docScrollWidth,
+        bodyScrollWidth,
+        fundingCardWidth: fundingBox?.width,
+        settleCardWidth: settleBox?.width,
+        fundingOverflows: (fundingBox?.right || 0) > vpWidth,
+        settleOverflows: (settleBox?.right || 0) > vpWidth,
+        docOverflows: docScrollWidth > vpWidth,
+        bodyOverflows: bodyScrollWidth > vpWidth,
       };
     });
 
-    if (mobileMetrics.fundingOverflows || mobileMetrics.settleOverflows) {
+    console.log(`   Viewport width: ${mobileMetrics.viewportWidth}px, Document scrollWidth: ${mobileMetrics.docScrollWidth}px`);
+    if (mobileMetrics.docOverflows || mobileMetrics.bodyOverflows || mobileMetrics.fundingOverflows || mobileMetrics.settleOverflows) {
       throw new Error(`Horizontal overflow detected at 375px: ${JSON.stringify(mobileMetrics)}`);
     }
     console.log('   ✓ Mobile viewport 375px verified with zero horizontal overflow');
