@@ -341,7 +341,7 @@ class SettleTableApp:
     def _static_headers(self, content_type, cache_control='no-cache'):
         return [
             ('Content-Type', content_type),
-            ('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+            ('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
             ('X-Content-Type-Options', 'nosniff'),
             ('Referrer-Policy', 'no-referrer'),
             ('Cache-Control', cache_control),
