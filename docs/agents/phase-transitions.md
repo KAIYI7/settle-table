@@ -1,5 +1,21 @@
 # Phase transition decisions
 
+## 2026-11-03 — Receipt photo CSP blob: support & Chromium UnicodeSets meal ID pattern: PR #34 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `a852bd9826a4f3acc52c4f24bf8ab12e55a1a9c0` merged autonomously under orchestrator governance policy into `main` at `4da3bde`. GitHub PR #34 ([#34](https://github.com/KAIYI7/settle-table/pull/34)) verified on hosted CI ([run 41596591754](https://github.com/KAIYI7/settle-table/actions/runs/41596591754)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| CSP `blob:` Image Source Support | PASS: in `settletable/transport.py`, `img-src` updated to `'self' data: blob:;`. All other directives (`default-src 'self'`, `script-src 'self'`, `connect-src 'self'`, `frame-ancestors 'none'`) strictly untouched. Staged OCR preview thumbnails and full-screen zoom previews render cleanly without browser CSP blocks. |
+| Object URL Lifecycle & Leak Prevention | PASS: `state.localPhotoUrl` is revoked upon new upload, discard, meal load, session reset, and window `beforeunload` event. Zero memory leaks on reload or navigation. |
+| Meal ID Pattern UnicodeSets Compliance | PASS: in `settletable/static/app.js`, escaped hyphen `pattern="[A-Za-z0-9_\\-]+"` evaluates to `[A-Za-z0-9_\-]+` in rendered HTML, compiling cleanly under modern Chromium RegExp `v` flag / UnicodeSets mode with 0 console errors. Hyphenated IDs (`dinner-friday`, `lunch_room-1`) valid; invalid characters rejected. |
+| Real Image Decoding Browser Verification | PASS: `tools/verify_receipt_photo_flow.mjs` upgraded with genuine decodable PNG generator and image decoding assertions (`complete === true`, `naturalWidth > 0`, `naturalHeight > 0`). 8/8 stages passed with 0 CSP violations and 0 console errors. |
+| Calculation Engine Untouched | PASS: `settletable/calculation.py` remains 100% byte-untouched. 0 changes to financial apportionment contract or test suites. |
+| Local Regression Suite | PASS: 257/257 Python tests passed (`python -m unittest discover tests`); 8/8 headless Chrome receipt photo & pattern tests passed (`tools/verify_receipt_photo_flow.mjs`); 12/12 real-browser CDP tests passed (`tools/e2e_browser_test.mjs`). |
+| Code & Security Review | PASS: independent review APPROVE with 0 critical, 0 high, 0 medium findings. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-03 — Receipt photo reliability hardening, crash consistency, and Notion in-place upgrade: PR #33 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `1fdc75bf5b6b05fae6905dc70b25a35948b8c86a` merged autonomously under orchestrator governance policy into `main` at `6a1cee4`. GitHub PR #33 ([#33](https://github.com/KAIYI7/settle-table/pull/33)) verified on hosted CI ([run 41576630328](https://github.com/KAIYI7/settle-table/actions/runs/41576630328)) before merge.
