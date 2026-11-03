@@ -711,6 +711,11 @@ window.addEventListener('DOMContentLoaded', () => {
   syncHeaderHeight();
   route();
 });
+window.addEventListener('beforeunload', () => {
+  if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(state.localPhotoUrl);
+  }
+});
 window.addEventListener('resize', () => {
   syncHeaderHeight();
   syncAlertContainerPlacement();
@@ -892,7 +897,7 @@ function renderWelcome() {
       <form id="create-meal-form">
         <div class="form-group">
           <label for="create-meal-id">Meal ID / Name</label>
-          <input type="text" id="create-meal-id" placeholder="e.g. dinner-friday" required pattern="[A-Za-z0-9_-]+" title="Letters, numbers, dashes and underscores only">
+          <input type="text" id="create-meal-id" placeholder="e.g. dinner-friday" required pattern="[A-Za-z0-9_\\-]+" title="Letters, numbers, dashes and underscores only">
         </div>
         
         <div class="form-group">

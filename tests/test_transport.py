@@ -624,6 +624,7 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(res['headers']['Referrer-Policy'], 'no-referrer')
         self.assertEqual(res['headers']['Cache-Control'], 'no-store, no-cache, must-revalidate')
         self.assertIn("default-src 'self'", res['headers']['Content-Security-Policy'])
+        self.assertIn("img-src 'self' data: blob:", res['headers']['Content-Security-Policy'])
         self.assertIn(b'<!DOCTYPE html>', res['body'])
         self.assertIn(b'SettleTable', res['body'])
 

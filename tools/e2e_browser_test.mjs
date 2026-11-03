@@ -360,7 +360,7 @@ async function runUiRegressions(page, serverOrigin) {
   await page.evaluate(`document.querySelector('${quick('qty-1', 'D2')}').click()`);
   await page.waitFor("state.snapshot.claims.some(c => c.item_id === 'qty-1' && c.participant_id === 'D2')");
   await page.reload();
-  await page.waitFor("state.snapshot?.claims?.some(c => c.item_id === 'qty-1' && c.participant_id === 'D2')");
+  await page.waitFor(`state.snapshot?.claims?.some(c => c.item_id === 'qty-1' && c.participant_id === 'D2') && document.querySelector('${quick('qty-1', 'D1')}') !== null`);
   assert(await page.evaluate(`document.querySelector('${quick('qty-1', 'D1')}').disabled`), 'Full capacity after reallocation/reload must disable quick assign');
   await checkReceiptDom();
   await page.send('Emulation.clearDeviceMetricsOverride');
