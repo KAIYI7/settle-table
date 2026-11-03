@@ -21,6 +21,7 @@ from settletable.authority import (
     ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, AllocationSpec, ReviewReceipt, Finalize,
     RevokeInvitation, RevokeSession, RevokeMembership,
     RecordContribution, ReverseContribution,
+    RecordTransfer, ReverseTransfer,
     Receipt, ReceiptItem, ReceiptAdjustment,
 )
 
@@ -86,6 +87,13 @@ STATUS_MAP = {
     'overpayment_prohibited': 400,
     'invalid_contribution_status': 409,
     'contribution_not_found': 404,
+    'self_transfer_prohibited': 400,
+    'not_a_debtor': 400,
+    'not_a_creditor': 400,
+    'over_settlement_prohibited': 400,
+    'transfer_not_found': 404,
+    'invalid_transfer_status': 409,
+    'active_peer_transfers_exist': 409,
     'invalid_participant': 400,
     'simulation_conflict': 409,
     'export_in_progress': 409,
@@ -772,6 +780,8 @@ class SettleTableApp:
             }
             if getattr(accepted, 'contribution_id', None) is not None:
                 out['contribution_id'] = accepted.contribution_id
+            if getattr(accepted, 'transfer_id', None) is not None:
+                out['transfer_id'] = accepted.transfer_id
             return 200, self._default_headers(), serialize_json(out)
 
         # Extract Receipt OCR POST /api/meals/{meal_id}/ocr/extract
@@ -1299,6 +1309,48 @@ class SettleTableApp:
                     command_id=cmd_id,
                     expected_revision=expected_rev,
                     contribution_id=contrib_id,
+                    reason=reason,
+                )
+            elif kind == 'RecordTransfer':
+                expected_rev = data.get('expected_revision')
+                sender_id = data.get('sender_id')
+                receiver_id = data.get('receiver_id')
+                amount_sen = data.get('amount_sen')
+                note = data.get('note')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not sender_id or not isinstance(sender_id, str):
+                    raise TransportError('invalid_input', 400)
+                if not receiver_id or not isinstance(receiver_id, str):
+                    raise TransportError('invalid_input', 400)
+                if sender_id == receiver_id:
+                    raise TransportError('self_transfer_prohibited', 400)
+                if not isinstance(amount_sen, int) or amount_sen < 1 or amount_sen > 1_000_000_000:
+                    raise TransportError('invalid_input', 400)
+                if note is not None and (not isinstance(note, str) or len(note) > 200):
+                    raise TransportError('invalid_input', 400)
+                return RecordTransfer(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    sender_id=sender_id,
+                    receiver_id=receiver_id,
+                    amount_sen=amount_sen,
+                    note=note,
+                )
+            elif kind == 'ReverseTransfer':
+                expected_rev = data.get('expected_revision')
+                transfer_id = data.get('transfer_id')
+                reason = data.get('reason')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not transfer_id or not isinstance(transfer_id, str):
+                    raise TransportError('invalid_input', 400)
+                if reason is not None and (not isinstance(reason, str) or len(reason) > 200):
+                    raise TransportError('invalid_input', 400)
+                return ReverseTransfer(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    transfer_id=transfer_id,
                     reason=reason,
                 )
             else:
