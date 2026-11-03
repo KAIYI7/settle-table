@@ -1455,10 +1455,11 @@ function updateMealUI() {
     </div>
   `;
 
-  // 2. Finalized View: Apportionment Breakdown & Restaurant Funding
+  // 2. Finalized View: Apportionment Breakdown, Restaurant Funding & Peer Settlements
   if (finalized && snap.calculation) {
     html += renderFinalizedCalculation(snap);
     html += renderRestaurantFundingCard(snap);
+    html += renderPeerSettlementCard(snap);
     app.innerHTML = html;
     bindEvents(snap);
     restoreFocus();
@@ -2890,6 +2891,290 @@ function renderRestaurantFundingCard(snap) {
   `;
 }
 
+function renderPeerSettlementCard(snap) {
+  const settle = snap.settlement;
+  if (!settle) return '';
+
+  const isSettled = settle.is_settled;
+  const unfundedBlocker = settle.unfunded_blocker_sen;
+  const suggestedTransfers = settle.suggested_transfers || [];
+  const transfers = snap.transfers || [];
+  const outstandingList = settle.outstanding_net_balances || [];
+
+  // Debtors and Creditors for organizer reimbursement dropdowns
+  const debtors = outstandingList.filter(b => b.outstanding_net_balance_sen < 0);
+  const creditors = outstandingList.filter(b => b.outstanding_net_balance_sen > 0);
+
+  // Status badge
+  let statusBadgeHtml = '';
+  if (isSettled) {
+    statusBadgeHtml = `<span class="badge" id="settlement-status-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; font-weight: 600;">✓ All Debts Settled</span>`;
+  } else {
+    statusBadgeHtml = `<span class="badge" id="settlement-status-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; font-weight: 600;">Reimbursements Pending</span>`;
+  }
+
+  // Outstanding net balances table rows
+  const balanceRows = outstandingList.map(b => {
+    const isCreditor = b.outstanding_net_balance_sen > 0;
+    const isDebtor = b.outstanding_net_balance_sen < 0;
+
+    const outFormatted = isCreditor
+      ? `+${formatSen(b.outstanding_net_balance_sen)}`
+      : (isDebtor ? `-${formatSen(-b.outstanding_net_balance_sen)}` : `RM 0.00`);
+    const outColor = isCreditor ? '#10b981' : (isDebtor ? '#f87171' : 'var(--text-muted)');
+    const statusBadge = isCreditor
+      ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.72rem;">To Receive</span>`
+      : (isDebtor ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; font-size: 0.72rem;">Owes</span>`
+                 : `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted); font-size: 0.72rem;">Settled ✓</span>`);
+    const inactiveNote = !b.is_active ? ` <small style="color: var(--accent-rose);">(Inactive)</small>` : '';
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(b.name)}</strong>${inactiveNote}</td>
+        <td class="amount">${formatSen(b.base_net_balance_sen)}</td>
+        <td class="amount" style="color: #60a5fa;">${formatSen(b.confirmed_sent_sen)}</td>
+        <td class="amount" style="color: #a78bfa;">${formatSen(b.confirmed_received_sen)}</td>
+        <td class="amount" style="color: ${outColor}; font-weight: 700;">${outFormatted}</td>
+        <td style="text-align: right;">${statusBadge}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // Suggested Transfers HTML
+  let suggestionsHtml = '';
+  if (isSettled) {
+    suggestionsHtml = `
+      <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 12px; margin-top: 10px; color: #10b981; text-align: center;">
+        <strong>🎉 All Accounts Balanced!</strong><br/>
+        <span style="font-size: 0.85rem;">Every participant has fully settled their share of the meal.</span>
+      </div>
+    `;
+  } else if (suggestedTransfers.length === 0) {
+    suggestionsHtml = `
+      <p style="color: var(--text-dim); font-size: 0.85rem; font-style: italic; margin-top: 0.5rem;">
+        No peer transfer suggestions available.
+        ${unfundedBlocker > 0 ? `Outstanding ${formatSen(unfundedBlocker)} must be contributed directly to the restaurant bill.` : ''}
+      </p>
+    `;
+  } else {
+    const cards = suggestedTransfers.map(st => {
+      const sender = outstandingList.find(b => b.participant_id === st.sender_id);
+      const receiver = outstandingList.find(b => b.participant_id === st.receiver_id);
+      const sName = sender ? sender.name : st.sender_id;
+      const rName = receiver ? receiver.name : st.receiver_id;
+
+      let prefillBtn = '';
+      if (snap.is_organizer) {
+        prefillBtn = `
+          <button type="button" class="btn btn-secondary btn-sm prefill-transfer-btn"
+                  data-sender="${escapeHtml(st.sender_id)}"
+                  data-receiver="${escapeHtml(st.receiver_id)}"
+                  data-amount="${(st.amount_sen / 100).toFixed(2)}"
+                  style="font-size: 0.75rem; padding: 3px 10px; margin-left: auto;">
+            Record Payment
+          </button>
+        `;
+      }
+
+      return `
+        <div class="card" style="margin-bottom: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; background: var(--surface-secondary);">
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 0.95rem;">
+            <span style="font-weight: 700; color: #f87171;">${escapeHtml(sName)}</span>
+            <span style="color: var(--text-muted); font-size: 0.85rem;">pays</span>
+            <span style="font-weight: 700; color: #10b981;">${escapeHtml(rName)}</span>
+            <span style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin-left: 6px;">${formatSen(st.amount_sen)}</span>
+          </div>
+          ${prefillBtn}
+        </div>
+      `;
+    }).join('');
+
+    suggestionsHtml = `
+      <div style="margin-top: 0.75rem;">
+        ${cards}
+      </div>
+    `;
+  }
+
+  // Unfunded blocker warning
+  let unfundedWarningHtml = '';
+  if (unfundedBlocker > 0) {
+    unfundedWarningHtml = `
+      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 0.85rem; color: #f59e0b;">
+        <strong>⚠️ Unfunded Restaurant Bill (${formatSen(unfundedBlocker)})</strong><br/>
+        The restaurant bill is not fully funded. Suggested peer transfers only settle up to the fronted restaurant amounts. The remaining balance represents an outstanding restaurant obligation.
+      </div>
+    `;
+  }
+
+  // Transfer history ledger
+  let ledgerHtml = '';
+  if (transfers.length === 0) {
+    ledgerHtml = `<p style="color: var(--text-dim); font-size: 0.85rem; font-style: italic; margin-top: 0.5rem;">No peer reimbursements recorded yet.</p>`;
+  } else {
+    const transferRows = transfers.map(t => {
+      const isReversed = t.status === 'reversed';
+      const rowStyle = isReversed ? 'opacity: 0.6; text-decoration: line-through;' : '';
+      const sObj = outstandingList.find(b => b.participant_id === t.sender_id);
+      const rObj = outstandingList.find(b => b.participant_id === t.receiver_id);
+      const sName = sObj ? sObj.name : t.sender_id;
+      const rName = rObj ? rObj.name : t.receiver_id;
+      const timeStr = new Date(t.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      let actionHtml = '';
+      if (!isReversed && snap.is_organizer) {
+        actionHtml = `
+          <button type="button" class="btn btn-secondary btn-sm reverse-transfer-btn"
+                  data-id="${escapeHtml(t.transfer_id)}"
+                  data-desc="${escapeHtml(sName)} → ${escapeHtml(rName)}"
+                  data-amount="${formatSen(t.amount_sen)}"
+                  style="padding: 2px 8px; font-size: 0.75rem; color: var(--accent-rose);">
+            ↩ Reverse
+          </button>
+        `;
+      } else if (isReversed) {
+        actionHtml = `<small style="color: var(--accent-rose);">Reversed${t.reversal_reason ? `: ${escapeHtml(t.reversal_reason)}` : ''}</small>`;
+      }
+
+      return `
+        <tr style="${rowStyle}">
+          <td><strong>${escapeHtml(sName)}</strong> → <strong>${escapeHtml(rName)}</strong></td>
+          <td class="amount" style="font-weight: 600;">${formatSen(t.amount_sen)}</td>
+          <td style="font-size: 0.82rem; color: var(--text-muted);">${t.note ? escapeHtml(t.note) : '—'}</td>
+          <td style="font-size: 0.78rem; color: var(--text-dim);">${timeStr}</td>
+          <td style="text-align: right; text-decoration: none;">${actionHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    ledgerHtml = `
+      <div style="overflow-x: auto; margin-top: 0.5rem;">
+        <table class="breakdown-table" style="font-size: 0.85rem;">
+          <thead>
+            <tr>
+              <th>Transfer</th>
+              <th style="text-align: right;">Amount</th>
+              <th>Note</th>
+              <th>Time</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${transferRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // Record transfer form (organizer only)
+  let recordFormHtml = '';
+  if (snap.is_organizer && !isSettled && debtors.length > 0 && creditors.length > 0) {
+    const senderOptions = debtors.map(d =>
+      `<option value="${escapeHtml(d.participant_id)}">${escapeHtml(d.name)} (owes ${formatSen(-d.outstanding_net_balance_sen)})</option>`
+    ).join('');
+    const receiverOptions = creditors.map(c =>
+      `<option value="${escapeHtml(c.participant_id)}">${escapeHtml(c.name)} (receives ${formatSen(c.outstanding_net_balance_sen)})</option>`
+    ).join('');
+
+    recordFormHtml = `
+      <div class="card" style="margin-top: 1.5rem; padding: 1rem; border-left: 3px solid var(--accent-indigo);">
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--text-main);">
+          Record Confirmed Peer Reimbursement
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+          <div>
+            <label for="transfer-sender-select" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Payer (Debtor):</label>
+            <select id="transfer-sender-select" class="form-input" style="width: 100%;">
+              ${senderOptions}
+            </select>
+          </div>
+          <div>
+            <label for="transfer-receiver-select" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Recipient (Creditor):</label>
+            <select id="transfer-receiver-select" class="form-input" style="width: 100%;">
+              ${receiverOptions}
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom: 10px;">
+          <label for="transfer-amount-input" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Amount (RM):</label>
+          <input type="text" id="transfer-amount-input" class="form-input" placeholder="e.g. 15.00" inputmode="decimal" autocomplete="off" style="width: 100%; font-size: 1rem; font-weight: 600;" />
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label for="transfer-note-input" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Reference / Note (Optional):</label>
+          <input type="text" id="transfer-note-input" class="form-input" placeholder="e.g. DuitNow reference or cash at table" style="width: 100%;" />
+        </div>
+        <button type="button" id="record-transfer-btn" class="btn btn-primary" style="width: 100%;">
+          Record Confirmed Reimbursement
+        </button>
+        <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-dim); line-height: 1.4;">
+          ℹ️ SettleTable records organizer-attested reimbursements without executing or independently verifying bank or e-wallet payments.
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card" id="peer-settlement-card" style="margin-top: 1.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
+        <div>
+          <div style="font-weight: 700; font-size: 1.15rem; color: var(--text-main);">
+            Peer Settlements & Reimbursements
+          </div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">
+            Suggested transfer settlement and repayment tracking
+          </div>
+        </div>
+        ${statusBadgeHtml}
+      </div>
+
+      ${unfundedWarningHtml}
+
+      <!-- Suggested Transfers -->
+      <div style="margin-bottom: 1.5rem;">
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-main);">
+          Suggested Peer Transfers
+        </div>
+        ${suggestionsHtml}
+      </div>
+
+      <!-- Outstanding Balances Table -->
+      <div style="margin-bottom: 1.5rem;">
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-main);">
+          Outstanding Balances Reconciliation
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="breakdown-table" style="font-size: 0.85rem;">
+            <thead>
+              <tr>
+                <th>Participant</th>
+                <th style="text-align: right;">Base Net</th>
+                <th style="text-align: right;">Sent</th>
+                <th style="text-align: right;">Received</th>
+                <th style="text-align: right;">Outstanding</th>
+                <th style="text-align: right;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${balanceRows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      ${recordFormHtml}
+
+      <!-- Transfer Ledger -->
+      <div style="margin-top: 1.5rem;">
+        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-main);">
+          Recorded Peer Reimbursements Ledger
+        </div>
+        ${ledgerHtml}
+      </div>
+    </div>
+  `;
+}
+
 // --- Event Binding ---
 function bindEvents(snap) {
   // --- Receipt Photo Modal & Lifecycle Actions ---
@@ -4215,6 +4500,120 @@ function bindEvents(snap) {
           await fetchSnapshot(true);
         } else {
           showAlert(`Failed: ${res?.error || 'Could not reverse contribution'}`, 'error');
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Reversal failed'}`, 'error');
+      }
+    });
+  });
+
+  // --- Peer Settlement Event Handlers ---
+  document.querySelectorAll('.prefill-transfer-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sender = btn.getAttribute('data-sender');
+      const receiver = btn.getAttribute('data-receiver');
+      const amount = btn.getAttribute('data-amount');
+
+      const sSelect = document.getElementById('transfer-sender-select');
+      const rSelect = document.getElementById('transfer-receiver-select');
+      const aInput = document.getElementById('transfer-amount-input');
+
+      if (sSelect && sender) sSelect.value = sender;
+      if (rSelect && receiver) rSelect.value = receiver;
+      if (aInput && amount) aInput.value = amount;
+
+      if (aInput) aInput.focus();
+    });
+  });
+
+  const recordTransferBtn = document.getElementById('record-transfer-btn');
+  if (recordTransferBtn && snap.settlement) {
+    recordTransferBtn.addEventListener('click', async () => {
+      const sSelect = document.getElementById('transfer-sender-select');
+      const rSelect = document.getElementById('transfer-receiver-select');
+      const aInput = document.getElementById('transfer-amount-input');
+      const nInput = document.getElementById('transfer-note-input');
+      if (!sSelect || !rSelect || !aInput) return;
+
+      const senderId = sSelect.value;
+      const receiverId = rSelect.value;
+      if (!senderId || !receiverId) {
+        showAlert('Please select both sender and receiver.', 'error');
+        return;
+      }
+      if (senderId === receiverId) {
+        showAlert('Sender and receiver cannot be the same diner.', 'error');
+        return;
+      }
+
+      let amountSen;
+      try {
+        amountSen = parseSen(aInput.value, false);
+      } catch (err) {
+        showAlert(err.message || 'Invalid transfer amount.', 'error');
+        return;
+      }
+
+      if (amountSen <= 0) {
+        showAlert('Transfer amount must be greater than zero.', 'error');
+        return;
+      }
+
+      recordTransferBtn.disabled = true;
+      recordTransferBtn.textContent = 'Recording...';
+      try {
+        const cmdId = `xfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'RecordTransfer',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          sender_id: senderId,
+          receiver_id: receiverId,
+          amount_sen: amountSen,
+          note: nInput && nInput.value.trim() ? nInput.value.trim() : null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert(`Recorded ${formatSen(amountSen)} reimbursement ✓`, 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not record reimbursement'}`, 'error');
+          recordTransferBtn.disabled = false;
+          recordTransferBtn.textContent = 'Record Confirmed Reimbursement';
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Reimbursement failed'}`, 'error');
+        recordTransferBtn.disabled = false;
+        recordTransferBtn.textContent = 'Record Confirmed Reimbursement';
+      }
+    });
+  }
+
+  document.querySelectorAll('.reverse-transfer-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const transferId = btn.getAttribute('data-id');
+      const desc = btn.getAttribute('data-desc');
+      const amountStr = btn.getAttribute('data-amount');
+      if (!transferId) return;
+
+      const reason = window.prompt(`Reverse reimbursement of ${amountStr} (${desc})?\nEnter reason (optional):`);
+      if (reason === null) return; // User cancelled
+
+      try {
+        const cmdId = `revx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'ReverseTransfer',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          transfer_id: transferId,
+          reason: reason.trim() || null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert('Reimbursement reversed ✓', 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not reverse reimbursement'}`, 'error');
         }
       } catch (err) {
         showAlert(`Error: ${err.message || 'Reversal failed'}`, 'error');
