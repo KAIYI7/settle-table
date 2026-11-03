@@ -1690,10 +1690,10 @@ function renderOrganizerSection(snap) {
 
                     <td class="cell-qty">
                       <div class="ocr-mobile-only ocr-field-label">Qty</div>
-                      <div class="ocr-qty-stepper" role="group" aria-label="Item quantity">
-                        <button type="button" class="ocr-qty-btn ocr-qty-dec" data-idx="${idx}" aria-label="Decrease quantity" ${qtyVal <= 1 ? 'disabled aria-disabled="true"' : ''}>−</button>
-                        <input type="number" id="ocr-item-qty-${idx}" class="ocr-edit-item-qty form-input" data-idx="${idx}" min="1" step="1" value="${qtyVal}" inputmode="numeric" />
-                        <button type="button" class="ocr-qty-btn ocr-qty-inc" data-idx="${idx}" aria-label="Increase quantity">+</button>
+                      <div class="ocr-qty-stepper numeric-stepper" role="group" aria-label="Item quantity">
+                        <button type="button" class="ocr-qty-btn stepper-btn ocr-qty-dec" data-idx="${idx}" aria-label="Decrease quantity" ${qtyVal <= 1 ? 'disabled aria-disabled="true"' : ''}>−</button>
+                        <input type="number" id="ocr-item-qty-${idx}" class="ocr-edit-item-qty stepper-input form-input" data-idx="${idx}" min="1" step="1" value="${qtyVal}" inputmode="numeric" />
+                        <button type="button" class="ocr-qty-btn stepper-btn ocr-qty-inc" data-idx="${idx}" aria-label="Increase quantity">+</button>
                       </div>
                     </td>
 
@@ -1816,10 +1816,14 @@ function renderOrganizerSection(snap) {
         <!-- Add Item Form -->
         <form id="add-item-form" style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
           <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted);">ADD RECEIPT ITEM</div>
-          <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+          <div class="add-item-grid">
             <input type="text" id="new-item-label" placeholder="Item name" required>
-            <input type="number" id="new-item-qty" value="1" min="1" step="1" required>
-            <input type="text" id="new-item-price" placeholder="RM 0.00" required>
+            <div class="numeric-stepper" role="group" aria-label="Item quantity">
+              <button type="button" class="stepper-btn" id="new-item-qty-dec" aria-label="Decrease quantity" disabled>−</button>
+              <input type="number" id="new-item-qty" class="stepper-input" value="1" min="1" step="1" required aria-label="Item quantity">
+              <button type="button" class="stepper-btn" id="new-item-qty-inc" aria-label="Increase quantity">+</button>
+            </div>
+            <input type="text" id="new-item-price" placeholder="RM 0.00" inputmode="decimal" required>
           </div>
           <button type="submit" class="btn btn-secondary btn-sm btn-block">+ Add Item</button>
         </form>
@@ -2091,10 +2095,10 @@ function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
           <span class="diner-share-preview" title="Provisional item base share. Taxes, service charge, discounts, and rounding are apportioned at finalization.">${currentQty > 0 ? `~${formatSen(dinerSen)} base` : 'RM 0.00'}</span>
         </div>
         <div class="diner-row-controls">
-          <div class="quantity-stepper">
-            <button type="button" class="btn btn-secondary btn-sm hybrid-step-btn" data-action="hybrid-step" data-step="-1" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" ${currentQty <= 0 ? 'disabled' : ''} aria-label="Decrease portion for ${escapeHtml(p.name)}">-</button>
+          <div class="quantity-stepper numeric-stepper" role="group" aria-label="Portion for ${escapeHtml(p.name)}">
+            <button type="button" class="btn btn-secondary btn-sm stepper-btn hybrid-step-btn" data-action="hybrid-step" data-step="-1" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" ${currentQty <= 0 ? 'disabled' : ''} aria-label="Decrease portion for ${escapeHtml(p.name)}">−</button>
             <span class="step-val" aria-live="polite">${formatRat(currentRat)}</span>
-            <button type="button" class="btn btn-secondary btn-sm hybrid-step-btn" data-action="hybrid-step" data-step="1" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" aria-label="Increase portion for ${escapeHtml(p.name)}">+</button>
+            <button type="button" class="btn btn-secondary btn-sm stepper-btn hybrid-step-btn" data-action="hybrid-step" data-step="1" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" aria-label="Increase portion for ${escapeHtml(p.name)}">+</button>
           </div>
           <div class="fraction-btn-group">
             <button type="button" class="btn-fraction" data-action="hybrid-fraction" data-frac="1/3" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="Set 1/3 portion" aria-label="Set 1/3 portion for ${escapeHtml(p.name)}">⅓</button>
@@ -2218,10 +2222,10 @@ function renderClaimsSection(snap) {
           <div class="claim-actions">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Your Portion:</span>
-              <div class="quantity-stepper">
-                <button class="btn btn-secondary btn-sm claim-dec-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}">-</button>
-                <span class="step-val">${targetQty}</span>
-                <button class="btn btn-secondary btn-sm claim-inc-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}">+</button>
+              <div class="quantity-stepper numeric-stepper" role="group" aria-label="Your portion">
+                <button type="button" class="btn btn-secondary btn-sm stepper-btn claim-dec-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}" aria-label="Decrease portion" ${targetQty <= 0 ? 'disabled' : ''}>−</button>
+                <span class="step-val" aria-live="polite">${targetQty}</span>
+                <button type="button" class="btn btn-secondary btn-sm stepper-btn claim-inc-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}" aria-label="Increase portion" ${targetQty >= itemTotalQty ? 'disabled' : ''}>+</button>
               </div>
             </div>
             <div>
@@ -2784,8 +2788,7 @@ function renderRestaurantFundingCard(snap) {
         ${badgeHtml}
       </div>
       <p class="card-desc">
-        Record how the restaurant bill was paid at the counter. Diner consumption liabilities are locked;
-        restaurant contributions reconcile who covered the bill.
+        Who paid the restaurant bill? Record how much each person actually paid at the counter. Diner meal shares are locked; restaurant contributions reconcile who covered the bill.
       </p>
 
       <!-- Funding Progress Bar -->
@@ -2802,16 +2805,16 @@ function renderRestaurantFundingCard(snap) {
       <!-- Net Balance Reconciliation Table -->
       <div style="margin-top: 1.25rem;">
         <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-main);">
-          Participant Net Balances (Contributed − Consumed)
+          Participant Net Balances (Paid to Restaurant − Amount Consumed)
         </div>
         <div style="overflow-x: auto;">
           <table class="breakdown-table">
             <thead>
               <tr>
                 <th>Participant</th>
-                <th style="text-align: right;">Consumed</th>
-                <th style="text-align: right;">Contributed</th>
-                <th style="text-align: right;">Base Net</th>
+                <th style="text-align: right;" title="Finalized meal consumption share">Amount Consumed</th>
+                <th style="text-align: right;" title="Actual payment made to the restaurant at the counter">Paid to Restaurant</th>
+                <th style="text-align: right;" title="Paid to restaurant minus amount consumed">Base Net (Paid − Consumed)</th>
                 <th style="text-align: right;">Status</th>
               </tr>
             </thead>
@@ -2923,8 +2926,8 @@ function renderPeerSettlementCard(snap) {
       : (isDebtor ? `-${formatSen(-b.outstanding_net_balance_sen)}` : `RM 0.00`);
     const outColor = isCreditor ? '#10b981' : (isDebtor ? '#f87171' : 'var(--text-muted)');
     const statusBadge = isCreditor
-      ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.72rem;">To Receive</span>`
-      : (isDebtor ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; font-size: 0.72rem;">Owes</span>`
+      ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.72rem;">To Recover</span>`
+      : (isDebtor ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; font-size: 0.72rem;">Still Owes</span>`
                  : `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted); font-size: 0.72rem;">Settled ✓</span>`);
     const inactiveNote = !b.is_active ? ` <small style="color: var(--accent-rose);">(Inactive)</small>` : '';
 
@@ -3121,11 +3124,16 @@ function renderPeerSettlementCard(snap) {
           <div style="font-weight: 700; font-size: 1.15rem; color: var(--text-main);">
             Peer Settlements & Reimbursements
           </div>
-          <div style="font-size: 0.85rem; color: var(--text-muted);">
-            Suggested transfer settlement and repayment tracking
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 2px;">
+            Who needs to reimburse whom? Suggested transfers help everyone pay their fair share after the restaurant bill has been covered.
           </div>
         </div>
         ${statusBadgeHtml}
+      </div>
+
+      <!-- Organizer Attestation & Disclaimer Notice -->
+      <div class="settlement-attestation-notice" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 0.83rem; color: var(--text-muted); line-height: 1.45;">
+        ℹ️ <strong>Organizer-recorded settlements:</strong> SettleTable calculates suggested peer transfers and tracks reimbursements recorded by the organizer. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.
       </div>
 
       ${unfundedWarningHtml}
@@ -3148,10 +3156,10 @@ function renderPeerSettlementCard(snap) {
             <thead>
               <tr>
                 <th>Participant</th>
-                <th style="text-align: right;">Base Net</th>
-                <th style="text-align: right;">Sent</th>
-                <th style="text-align: right;">Received</th>
-                <th style="text-align: right;">Outstanding</th>
+                <th style="text-align: right;" title="Initial net balance from restaurant bill (Paid to restaurant − Amount consumed)">Base Net (Bill)</th>
+                <th style="text-align: right;" title="Total reimbursement paid to other diners">Reimbursed Others</th>
+                <th style="text-align: right;" title="Total reimbursement received from other diners">Received from Peers</th>
+                <th style="text-align: right;" title="Net outstanding amount still owed or to recover">Still Owed / Recoverable</th>
                 <th style="text-align: right;">Status</th>
               </tr>
             </thead>
@@ -3357,6 +3365,40 @@ function bindEvents(snap) {
   });
   const addItemForm = document.getElementById('add-item-form');
   if (addItemForm) {
+    const newItemQtyInput = document.getElementById('new-item-qty');
+    const newItemQtyDec = document.getElementById('new-item-qty-dec');
+    const newItemQtyInc = document.getElementById('new-item-qty-inc');
+    if (newItemQtyInput && newItemQtyDec && newItemQtyInc) {
+      const syncNewItemDecState = () => {
+        const val = parseInt(newItemQtyInput.value, 10);
+        const atMin = isNaN(val) || val <= 1;
+        newItemQtyDec.disabled = atMin;
+        newItemQtyDec.setAttribute('aria-disabled', atMin ? 'true' : 'false');
+      };
+      newItemQtyDec.addEventListener('click', () => {
+        const current = parseInt(newItemQtyInput.value, 10) || 1;
+        if (current > 1) {
+          newItemQtyInput.value = current - 1;
+          newItemQtyInput.dispatchEvent(new Event('input', { bubbles: true }));
+          newItemQtyInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        syncNewItemDecState();
+      });
+      newItemQtyInc.addEventListener('click', () => {
+        const current = parseInt(newItemQtyInput.value, 10) || 1;
+        newItemQtyInput.value = current + 1;
+        newItemQtyInput.dispatchEvent(new Event('input', { bubbles: true }));
+        newItemQtyInput.dispatchEvent(new Event('change', { bubbles: true }));
+        syncNewItemDecState();
+      });
+      newItemQtyInput.addEventListener('input', syncNewItemDecState);
+      newItemQtyInput.addEventListener('change', syncNewItemDecState);
+      addItemForm.addEventListener('reset', () => {
+        setTimeout(syncNewItemDecState, 0);
+      });
+      syncNewItemDecState();
+    }
+
     addItemForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const submittedDraft = ['new-item-label', 'new-item-qty', 'new-item-price']
