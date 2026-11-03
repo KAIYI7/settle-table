@@ -653,7 +653,7 @@ class Authority:
                         WHEN NEW.meal_id != OLD.meal_id OR NEW.contribution_id != OLD.contribution_id
                           OR NEW.command_id != OLD.command_id OR NEW.participant_id != OLD.participant_id
                           OR NEW.amount_sen != OLD.amount_sen OR NEW.created_at != OLD.created_at
-                          OR NEW.created_by != OLD.created_by THEN
+                          OR NEW.created_by != OLD.created_by OR (NEW.payment_method IS NOT OLD.payment_method) THEN
                             RAISE(FAIL, 'immutable contribution columns cannot be modified')
                     END;
                 END;
@@ -1639,7 +1639,7 @@ class Authority:
         calc_data = state['calculation']
         consumption_participants = {p['participant_id'] for p in calc_data['consumption']}
         _require(participant_id in consumption_participants, 'invalid_participant')
-        row = self._db.execute('SELECT COALESCE(SUM(amount_sen), 0) FROM payer_contributions WHERE meal_id=? AND status="active"',
+        row = self._db.execute("SELECT COALESCE(SUM(amount_sen), 0) FROM payer_contributions WHERE meal_id=? AND status='active'",
                                (meal_id,)).fetchone()
         active_sum = row[0] if row else 0
         receipt_total = state['receipt']['total_sen']
@@ -1693,17 +1693,18 @@ class Authority:
             state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
             security = data['kind'] in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation')
             post_finalization = data['kind'] in ('RecordContribution', 'ReverseContribution')
-            if post_finalization:
-                _require(state['calculation'] is not None, 'not_finalized')
-                _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=0', (meal_id,)).fetchone()[0] < 10_000,
-                         'resource_limit')
-            elif not security:
-                _require(state['calculation'] is None, 'finalized')
-                _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=0', (meal_id,)).fetchone()[0] < 10_000,
-                         'resource_limit')
-            else:
+            if security:
                 _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=1', (meal_id,)).fetchone()[0] < 15_000,
                          'resource_limit')
+            else:
+                _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=0', (meal_id,)).fetchone()[0] < 10_000,
+                         'resource_limit')
+            if post_finalization:
+                _require(state['calculation'] is not None, 'not_finalized')
+                if state.get('finalized_revision') is None:
+                    state['finalized_revision'] = state['revision']
+            elif not security:
+                _require(state['calculation'] is None, 'finalized')
             if 'expected_revision' in data:
                 _require(data['expected_revision'] == state['revision'], 'revision_conflict')
             if 'expected_financial_revision' in data:

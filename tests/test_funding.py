@@ -1,5 +1,6 @@
 """Tests for multi-payer contributions, funding status, and net balance reconciliation."""
 from fractions import Fraction
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -265,6 +266,51 @@ class TestAuthorityFunding(unittest.TestCase):
         row = auth._db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='payer_contributions'").fetchone()
         self.assertIsNotNone(row)
         auth.close()
+
+    def test_historical_meal_finalized_revision_backfill(self):
+        self._setup_finalized_meal(total_sen=6000)
+        # Emulate a meal finalized before finalized_revision existed in state dict
+        snap = self.auth.snapshot(self.alice_cred, self.meal_id)
+        # Manually strip finalized_revision from state in DB
+        state_bytes = self.auth._db.execute('SELECT state FROM meals WHERE id=?', (self.meal_id,)).fetchone()[0]
+        state_dict = json.loads(state_bytes)
+        self.assertIn('finalized_revision', state_dict)
+        initial_finalized_rev = state_dict['finalized_revision']
+        del state_dict['finalized_revision']
+        self.auth._db.execute('UPDATE meals SET state=? WHERE id=?', (json.dumps(state_dict).encode('utf-8'), self.meal_id))
+        self.auth._db.commit()
+
+        # Snapshot should gracefully fall back
+        snap2 = self.auth.snapshot(self.alice_cred, self.meal_id)
+        self.assertEqual(snap2.finalized_revision, snap2.revision)
+
+        # Apply a contribution
+        cmd = RecordContribution('cmd-backfill-test', snap2.revision, 'alice', 1000, 'cash')
+        res = self.auth.apply(self.alice_cred, self.meal_id, cmd)
+
+        # State should now permanently have finalized_revision backfilled to the prior revision
+        state_bytes_after = self.auth._db.execute('SELECT state FROM meals WHERE id=?', (self.meal_id,)).fetchone()[0]
+        state_dict_after = json.loads(state_bytes_after)
+        self.assertIn('finalized_revision', state_dict_after)
+        self.assertEqual(state_dict_after['finalized_revision'], snap2.revision)
+        self.assertEqual(state_dict_after['revision'], snap2.revision + 1)
+
+    def test_payment_method_trigger_immutability(self):
+        self._setup_finalized_meal(total_sen=6000)
+        snap = self.auth.snapshot(self.alice_cred, self.meal_id)
+        cmd = RecordContribution('cmd-pm-test', snap.revision, 'alice', 1000, 'cash')
+        res = self.auth.apply(self.alice_cred, self.meal_id, cmd)
+        contrib_id = res.contribution_id
+
+        # Direct DB update attempting to modify payment_method while transitioning status to reversed
+        with self.assertRaises(sqlite3.IntegrityError) as ctx:
+            self.auth._db.execute("""
+                UPDATE payer_contributions
+                SET status='reversed', payment_method='card'
+                WHERE meal_id=? AND contribution_id=?
+            """, (self.meal_id, contrib_id))
+        self.assertIn('immutable contribution columns cannot be modified', str(ctx.exception))
+
 
 
 class TestTransportFunding(unittest.TestCase):

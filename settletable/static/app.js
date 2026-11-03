@@ -2871,7 +2871,7 @@ function renderRestaurantFundingCard(snap) {
                 Fill Remaining (${formatSen(unfunded)})
               </button>
             </div>
-            <input type="text" id="payer-amount-input" class="form-input" placeholder="e.g. 50.00" style="width: 100%; font-size: 1rem; font-weight: 600;" />
+            <input type="text" id="payer-amount-input" class="form-input" placeholder="e.g. 50.00" inputmode="decimal" autocomplete="off" style="width: 100%; font-size: 1rem; font-weight: 600;" />
           </div>
           <button type="button" id="record-contribution-btn" class="btn btn-primary" style="width: 100%;">
             Record Payment to Restaurant
