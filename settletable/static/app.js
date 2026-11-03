@@ -16,6 +16,12 @@ const state = {
   allocationConflictPending: false,
   issuedTokens: {},
   ocrCandidate: null,
+  localPhotoUrl: null,
+  photoModalZoom: 1,
+  photoModalPan: { x: 0, y: 0 },
+  photoModalDragging: false,
+  photoModalDragStart: { x: 0, y: 0 },
+  photoModalTrigger: null,
   notionParentId: '',
   notionToken: '',
   notionExport: null,
@@ -50,6 +56,153 @@ function sheetFocusables(sheet) {
 function closeMobileSheet() {
   state.activeMobileSheetItemId = null;
   updateMealUI();
+}
+
+// --- Fullscreen / Zoom Receipt Photo Modal Controller ---
+let receiptModalInitialized = false;
+
+function openReceiptModal(src, triggerEl) {
+  if (!src) return;
+  state.photoModalTrigger = triggerEl || document.activeElement;
+  state.photoModalZoom = 1;
+  state.photoModalPan = { x: 0, y: 0 };
+  state.photoModalDragging = false;
+
+  const modal = document.getElementById('receipt-modal');
+  const img = document.getElementById('receipt-modal-img');
+  const zoomLevel = document.getElementById('receipt-zoom-level');
+  const closeBtn = document.getElementById('receipt-modal-close');
+
+  if (modal && img) {
+    img.src = src;
+    img.style.transform = 'translate(0px, 0px) scale(1)';
+    if (zoomLevel) zoomLevel.textContent = '100%';
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    if (closeBtn) closeBtn.focus();
+  }
+}
+
+function closeReceiptModal() {
+  const modal = document.getElementById('receipt-modal');
+  if (!modal || modal.style.display === 'none') return;
+  modal.style.display = 'none';
+  document.body.style.overflow = '';
+  state.photoModalDragging = false;
+
+  if (state.photoModalTrigger && typeof state.photoModalTrigger.focus === 'function') {
+    state.photoModalTrigger.focus();
+  }
+  state.photoModalTrigger = null;
+}
+
+function updateReceiptModalTransform() {
+  const img = document.getElementById('receipt-modal-img');
+  const zoomLevel = document.getElementById('receipt-zoom-level');
+  if (img) {
+    img.style.transform = `translate(${state.photoModalPan.x}px, ${state.photoModalPan.y}px) scale(${state.photoModalZoom})`;
+  }
+  if (zoomLevel) {
+    zoomLevel.textContent = `${Math.round(state.photoModalZoom * 100)}%`;
+  }
+}
+
+function zoomReceiptModal(factor, reset = false) {
+  if (reset) {
+    state.photoModalZoom = 1;
+    state.photoModalPan = { x: 0, y: 0 };
+  } else {
+    state.photoModalZoom = Math.min(4.0, Math.max(0.5, state.photoModalZoom * factor));
+  }
+  updateReceiptModalTransform();
+}
+
+function initReceiptModalEvents() {
+  if (receiptModalInitialized) return;
+  receiptModalInitialized = true;
+
+  const modal = document.getElementById('receipt-modal');
+  const backdrop = document.getElementById('receipt-modal-backdrop');
+  const closeBtn = document.getElementById('receipt-modal-close');
+  const zoomIn = document.getElementById('receipt-zoom-in');
+  const zoomOut = document.getElementById('receipt-zoom-out');
+  const zoomReset = document.getElementById('receipt-zoom-reset');
+  const viewport = document.getElementById('receipt-modal-viewport');
+
+  if (closeBtn) closeBtn.addEventListener('click', closeReceiptModal);
+  if (backdrop) backdrop.addEventListener('click', closeReceiptModal);
+  if (zoomIn) zoomIn.addEventListener('click', () => zoomReceiptModal(1.25));
+  if (zoomOut) zoomOut.addEventListener('click', () => zoomReceiptModal(0.8));
+  if (zoomReset) zoomReset.addEventListener('click', () => zoomReceiptModal(1, true));
+
+  if (viewport) {
+    // Wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 0.85;
+      zoomReceiptModal(factor);
+    }, { passive: false });
+
+    // Mouse drag pan
+    viewport.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      state.photoModalDragging = true;
+      state.photoModalDragStart = {
+        x: e.clientX - state.photoModalPan.x,
+        y: e.clientY - state.photoModalPan.y,
+      };
+      viewport.classList.add('is-dragging');
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!state.photoModalDragging) return;
+      state.photoModalPan = {
+        x: e.clientX - state.photoModalDragStart.x,
+        y: e.clientY - state.photoModalDragStart.y,
+      };
+      updateReceiptModalTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (state.photoModalDragging) {
+        state.photoModalDragging = false;
+        if (viewport) viewport.classList.remove('is-dragging');
+      }
+    });
+
+    // Touch support for mobile pan
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches && e.touches.length === 1) {
+        state.photoModalDragging = true;
+        state.photoModalDragStart = {
+          x: e.touches[0].clientX - state.photoModalPan.x,
+          y: e.touches[0].clientY - state.photoModalPan.y,
+        };
+      }
+    }, { passive: true });
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (!state.photoModalDragging || !e.touches || e.touches.length !== 1) return;
+      e.preventDefault();
+      state.photoModalPan = {
+        x: e.touches[0].clientX - state.photoModalDragStart.x,
+        y: e.touches[0].clientY - state.photoModalDragStart.y,
+      };
+      updateReceiptModalTransform();
+    }, { passive: false });
+
+    viewport.addEventListener('touchend', () => {
+      state.photoModalDragging = false;
+    });
+  }
+
+  // Escape key listener
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal && modal.style.display !== 'none') {
+      closeReceiptModal();
+    }
+  });
 }
 
 function freshReceiptItemId(items, adjustments) {
@@ -468,9 +621,9 @@ function clearAlerts() {
 // --- API Layer ---
 async function apiCall(endpoint, method = 'GET', body = null, extraHeaders = {}) {
   const headers = Object.assign({}, extraHeaders);
-  if (method === 'POST') {
+  if (method === 'POST' || method === 'DELETE') {
     headers['X-SettleTable-Action'] = '1';
-    if (!headers['Content-Type']) {
+    if (body !== null && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
     }
   }
@@ -690,6 +843,10 @@ async function handleLeaveRoom() {
   }
   stopPolling();
   resetSimulationView();
+  if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(state.localPhotoUrl);
+  }
+  state.localPhotoUrl = null;
   state.mealId = null;
   state.snapshot = null;
   state.allocationConflictPending = false;
@@ -1089,6 +1246,10 @@ function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
 // --- View 3: Meal Room ---
 async function loadMeal(mealId) {
   resetSimulationView();
+  if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(state.localPhotoUrl);
+  }
+  state.localPhotoUrl = null;
   state.mealId = mealId;
   state.notionParentId = '';
   state.notionToken = '';
@@ -1347,12 +1508,18 @@ function updateMealUI() {
 
 // --- Sub-renderers ---
 function renderOrganizerSection(snap) {
+  const mealId = state.mealId || snap.meal_id;
   const receipt = snap.receipt;
   const items = receipt?.items || [];
   const reviewConfirmed = Boolean(snap.review);
   const reviewer = snap.review ? snap.participants?.find(p => p.id === snap.review.participant_id) : null;
   const reviewerName = reviewer ? reviewer.name : 'Organizer';
   const shortDigest = snap.review?.receipt_digest ? snap.review.receipt_digest.slice(0, 8) : '';
+  const photoUrl = state.localPhotoUrl || (snap.has_receipt_photo ? `/api/meals/${mealId}/receipt/photo` : null);
+  const photoFilename = snap.receipt_photo?.filename || 'scanned_receipt.jpg';
+  const photoMeta = snap.receipt_photo
+    ? `${(snap.receipt_photo.byte_size / 1024).toFixed(0)} KB • ${snap.receipt_photo.width}×${snap.receipt_photo.height}px • Private Storage`
+    : 'Local Source • Private Storage';
   
   let itemsRowsHtml = items.map((it, idx) => `
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
@@ -1404,6 +1571,31 @@ function renderOrganizerSection(snap) {
         ${totalsHtml}
       </div>
 
+      ${photoUrl ? `
+        <!-- Attached Receipt Photo Card -->
+        <div class="receipt-photo-card" id="receipt-photo-container">
+          <div class="receipt-photo-header">
+            <span class="receipt-photo-title">📷 Scanned Receipt Photo</span>
+            <span class="badge badge-verified">Retained Locally</span>
+          </div>
+          <div class="receipt-photo-body">
+            <div class="receipt-thumbnail-wrapper" id="receipt-thumb-btn" role="button" tabindex="0" title="Click to view and zoom receipt photo" aria-label="View receipt photo fullscreen">
+              <img src="${escapeHtml(photoUrl)}" alt="Thumbnail of original receipt" class="receipt-thumbnail-img" id="receipt-card-thumb" />
+            </div>
+            <div class="receipt-photo-info">
+              <span class="receipt-photo-filename">${escapeHtml(photoFilename)}</span>
+              <span class="receipt-photo-meta">${photoMeta}</span>
+              <div class="receipt-photo-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="view-photo-modal-btn">🔍 View & Zoom</button>
+                <input type="file" id="replace-photo-input" accept="image/jpeg,image/png,image/webp" style="display: none;">
+                <button type="button" class="btn btn-secondary btn-sm" id="replace-photo-btn">🔄 Replace Photo</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="delete-photo-btn" style="color: var(--accent-rose);">🗑️ Remove Photo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
       <!-- Local OCR Receipt Scanner -->
       <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -1444,6 +1636,22 @@ function renderOrganizerSection(snap) {
             <span>Merchant: <strong>${escapeHtml(state.ocrCandidate.merchant || 'Unknown')}</strong></span>
             <span>Confidence: <strong>${((state.ocrCandidate.mean_confidence || 0) * 100).toFixed(1)}%</strong></span>
           </div>
+
+          ${photoUrl ? `
+            <!-- Staged OCR Source Preview Bar -->
+            <div class="ocr-source-preview-bar">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="receipt-thumbnail-wrapper" style="width: 44px; height: 56px; cursor: pointer;" id="ocr-source-thumb-btn" role="button" tabindex="0" title="Click to view original source" aria-label="Zoom source receipt">
+                  <img src="${escapeHtml(photoUrl)}" alt="Source receipt thumbnail" class="receipt-thumbnail-img" />
+                </div>
+                <div>
+                  <strong style="font-size: 0.85rem; color: var(--text-main);">Original Scanned Receipt</strong>
+                  <div style="font-size: 0.75rem; color: var(--text-dim);">Compare extracted items against the source photo</div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="ocr-source-zoom-btn">🔍 Zoom Photo</button>
+            </div>
+          ` : ''}
 
           <!-- Section: Scanned Items -->
           <div class="ocr-section-title">
@@ -2271,7 +2479,50 @@ async function loadSimulationReads(snap) {
   }
 }
 
+function formatNotionSuccessHtml(exp) {
+  if (!exp) return '';
+  const pageId = exp.page_id || '';
+  const pageUrl = exp.page_url || '#';
+  return `
+    <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #6ee7b7;">
+      <div style="font-weight: 700; margin-bottom: 4px;">✓ Export Successful!</div>
+      <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 6px;">
+        Page ID: <code style="font-size: 0.8rem; color: #a7f3d0;">${escapeHtml(pageId)}</code>
+      </div>
+      <div>
+        <a href="${escapeHtml(pageUrl)}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-bottom: 0.75rem;" id="notion-page-link">
+          Open Report in Notion ↗
+        </a>
+      </div>
+      <div id="notion-view-only-guidance" style="padding: 0.75rem; border-radius: 6px; background-color: var(--bg-main); border: 1px solid var(--border-subtle); font-size: 0.85rem; text-align: left;">
+        <div style="font-weight: 600; color: #818cf8; margin-bottom: 4px;">
+          🔗 How to Share View-Only Link with Diners:
+        </div>
+        <p style="margin: 0 0 6px 0; color: var(--text-dim); font-size: 0.8rem;">
+          Notion pages created via the API are private to your workspace by default. To share with diners without requiring Notion accounts:
+        </p>
+        <ol style="margin: 0 0 8px 18px; padding: 0; color: var(--text-main); line-height: 1.4; font-size: 0.82rem;">
+          <li>Click <strong>Open Report in Notion ↗</strong> above.</li>
+          <li>In Notion, click <strong>Share</strong> (top right) &rarr; select the <strong>Publish</strong> tab &rarr; click <strong>Publish to web</strong>.</li>
+          <li>Set access permissions:
+            <ul style="margin: 2px 0 0 14px; color: var(--text-muted); font-size: 0.78rem;">
+              <li><strong>Allow editing:</strong> OFF</li>
+              <li><strong>Allow comments:</strong> OFF</li>
+              <li><strong>Search engine indexing:</strong> OFF</li>
+            </ul>
+          </li>
+          <li>Copy the published web link and send it to diners for view-only verification.</li>
+        </ol>
+        <div style="padding: 6px 8px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); color: #fde68a; font-size: 0.78rem; line-height: 1.35;">
+          ⚠️ <strong>Privacy Warning:</strong> Anyone possessing the link can access the report and any included receipt photo. Confirm the slip contains no confidential personal data (e.g. credit card PAN, phone numbers) before sharing.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderFinalizedCalculation(snap) {
+  const mealId = state.mealId || snap.meal_id;
   const calc = snap.calculation;
   if (!calc || !Array.isArray(calc.consumption)) {
     return `
@@ -2317,15 +2568,7 @@ function renderFinalizedCalculation(snap) {
 
   let exportResultHtml = '';
   if (state.notionExport && (state.notionExport.status === 'completed' || state.notionExport.status === 'already_exported')) {
-    exportResultHtml = `
-      <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #6ee7b7;">
-        <strong>✓ Export Successful!</strong><br/>
-        Page ID: <code style="font-size: 0.8rem;">${escapeHtml(state.notionExport.page_id || '')}</code><br/>
-        <a href="${escapeHtml(state.notionExport.page_url || '#')}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 0.5rem;" id="notion-page-link">
-          Open Report in Notion ↗
-        </a>
-      </div>
-    `;
+    exportResultHtml = formatNotionSuccessHtml(state.notionExport);
   } else if (state.notionExport && state.notionExport.status === 'failed') {
     exportResultHtml = `
       <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--accent-rose);">
@@ -2358,6 +2601,24 @@ function renderFinalizedCalculation(snap) {
         </tbody>
       </table>
 
+      ${(snap.is_organizer && snap.has_receipt_photo) ? `
+        <div class="card" id="finalized-receipt-photo-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
+          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; color: #818cf8;">
+            <span>📷 Original Receipt Photo</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="view-finalized-photo-btn">🔍 View & Zoom</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; margin-top: 8px;">
+            <div class="receipt-thumbnail-wrapper" id="finalized-receipt-thumb-btn" role="button" tabindex="0" title="Click to view and zoom receipt photo" aria-label="View receipt photo fullscreen">
+              <img src="/api/meals/${mealId}/receipt/photo" alt="Thumbnail of original receipt" class="receipt-thumbnail-img" />
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">
+              <div>Original merchant receipt preserved with immutable meal record.</div>
+              <small style="color: var(--text-dim);">${snap.receipt_photo ? `${(snap.receipt_photo.byte_size / 1024).toFixed(0)} KB • ${snap.receipt_photo.width}×${snap.receipt_photo.height}px` : 'Archived receipt photo'}</small>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
       ${snap.is_organizer ? `
         <div class="card" id="notion-export-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
           <div class="card-title" style="color: #818cf8;">📤 Notion Archive & Reporting</div>
@@ -2371,6 +2632,13 @@ function renderFinalizedCalculation(snap) {
             <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
               <label style="font-size: 0.8rem; color: var(--text-muted);">Integration Token (optional if set on server):</label>
               <input type="password" id="notion-token" value="${escapeHtml(tokenVal)}" placeholder="secret_..." class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.75rem;">
+              <input type="checkbox" id="notion-include-photo" ${snap.has_receipt_photo ? '' : 'disabled'} />
+              <label for="notion-include-photo" style="font-size: 0.85rem; color: ${snap.has_receipt_photo ? 'var(--text-main)' : 'var(--text-dim)'}; cursor: ${snap.has_receipt_photo ? 'pointer' : 'not-allowed'}; margin: 0;">
+                Include original receipt photo in Notion report
+                ${!snap.has_receipt_photo ? '<small style="display:block; color:var(--text-dim);">(No receipt photo attached to this meal)</small>' : ''}
+              </label>
             </div>
             <button id="notion-export-btn" class="btn btn-primary" style="width: 100%;">
               Export Finalized Report to Notion
@@ -2390,6 +2658,131 @@ function renderFinalizedCalculation(snap) {
 
 // --- Event Binding ---
 function bindEvents(snap) {
+  // --- Receipt Photo Modal & Lifecycle Actions ---
+  initReceiptModalEvents();
+
+  const mealId = state.mealId || snap.meal_id;
+  const photoUrl = state.localPhotoUrl || (snap.has_receipt_photo ? `/api/meals/${mealId}/receipt/photo` : null);
+
+  const thumbBtn = document.getElementById('receipt-thumb-btn');
+  const viewModalBtn = document.getElementById('view-photo-modal-btn');
+  if (thumbBtn && photoUrl) {
+    thumbBtn.addEventListener('click', (e) => openReceiptModal(photoUrl, e.currentTarget));
+    thumbBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openReceiptModal(photoUrl, e.currentTarget);
+      }
+    });
+  }
+  if (viewModalBtn && photoUrl) {
+    viewModalBtn.addEventListener('click', (e) => openReceiptModal(photoUrl, e.currentTarget));
+  }
+
+  const ocrThumbBtn = document.getElementById('ocr-source-thumb-btn');
+  const ocrZoomBtn = document.getElementById('ocr-source-zoom-btn');
+  if (ocrThumbBtn && photoUrl) {
+    ocrThumbBtn.addEventListener('click', (e) => openReceiptModal(photoUrl, e.currentTarget));
+    ocrThumbBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openReceiptModal(photoUrl, e.currentTarget);
+      }
+    });
+  }
+  if (ocrZoomBtn && photoUrl) {
+    ocrZoomBtn.addEventListener('click', (e) => openReceiptModal(photoUrl, e.currentTarget));
+  }
+
+  const finThumbBtn = document.getElementById('finalized-receipt-thumb-btn');
+  const finViewBtn = document.getElementById('view-finalized-photo-btn');
+  if (finThumbBtn) {
+    const finUrl = `/api/meals/${mealId}/receipt/photo`;
+    finThumbBtn.addEventListener('click', (e) => openReceiptModal(finUrl, e.currentTarget));
+    finThumbBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openReceiptModal(finUrl, e.currentTarget);
+      }
+    });
+  }
+  if (finViewBtn) {
+    const finUrl = `/api/meals/${mealId}/receipt/photo`;
+    finViewBtn.addEventListener('click', (e) => openReceiptModal(finUrl, e.currentTarget));
+  }
+
+  const replaceBtn = document.getElementById('replace-photo-btn');
+  const replaceInput = document.getElementById('replace-photo-input');
+  if (replaceBtn && replaceInput) {
+    replaceBtn.addEventListener('click', () => {
+      replaceInput.click();
+    });
+    replaceInput.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) {
+        showAlert('Receipt image exceeds 5MB limit. Please upload a smaller photo.', 'error');
+        replaceInput.value = '';
+        return;
+      }
+      const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+      const mimeType = file.type || 'image/jpeg';
+      if (!allowedMimes.includes(mimeType)) {
+        showAlert('Unsupported image format. Please upload JPEG, PNG, or WebP.', 'error');
+        replaceInput.value = '';
+        return;
+      }
+      replaceBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/meals/${mealId}/receipt/photo`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': mimeType,
+            'X-SettleTable-Action': '1',
+          },
+          body: file,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw { status: res.status, code: data?.error, message: data?.error };
+        }
+        if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(state.localPhotoUrl);
+        }
+        state.localPhotoUrl = URL.createObjectURL(file);
+        showAlert('Receipt photo replaced successfully.', 'success');
+        await fetchSnapshot(true);
+      } catch (err) {
+        handleApiError(err);
+      } finally {
+        replaceBtn.disabled = false;
+        replaceInput.value = '';
+      }
+    });
+  }
+
+  const deletePhotoBtn = document.getElementById('delete-photo-btn');
+  if (deletePhotoBtn) {
+    deletePhotoBtn.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to remove the stored receipt photo? This action cannot be undone.')) {
+        return;
+      }
+      deletePhotoBtn.disabled = true;
+      try {
+        await apiCall(`/api/meals/${mealId}/receipt/photo`, 'DELETE');
+        if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(state.localPhotoUrl);
+        }
+        state.localPhotoUrl = null;
+        showAlert('Receipt photo removed.', 'info');
+        await fetchSnapshot(true);
+      } catch (err) {
+        deletePhotoBtn.disabled = false;
+        handleApiError(err);
+      }
+    });
+  }
+
   document.querySelectorAll('[data-simulation-action]').forEach(button => {
     button.addEventListener('click', () => requestSimulation(button.dataset.participantId, button.dataset.simulationAction === 'initiate'));
   });
@@ -2547,6 +2940,11 @@ function bindEvents(snap) {
         else mimeType = 'image/jpeg';
       }
 
+      if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(state.localPhotoUrl);
+      }
+      state.localPhotoUrl = URL.createObjectURL(file);
+
       try {
         const res = await fetch(`/api/meals/${state.mealId}/ocr/extract`, {
           method: 'POST',
@@ -2580,6 +2978,10 @@ function bindEvents(snap) {
           showAlert(`✓ Scanned ${candidate.items.length} items (${formatSen(candidate.total_sen)})`, 'success', true);
         }
       } catch (err) {
+        if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(state.localPhotoUrl);
+          state.localPhotoUrl = null;
+        }
         state.mutationActive = false;
         if (err.status === 503 || err.code === 'ocr_unavailable') {
           showAlert('Local OCR engine unavailable. Please enter items manually.', 'error');
@@ -3384,10 +3786,12 @@ function bindEvents(snap) {
       if (resultDiv) resultDiv.style.display = 'none';
 
       try {
+        const includePhoto = Boolean(document.getElementById('notion-include-photo')?.checked);
         const payload = {
           parent_id: parentId,
           parent_type: 'page_id',
           mode: 'compact',
+          include_receipt_photo: includePhoto,
         };
         if (token) payload.token = token;
 
@@ -3423,18 +3827,9 @@ function bindEvents(snap) {
                 clearInterval(pollInterval);
                 const pollExp = pollData.export;
                 state.notionExport = pollExp;
-                if (resultDiv) {
-                  resultDiv.style.display = 'block';
-                  resultDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';
-                  resultDiv.style.border = '1px solid rgba(16, 185, 129, 0.3)';
-                  resultDiv.style.color = '#6ee7b7';
-                  resultDiv.innerHTML = `
-                    <strong>✓ Export Successful!</strong><br/>
-                    Page ID: <code style="font-size: 0.8rem;">${escapeHtml(pollExp.page_id || '')}</code><br/>
-                    <a href="${escapeHtml(pollExp.page_url || '#')}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 0.5rem;" id="notion-page-link">
-                      Open Report in Notion ↗
-                    </a>
-                  `;
+                const targetRes = document.getElementById('notion-export-result');
+                if (targetRes) {
+                  targetRes.outerHTML = formatNotionSuccessHtml(pollExp);
                 }
                 showAlert('Report exported to Notion successfully!', 'success');
                 notionBtn.disabled = false;
@@ -3469,18 +3864,9 @@ function bindEvents(snap) {
           return;
         }
 
-        if (resultDiv) {
-          resultDiv.style.display = 'block';
-          resultDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';
-          resultDiv.style.border = '1px solid rgba(16, 185, 129, 0.3)';
-          resultDiv.style.color = '#6ee7b7';
-          resultDiv.innerHTML = `
-            <strong>✓ Export Successful!</strong><br/>
-            Page ID: <code style="font-size: 0.8rem;">${escapeHtml(exp.page_id || '')}</code><br/>
-            <a href="${escapeHtml(exp.page_url || '#')}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 0.5rem;" id="notion-page-link">
-              Open Report in Notion ↗
-            </a>
-          `;
+        const targetRes = document.getElementById('notion-export-result');
+        if (targetRes) {
+          targetRes.outerHTML = formatNotionSuccessHtml(exp);
         }
         showAlert('Report exported to Notion successfully!', 'success');
       } catch (err) {

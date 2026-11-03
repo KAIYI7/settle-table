@@ -11,6 +11,8 @@ class NotionExportConfig:
     parent_type: str = 'page_id'  # 'page_id' or 'database_id'
     mode: str = 'compact'  # 'compact' (default, <= 40 blocks) or 'detailed'
     api_version: str = '2022-06-28'
+    include_receipt_photo: bool = False
+    receipt_photo_data: tuple[bytes, str, str] | None = None
 
 
 @dataclass(frozen=True)

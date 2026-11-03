@@ -4,6 +4,7 @@ from fractions import Fraction
 import hashlib
 import json
 import math
+from pathlib import Path
 import re
 import secrets
 import sqlite3
@@ -234,6 +235,8 @@ class DraftSnapshot:
     inactive_participant_ids: tuple[str, ...]
     invitations: tuple[InvitationRecord, ...] = ()
     join_requests: tuple[JoinRequestRecord, ...] = ()
+    has_receipt_photo: bool = False
+    receipt_photo: dict | None = None
 
 
 def _require(condition, code='invalid_input'):
@@ -465,10 +468,23 @@ def _claim_data(claim):
 
 class Authority:
     """One SQLite connection; each instance may be used by its owning thread."""
-    def __init__(self, path, *, clock=time.time, failure_hook=None):
+    def __init__(self, path, *, clock=time.time, failure_hook=None, storage_dir=None):
         self._clock = clock if clock is not None else time.time
         self._failure_hook = failure_hook
         self._db = None
+        self._temp_storage_dir = None
+        if storage_dir is not None:
+            self.storage_dir = Path(storage_dir)
+        elif str(path) == ':memory:':
+            import tempfile
+            self._temp_storage_dir = tempfile.TemporaryDirectory()
+            self.storage_dir = Path(self._temp_storage_dir.name)
+        else:
+            self.storage_dir = Path(path).parent / 'receipt_photos'
+        try:
+            self.storage_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         try:
             options = {'isolation_level': None, 'timeout': 1.0}
             if hasattr(sqlite3, 'LEGACY_TRANSACTION_CONTROL'):
@@ -517,6 +533,17 @@ class Authority:
                     export_digest TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'completed',
                     PRIMARY KEY(meal_id, finalized_revision));
+                CREATE TABLE IF NOT EXISTS receipt_photos (
+                    meal_id TEXT PRIMARY KEY REFERENCES meals(id) ON DELETE CASCADE,
+                    filename TEXT NOT NULL,
+                    content_type TEXT NOT NULL,
+                    byte_size INTEGER NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    width INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    uploaded_at REAL NOT NULL,
+                    uploaded_by TEXT NOT NULL,
+                    FOREIGN KEY(meal_id, uploaded_by) REFERENCES participants(meal_id, id));
                 CREATE TABLE IF NOT EXISTS join_requests (
                     id TEXT PRIMARY KEY,
                     meal_id TEXT NOT NULL,
@@ -552,6 +579,12 @@ class Authority:
                 connection.close()
             except Exception:
                 pass
+        if getattr(self, '_temp_storage_dir', None) is not None:
+            try:
+                self._temp_storage_dir.cleanup()
+            except Exception:
+                pass
+            self._temp_storage_dir = None
 
     def _now(self):
         try:
@@ -665,6 +698,21 @@ class Authority:
                     FROM join_requests WHERE meal_id=? AND expires>? AND status IN ('pending', 'approved')
                     ORDER BY created_at DESC''', (meal_id, now)).fetchall()
                 join_requests = tuple(JoinRequestRecord(r[0], r[1], r[2], r[3], r[4], r[5]) for r in jr_rows)
+            photo_row = self._db.execute(
+                'SELECT filename, content_type, byte_size, width, height, uploaded_at FROM receipt_photos WHERE meal_id=?',
+                (meal_id,)
+            ).fetchone()
+            has_receipt_photo = photo_row is not None
+            receipt_photo = None
+            if photo_row:
+                receipt_photo = {
+                    'filename': photo_row[0],
+                    'content_type': photo_row[1],
+                    'byte_size': photo_row[2],
+                    'width': photo_row[3],
+                    'height': photo_row[4],
+                    'uploaded_at': photo_row[5],
+                }
             result = DraftSnapshot(meal_id, state['revision'], state['financial_revision'],
                                    _receipt_digest(state['receipt']), _decode_receipt(state['receipt']),
                                    tuple(ItemState(i, revision) for i, revision in sorted(state['item_revisions'].items())),
@@ -674,7 +722,9 @@ class Authority:
                                    tuple(Participant(p[0], p[1], bool(p[2])) for p in people),
                                    tuple(p[0] for p in people if not p[3]),
                                    invitations,
-                                   join_requests)
+                                   join_requests,
+                                   has_receipt_photo,
+                                   receipt_photo)
             self._db.execute('COMMIT')
             return result
         except AuthorityError:
@@ -1616,3 +1666,187 @@ class Authority:
         except sqlite3.Error as err:
             self._rollback()
             self._storage_failure(err)
+
+    def store_receipt_photo(self, organizer_credential, meal_id, image_bytes, content_type, width, height):
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        _require(type(image_bytes) is bytes and 1 <= len(image_bytes) <= 5_242_880, 'invalid_image')
+        _require(content_type in ('image/jpeg', 'image/png', 'image/webp', 'image/jpg'), 'invalid_image')
+        _require(type(width) is int and 1 <= width <= 4096, 'invalid_image')
+        _require(type(height) is int and 1 <= height <= 4096, 'invalid_image')
+        _require(width * height <= 16_777_216, 'invalid_image')
+
+        ext_map = {'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}
+        ext = ext_map.get(content_type, 'jpg')
+        normalized_mime = 'image/jpeg' if content_type == 'image/jpg' else content_type
+        safe_meal_id = re.sub(r'[^A-Za-z0-9_-]', '_', meal_id)
+        sha = hashlib.sha256(image_bytes).hexdigest()
+        filename = f"{safe_meal_id}_{sha[:16]}.{ext}"
+        tmp_filename = f"{safe_meal_id}_{sha[:16]}_{secrets.token_hex(4)}.tmp"
+        tmp_path = self.storage_dir / tmp_filename
+        dest_path = self.storage_dir / filename
+
+        old_filename = None
+        try:
+            _require(self._db is not None, 'storage_error')
+            tmp_path.write_bytes(image_bytes)
+
+            self._db.execute('BEGIN IMMEDIATE')
+            actor, is_organizer = self._authenticate(verifier, meal_id)
+            _require(is_organizer, 'forbidden')
+
+            state_row = self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()
+            _require(state_row is not None, 'meal_not_found')
+            state = json.loads(state_row[0])
+            _require(state.get('calculation') is None, 'finalized')
+
+            existing_row = self._db.execute('SELECT filename FROM receipt_photos WHERE meal_id=?', (meal_id,)).fetchone()
+            if existing_row:
+                old_filename = existing_row[0]
+
+            now = self._now()
+            self._db.execute('''
+                INSERT INTO receipt_photos (meal_id, filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(meal_id) DO UPDATE SET
+                    filename=excluded.filename,
+                    content_type=excluded.content_type,
+                    byte_size=excluded.byte_size,
+                    sha256=excluded.sha256,
+                    width=excluded.width,
+                    height=excluded.height,
+                    uploaded_at=excluded.uploaded_at,
+                    uploaded_by=excluded.uploaded_by
+            ''', (meal_id, filename, normalized_mime, len(image_bytes), sha, width, height, now, actor))
+
+            self._db.execute('COMMIT')
+
+            tmp_path.replace(dest_path)
+
+            if old_filename and old_filename != filename:
+                old_path = self.storage_dir / old_filename
+                try:
+                    if old_path.exists():
+                        old_path.unlink()
+                except OSError:
+                    pass
+
+            return {
+                'meal_id': meal_id,
+                'filename': filename,
+                'content_type': normalized_mime,
+                'byte_size': len(image_bytes),
+                'sha256': sha,
+                'width': width,
+                'height': height,
+                'uploaded_at': now,
+                'uploaded_by': actor,
+            }
+        except AuthorityError:
+            self._rollback()
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        except sqlite3.Error as error:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise AuthorityError('storage_error') from None
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+
+    def get_receipt_photo(self, credential, meal_id):
+        verifier = _verifier(credential)
+        _id(meal_id)
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN')
+            actor, is_organizer = self._authenticate(verifier, meal_id)
+            _require(is_organizer, 'forbidden')
+
+            row = self._db.execute(
+                'SELECT filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by FROM receipt_photos WHERE meal_id=?',
+                (meal_id,)
+            ).fetchone()
+            _require(row is not None, 'photo_not_found')
+            filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by = row
+            target_path = (self.storage_dir / filename).resolve()
+            _require(target_path.is_relative_to(self.storage_dir.resolve()), 'forbidden')
+            _require(target_path.is_file(), 'photo_not_found')
+            data = target_path.read_bytes()
+            self._db.execute('COMMIT')
+            meta = {
+                'meal_id': meal_id,
+                'filename': filename,
+                'content_type': content_type,
+                'byte_size': byte_size,
+                'sha256': sha256,
+                'width': width,
+                'height': height,
+                'uploaded_at': uploaded_at,
+                'uploaded_by': uploaded_by,
+            }
+            return data, meta
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def delete_receipt_photo(self, organizer_credential, meal_id):
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        old_filename = None
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            actor, is_organizer = self._authenticate(verifier, meal_id)
+            _require(is_organizer, 'forbidden')
+
+            state_row = self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()
+            _require(state_row is not None, 'meal_not_found')
+            state = json.loads(state_row[0])
+            _require(state.get('calculation') is None, 'finalized')
+
+            existing_row = self._db.execute('SELECT filename FROM receipt_photos WHERE meal_id=?', (meal_id,)).fetchone()
+            if existing_row:
+                old_filename = existing_row[0]
+                self._db.execute('DELETE FROM receipt_photos WHERE meal_id=?', (meal_id,))
+
+            self._db.execute('COMMIT')
+
+            if old_filename:
+                old_path = (self.storage_dir / old_filename).resolve()
+                if old_path.is_relative_to(self.storage_dir.resolve()) and old_path.exists():
+                    try:
+                        old_path.unlink()
+                    except OSError:
+                        pass
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None

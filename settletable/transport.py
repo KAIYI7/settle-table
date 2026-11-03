@@ -66,6 +66,7 @@ STATUS_MAP = {
     'participant_not_found': 404,
     'join_request_not_found': 404,
     'meal_not_found': 404,
+    'photo_not_found': 404,
     # 409 Conflict
     'ambiguous_participant_name': 409,
     'join_request_conflict': 409,
@@ -241,8 +242,10 @@ def serialize_json(data):
 class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
                  server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None,
-                 notion_client=None, allow_sync_export=False, simulation_config=None, simulation_client=None):
+                 notion_client=None, allow_sync_export=False, simulation_config=None, simulation_client=None,
+                 storage_dir=None):
         self.db_path = str(db_path)
+        self.storage_dir = Path(storage_dir) if storage_dir is not None else None
         self.allowed_hosts = set(allowed_hosts)
         self.server_origin = server_origin.rstrip('/')
         self.clock = clock if clock is not None else time.time
@@ -275,7 +278,7 @@ class SettleTableApp:
 
     def get_authority(self):
         if not hasattr(self._local, 'authority') or self._local.authority is None:
-            self._local.authority = Authority(self.db_path, clock=self.clock)
+            self._local.authority = Authority(self.db_path, clock=self.clock, storage_dir=self.storage_dir)
         return self._local.authority
 
     def close(self):
@@ -391,8 +394,8 @@ class SettleTableApp:
         active_cred = bearer_cred or cookie_cred
         used_cookie = bool(cookie_cred)
 
-        # 3. CSRF & Action check on mutating requests (POST)
-        if method == 'POST':
+        # 3. CSRF & Action check on mutating requests (POST, DELETE)
+        if method in ('POST', 'DELETE'):
             # Missing or chunked body check
             cl_header = environ.get('CONTENT_LENGTH')
             te_header = environ.get('HTTP_TRANSFER_ENCODING')
@@ -402,12 +405,12 @@ class SettleTableApp:
             if te_header:
                 raise TransportError('not_implemented', 501)
 
-            # Mandatory custom header check for all POST endpoints
+            # Mandatory custom header check for all mutating endpoints
             action_hdr = environ.get('HTTP_X_SETTLETABLE_ACTION')
             if action_hdr != '1':
                 raise TransportError('missing_action_header', 400)
 
-            # Origin check: required if cookie was used OR if unauthenticated browser POST
+            # Origin check: required if cookie was used OR if unauthenticated browser request
             if used_cookie or not bearer_cred:
                 origin = environ.get('HTTP_ORIGIN')
                 if origin:
@@ -421,13 +424,16 @@ class SettleTableApp:
                         if ref_origin != self.server_origin:
                             raise TransportError('origin_mismatch', 403)
                     else:
-                        # Missing both Origin and Referer on browser-context POST
+                        # Missing both Origin and Referer on browser-context mutating request
                         raise TransportError('origin_mismatch', 403)
 
         # Read body for POST
         body_data = None
         raw_image_body = None
-        is_ocr_extract = bool(method == 'POST' and re.fullmatch(r'/api/meals/[A-Za-z0-9_-]+/ocr/extract', path))
+        is_image_upload = bool(method == 'POST' and (
+            re.fullmatch(r'/api/meals/[A-Za-z0-9_-]+/ocr/extract', path) or
+            re.fullmatch(r'/api/meals/[A-Za-z0-9_-]+/receipt/photo', path)
+        ))
         if method == 'POST':
             cl = environ.get('CONTENT_LENGTH')
             if not cl:
@@ -436,7 +442,7 @@ class SettleTableApp:
                 length = int(cl)
             except ValueError:
                 raise TransportError('malformed_request', 400)
-            max_limit = MAX_IMAGE_BYTES if is_ocr_extract else MAX_BODY_BYTES
+            max_limit = MAX_IMAGE_BYTES if is_image_upload else MAX_BODY_BYTES
             if length > max_limit:
                 raise TransportError('payload_too_large', 413)
 
@@ -445,7 +451,7 @@ class SettleTableApp:
             if len(raw_body) != length:
                 raise TransportError('malformed_request', 400)
 
-            if is_ocr_extract:
+            if is_image_upload:
                 raw_image_body = raw_body
             else:
                 body_data = parse_strict_json(raw_body) if raw_body else {}
@@ -776,18 +782,77 @@ class SettleTableApp:
             engine = self.get_ocr_engine()
             try:
                 from settletable.ocr import parse_malaysian_receipt, OcrUnavailableError, InvalidImageError, validate_image_payload
-                validate_image_payload(raw_image_body or b'', expected_mime=ct)
+                detected_fmt, width, height = validate_image_payload(raw_image_body or b'', expected_mime=ct)
+                photo_meta = authority.store_receipt_photo(active_cred, meal_id, raw_image_body or b'', ct, width, height)
                 lines = engine.recognize(raw_image_body or b'')
                 candidate = parse_malaysian_receipt(lines)
                 out = {
                     'ok': True,
                     'candidate': candidate.to_dict(),
+                    'photo': photo_meta,
                 }
                 return 200, self._default_headers(), serialize_json(out)
             except InvalidImageError:
                 raise TransportError('invalid_image', 400) from None
             except OcrUnavailableError:
                 raise TransportError('ocr_unavailable', 503) from None
+
+        # Upload Receipt Photo POST /api/meals/{meal_id}/receipt/photo
+        m_photo_post = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/receipt/photo', path)
+        if m_photo_post and method == 'POST':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_photo_post.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+
+            ct = environ.get('CONTENT_TYPE', '').split(';')[0].strip().lower()
+            if ct not in ('image/jpeg', 'image/png', 'image/webp', 'image/jpg'):
+                raise TransportError('invalid_image', 400)
+
+            try:
+                from settletable.ocr import InvalidImageError, validate_image_payload
+                detected_fmt, width, height = validate_image_payload(raw_image_body or b'', expected_mime=ct)
+                photo_meta = authority.store_receipt_photo(active_cred, meal_id, raw_image_body or b'', ct, width, height)
+                return 200, self._default_headers(), serialize_json({'ok': True, 'photo': photo_meta})
+            except InvalidImageError:
+                raise TransportError('invalid_image', 400) from None
+
+        # Get Receipt Photo GET /api/meals/{meal_id}/receipt/photo
+        m_photo_get = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/receipt/photo', path)
+        if m_photo_get and method == 'GET':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_photo_get.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+
+            img_bytes, meta = authority.get_receipt_photo(active_cred, meal_id)
+            ext_map = {'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}
+            ext = ext_map.get(meta['content_type'], 'jpg')
+            headers = [
+                ('Content-Type', meta['content_type']),
+                ('Content-Length', str(len(img_bytes))),
+                ('Content-Disposition', f'inline; filename="receipt.{ext}"'),
+                ('X-Content-Type-Options', 'nosniff'),
+                ('Cache-Control', 'private, no-cache, no-store, must-revalidate'),
+            ]
+            return 200, headers, img_bytes
+
+        # Delete Receipt Photo DELETE /api/meals/{meal_id}/receipt/photo
+        m_photo_del = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/receipt/photo', path)
+        if m_photo_del and method == 'DELETE':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_photo_del.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+
+            authority.delete_receipt_photo(active_cred, meal_id)
+            return 200, self._default_headers(), serialize_json({'ok': True})
 
         # Check Notion Export Status GET /api/meals/{meal_id}/export/notion
         m_notion_get = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/export/notion', path)
@@ -884,11 +949,22 @@ class SettleTableApp:
                 export_finalized_meal,
             )
             from settletable.notion.client import sanitize_notion_error_message
+            include_photo = bool(body_data.get('include_receipt_photo'))
+            receipt_photo_data = None
+            if include_photo:
+                try:
+                    img_bytes, meta = authority.get_receipt_photo(active_cred, meal_id)
+                    receipt_photo_data = (img_bytes, meta['filename'], meta['content_type'])
+                except Exception:
+                    receipt_photo_data = None
+
             config = NotionExportConfig(
                 token=token,
                 parent_id=parent_id.strip(),
                 parent_type=parent_type,
                 mode=body_data.get('mode', 'compact'),
+                include_receipt_photo=include_photo,
+                receipt_photo_data=receipt_photo_data,
             )
 
             if is_sync:

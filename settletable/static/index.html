@@ -35,6 +35,29 @@
     </div>
   </main>
 
+  <!-- Fullscreen / Zoom Receipt Photo Viewer Modal -->
+  <div id="receipt-modal" class="receipt-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-modal-title" style="display: none;">
+    <div class="receipt-modal-backdrop" id="receipt-modal-backdrop"></div>
+    <div class="receipt-modal-card">
+      <div class="receipt-modal-header">
+        <div class="receipt-modal-title" id="receipt-modal-title">🔍 Original Receipt Photo</div>
+        <div class="receipt-modal-controls">
+          <button type="button" class="btn btn-secondary btn-sm" id="receipt-zoom-out" aria-label="Zoom out">−</button>
+          <span id="receipt-zoom-level" class="receipt-zoom-level">100%</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="receipt-zoom-in" aria-label="Zoom in">+</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="receipt-zoom-reset">Reset</button>
+          <button type="button" class="btn btn-secondary btn-sm receipt-modal-close-btn" id="receipt-modal-close" aria-label="Close photo viewer">✕</button>
+        </div>
+      </div>
+      <div class="receipt-modal-viewport" id="receipt-modal-viewport">
+        <img id="receipt-modal-img" class="receipt-modal-img" alt="Scanned receipt source" />
+      </div>
+      <div class="receipt-modal-footer">
+        <span>Drag image to pan &bull; Use buttons or mouse wheel to zoom &bull; Esc to close</span>
+      </div>
+    </div>
+  </div>
+
   <footer class="app-footer">
     <div class="container footer-content">
       <span>SettleTable &bull; Deterministic Cent-Conserving Apportionment</span>
