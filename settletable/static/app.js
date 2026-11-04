@@ -1576,14 +1576,14 @@ function updateMealUI() {
 
     let warningHtml = '';
     if (!reviewConfirmed) {
-      warningHtml += '<div class="finalize-warning" role="status" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Receipt must be verified before finalization.</div>';
+      warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Receipt must be verified before finalization.</div>';
     }
     if (!hasItems) {
-      warningHtml += '<div class="finalize-warning" role="status" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Add receipt items before finalization.</div>';
+      warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Add receipt items before finalization.</div>';
     } else if (hasClaimIssues) {
-      warningHtml += '<div class="finalize-warning" role="status" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ All items must be fully claimed before finalization.</div>';
+      warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ All items must be fully claimed before finalization.</div>';
     } else if (issues.length > 0) {
-      warningHtml += `<div class="finalize-warning" role="status" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Issues detected: ${escapeHtml(issues.join(', '))}</div>`;
+      warningHtml += `<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Issues detected: ${escapeHtml(issues.join(', '))}</div>`;
     }
 
     html += `
