@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-04 — Financial Form Dropdown Chevron Polish: PR #41 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `5ec6ae03b322eaf3b3ef336ec54548dc9991a98a` merged autonomously under orchestrator governance policy into `main`. GitHub PR #41 ([#41](https://github.com/KAIYI7/settle-table/pull/41)) verified on hosted CI ([run 41783878095](https://github.com/KAIYI7/settle-table/actions/runs/41783878095)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Subtle Chevron Inset & Arrow Suppression | PASS: native OS/browser arrows suppressed across platforms via `appearance: none`, `-webkit-appearance: none`, `-moz-appearance: none`, and `select::-ms-expand { display: none; }`. Clean data-URI SVG chevron (`#94a3b8`) positioned via `background-position: right 15px center;` (within 14–16px right inset). |
+| Text Clearance & Name Containment | PASS: `padding-right: 42px;` guarantees an 11px clear margin before the 16px chevron. `max-width: 100%; min-width: 0; text-overflow: ellipsis; white-space: nowrap;` prevents grid blowout from long participant names and balance strings. |
+| Native Dropdown & Accessibility Preservation | PASS: zero JavaScript dropdown replacement. Native `<select>` elements, keyboard navigation (Tab, Arrow keys, Enter, Esc), native OS touch pickers, and screen reader support fully preserved. Focus and disabled states styled cleanly. |
+| Zero Calculation Drift & Financial Isolation | PASS: `settletable/calculation.py`, `settletable/authority.py`, `settletable/funding.py`, and `settletable/settlement.py` remain 100% byte-untouched. Zero floating-point arithmetic. Form behavior and submission handlers unchanged. |
+| Dedicated Browser CDP Verification | PASS: expanded `tools/verify_ux_polish.mjs` to 8 stages with Stage [7/8] directly validating computed styles on all four financial dropdowns (`#payer-participant-select`, `#payer-method-select`, `#transfer-sender-select`, `#transfer-receiver-select`) and long participant option containment. |
+| Mobile Viewport Compliance (375px) | PASS: Stage [8/8] verified `document.documentElement.scrollWidth === 375` and confirmed bounding rects of cards and all four dropdowns remain within viewport bounds (`<= 375px`) with zero horizontal overflow. |
+| Full Regression Suite | PASS: 290/290 Python unit tests passed; 8/8 headless Chrome multi-payer tests passed; 8/8 headless Chrome peer settlement tests passed; dedicated 8-stage suite `tools/verify_ux_polish.mjs` passed 100%. |
+| Independent Code & CI Review | PASS: independent review APPROVE with 0 findings. Hosted GitHub Actions CI passed on exact PR head SHA `5ec6ae0` ([run 41783878095](https://github.com/KAIYI7/settle-table/actions/runs/41783878095)). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-03 — Mobile Stepper Touch Target Compliance & Verification: PR #40 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `49cd56d5aee43f99fa4657866e29274abc99b951` merged autonomously under orchestrator governance policy into `main`. GitHub PR #40 ([#40](https://github.com/KAIYI7/settle-table/pull/40)) verified on hosted CI ([run 41657355223](https://github.com/KAIYI7/settle-table/actions/runs/41657355223)) before merge.
