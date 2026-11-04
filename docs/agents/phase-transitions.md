@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-04 — Complimentary RM0.00 Items Without Mandatory Allocation: PR #42 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `6edcef49c00e4bc8f154c0bf1a56390225253fe1` merged autonomously under orchestrator governance policy into `main`. GitHub PR #42 ([#42](https://github.com/KAIYI7/settle-table/pull/42)) verified on hosted CI ([run 41804800476](https://github.com/KAIYI7/settle-table/actions/runs/41804800476)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Informational Preservation Without Mandatory Allocation | PASS: RM0.00 receipt items (e.g. Warm Water, Ice Water) are preserved on the receipt with item ID, label, quantity, and 0 sen price. `Authority._issues()` excludes `line_sen == 0` from incomplete quantity checks, allowing receipt sealing and finalization without allocating complimentary items. |
+| Claim Prohibition on Complimentary Items | PASS: `Authority._set_own_quantity()`, `Authority._assign_participant_quantity()`, and `Authority._set_item_allocations()` reject claims on zero-priced items with machine-readable error `complimentary_item`. Diners cannot claim complimentary items. |
+| Strict Calculation Contract | PASS: `settletable/calculation.py:163-166` permits empty share collection strictly when `amount == 0 and len(split.shares) == 0`, returning `()`. Paid items with empty shares continue to raise `CalculationError("collection_bound")`. Scoped adjustments on zero-priced items trigger `CalculationError("zero_base")`. All-zero receipts finalize cleanly with RM0.00 total and RM0.00 consumption. |
+| Frontend & OCR Validation | PASS: manual Add Item accepts explicit RM0.00 while rejecting malformed or negative prices (`parseSen`). OCR candidate editor `syncCandidateInputs()` distinguishes valid `0` from parse errors, preventing empty/invalid inputs from falling back to 0. Acceptance validation blocks candidates with empty or invalid prices. |
+| DOM Presentation & Control Suppression | PASS: complimentary cards render `.is-complimentary` styling with `Complimentary · RM 0.00` and `Complimentary · No allocation needed` badges, while suppressing allocation steppers, quick-assign pills, and progress bars in both Diner and Organizer views. |
+| Notion Export Compliance | PASS: Notion compact and full meal tables render split column as `"Complimentary"` instead of `"Unclaimed"` for zero-priced items with no shares. |
+| Dedicated Browser CDP Verification | PASS: `tools/verify_complimentary_items_flow.mjs` passed 6/6 stages with real Chrome CDP automation covering manual RM0.00 entry, malformed/negative price rejections, OCR candidate acceptance, DOM control suppression, review sealing, finalization, and 375px mobile viewport bounds (zero horizontal overflow). |
+| Full Regression Suite | PASS: 301/301 Python unit tests passed; dedicated Chrome CDP suite passed 100%; hosted GitHub Actions CI passed on exact PR head SHA `6edcef4` ([run 41804800476](https://github.com/KAIYI7/settle-table/actions/runs/41804800476)). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-04 — Financial Form Dropdown Chevron Polish: PR #41 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `5ec6ae03b322eaf3b3ef336ec54548dc9991a98a` merged autonomously under orchestrator governance policy into `main`. GitHub PR #41 ([#41](https://github.com/KAIYI7/settle-table/pull/41)) verified on hosted CI ([run 41783878095](https://github.com/KAIYI7/settle-table/actions/runs/41783878095)) before merge.
