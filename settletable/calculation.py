@@ -160,6 +160,10 @@ def _split(split, amount, source_id, participants, quantity=None):
         raise CalculationError("split_mode", source_id)
     if split.mode == "quantity" and quantity is None:
         raise CalculationError("quantity_items_only", source_id)
+    if type(split.shares) is not tuple:
+        raise CalculationError("tuple_required", source_id + ".shares")
+    if amount == 0 and len(split.shares) == 0:
+        return ()
     shares = _tuple(split.shares, source_id + ".shares", 100, 1)
     weights = {}
     for share in shares:

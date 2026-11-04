@@ -1564,6 +1564,8 @@ class Authority:
             issues.append('pending_claim')
         if state['receipt'] is not None:
             for item in state['receipt']['items']:
+                if item['line_sen'] == 0:
+                    continue
                 quantity = sum((Fraction(*c['quantity']) for c in state['claims']
                                 if c['item_id'] == item['id'] and c['financial_revision'] == state['financial_revision']), Fraction())
                 if quantity != Fraction(*item['quantity']):
@@ -1613,6 +1615,8 @@ class Authority:
         item_id = data['item_id']
         _require(item_id in state['item_revisions'], 'unknown_item')
         _require(data['expected_item_revision'] == state['item_revisions'][item_id], 'item_revision_conflict')
+        item = next(i for i in state['receipt']['items'] if i['id'] == item_id)
+        _require(item['line_sen'] > 0, 'complimentary_item')
         previous = [c for c in state['claims'] if c['item_id'] == item_id and c['participant_id'] == actor]
         quantity = data['quantity']
         if quantity is None:
@@ -1622,7 +1626,6 @@ class Authority:
             current = sum((Fraction(*c['quantity']) for c in state['claims']
                            if c['item_id'] == item_id and c['participant_id'] != actor
                            and c['financial_revision'] == state['financial_revision']), Fraction())
-            item = next(i for i in state['receipt']['items'] if i['id'] == item_id)
             _require(current + Fraction(*quantity) <= Fraction(*item['quantity']), 'quantity_capacity')
             if previous:
                 state['claims'].remove(previous[0])
@@ -1640,6 +1643,8 @@ class Authority:
         item_id = data['item_id']
         _require(item_id in state['item_revisions'], 'unknown_item')
         _require(data['expected_item_revision'] == state['item_revisions'][item_id], 'item_revision_conflict')
+        item = next(i for i in state['receipt']['items'] if i['id'] == item_id)
+        _require(item['line_sen'] > 0, 'complimentary_item')
         previous = [c for c in state['claims'] if c['item_id'] == item_id and c['participant_id'] == target_id]
         quantity = data['quantity']
         if quantity is None:
@@ -1649,7 +1654,6 @@ class Authority:
             current = sum((Fraction(*c['quantity']) for c in state['claims']
                            if c['item_id'] == item_id and c['participant_id'] != target_id
                            and c['financial_revision'] == state['financial_revision']), Fraction())
-            item = next(i for i in state['receipt']['items'] if i['id'] == item_id)
             _require(current + Fraction(*quantity) <= Fraction(*item['quantity']), 'quantity_capacity')
             if previous:
                 state['claims'].remove(previous[0])
@@ -1668,6 +1672,7 @@ class Authority:
         _require(state['receipt'] is not None, 'unknown_item')
         item = next((i for i in state['receipt']['items'] if i['id'] == item_id), None)
         _require(item is not None, 'unknown_item')
+        _require(item['line_sen'] > 0, 'complimentary_item')
         allocations = data['allocations']
         part_ids = [a['participant_id'] for a in allocations]
         _require(len(part_ids) == len(set(part_ids)), 'invalid_input')

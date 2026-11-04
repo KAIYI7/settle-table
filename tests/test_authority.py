@@ -904,5 +904,71 @@ class AuthorityTests(unittest.TestCase):
             auth_diner.close()
 
 
+    def test_complimentary_zero_priced_items_without_mandatory_allocation(self):
+        credentials = self.bootstrap()
+        receipt = Receipt(
+            (
+                ReceiptItem('rice', 'Chicken Rice', 1, 1500),
+                ReceiptItem('water', 'Warm Water', 2, 0),
+            ),
+            1500, 1500
+        )
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+        snap = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertIn('incomplete_quantity', snap.issues)
+
+        # Claiming complimentary item via SetOwnQuantity rejected
+        with self.assertRaises(AuthorityError) as cm:
+            self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('claim-water', 'water', 1, 1, 1))
+        self.assertEqual(cm.exception.code, 'complimentary_item')
+
+        # Assigning complimentary item via AssignParticipantQuantity rejected
+        with self.assertRaises(AuthorityError) as cm:
+            self.authority.apply(credentials['A'], 'meal', AssignParticipantQuantity('assign-water', 'B', 'water', 1, 1, 1))
+        self.assertEqual(cm.exception.code, 'complimentary_item')
+
+        # Allocating complimentary item via SetItemAllocations rejected
+        with self.assertRaises(AuthorityError) as cm:
+            self.authority.apply(credentials['A'], 'meal', SetItemAllocations('alloc-water', 'water', (AllocationSpec('A', 1),), 1, 1))
+        self.assertEqual(cm.exception.code, 'complimentary_item')
+
+        # Review receipt
+        digest = snap.receipt_digest
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('rev', 1, 1, digest))
+
+        # Claim the paid item
+        self.authority.apply(credentials['A'], 'meal', SetOwnQuantity('claim-rice', 'rice', 1, 1, 1))
+
+        # Check issues: incomplete_quantity must be resolved even though water (RM0.00) is unclaimed!
+        snap_claimed = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertEqual(snap_claimed.issues, ())
+
+        # Finalize meal successfully
+        fin_res = self.authority.apply(credentials['A'], 'meal', Finalize('final', 3, 1))
+        self.assertEqual(tuple((p.participant_id, p.sen) for p in fin_res.calculation.consumption),
+                         (('A', 1500), ('B', 0)))
+        snap_final = self.authority.snapshot(credentials['A'], 'meal')
+        self.assertTrue(snap_final.finalized)
+
+    def test_all_zero_complimentary_receipt_finalizes_with_zero_consumption(self):
+        credentials = self.bootstrap()
+        receipt = Receipt(
+            (
+                ReceiptItem('water1', 'Warm Water', 2, 0),
+                ReceiptItem('water2', 'Ice Water', 1, 0),
+            ),
+            0, 0
+        )
+        self.authority.apply(credentials['A'], 'meal', ReplaceReceipt('entry', 0, 0, receipt))
+        snap = self.authority.snapshot(credentials['A'], 'meal')
+        # All items are zero priced, so no incomplete_quantity issue exists!
+        self.assertNotIn('incomplete_quantity', snap.issues)
+        digest = snap.receipt_digest
+        self.authority.apply(credentials['A'], 'meal', ReviewReceipt('rev', 1, 1, digest))
+        fin_res = self.authority.apply(credentials['A'], 'meal', Finalize('final', 2, 1))
+        self.assertEqual(tuple((p.participant_id, p.sen) for p in fin_res.calculation.consumption),
+                         (('A', 0), ('B', 0)))
+
+
 if __name__ == '__main__':
     unittest.main()

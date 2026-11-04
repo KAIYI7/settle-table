@@ -1528,15 +1528,21 @@ function renderOrganizerSection(snap) {
     ? `${(snap.receipt_photo.byte_size / 1024).toFixed(0)} KB • ${snap.receipt_photo.width}×${snap.receipt_photo.height}px • Private Storage`
     : 'Local Source • Private Storage';
   
-  let itemsRowsHtml = items.map((it, idx) => `
+  let itemsRowsHtml = items.map((it, idx) => {
+    const isComplimentary = it.line_sen === 0;
+    const priceDisplay = isComplimentary
+      ? `<span class="complimentary-badge">Complimentary · RM 0.00</span>`
+      : `<span style="font-weight: 600;">${formatSen(it.line_sen)}</span>`;
+    return `
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
       <div>
         <strong>${escapeHtml(it.label)}</strong>
         <span style="color: var(--text-dim); font-size: 0.85rem;">(x${formatRat(it.quantity)})</span>
       </div>
-      <div style="font-weight: 600;">${formatSen(it.line_sen)}</div>
+      <div>${priceDisplay}</div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   let totalsHtml = '';
   if (items.length > 0 && receipt?.subtotal_sen !== null && receipt?.subtotal_sen !== undefined) {
@@ -1701,7 +1707,7 @@ function renderOrganizerSection(snap) {
                       <div class="ocr-mobile-only ocr-field-label">Line Total (RM)</div>
                       <div class="ocr-amount-wrapper">
                         <span class="ocr-currency-prefix">RM</span>
-                        <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" inputmode="decimal" title="${qtyVal > 1 ? `Estimated unit price: ~RM ${(unitSen / 100).toFixed(2)} each` : 'Line total'}" />
+                        <input type="text" id="ocr-item-price-${idx}" class="ocr-edit-item-price form-input" data-idx="${idx}" value="${(lineSen / 100).toFixed(2)}" placeholder="0.00" inputmode="decimal" title="${qtyVal > 1 ? `Estimated unit price: ~RM ${(unitSen / 100).toFixed(2)} each` : (lineSen === 0 ? 'Complimentary item (RM 0.00)' : 'Line total')}" />
                       </div>
                     </td>
 
@@ -2027,6 +2033,18 @@ async function executeSetItemAllocations(itemId, allocations, expectedItemRevisi
 }
 
 function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
+  if (item.line_sen === 0) {
+    return `
+      <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+        This item is complimentary (RM 0.00) and does not require diner allocation.
+      </div>
+      <div class="hybrid-drawer-footer" style="display: flex; justify-content: flex-end; margin-top: 12px;">
+        <button type="button" class="btn btn-secondary btn-sm" data-action="${isModal ? 'close-sheet' : 'hybrid-close-details'}" data-item="${item.id}">
+          ✓ Close
+        </button>
+      </div>
+    `;
+  }
   const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
   const stateItem = snap.items?.find(i => i.item_id === item.id);
   const itemRevision = stateItem ? stateItem.item_revision : 0;
@@ -2173,6 +2191,7 @@ function renderClaimsSection(snap) {
     const itemsHtml = items.map(item => {
       const stateItem = snap.items?.find(i => i.item_id === item.id);
       const itemRevision = stateItem ? stateItem.item_revision : 0;
+      const isComplimentary = item.line_sen === 0;
       const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
       const targetClaim = claims.find(c => c.participant_id === state.currentUserId);
       const targetQty = targetClaim ? (Array.isArray(targetClaim.quantity) ? targetClaim.quantity[0]/targetClaim.quantity[1] : targetClaim.quantity) : 0;
@@ -2183,7 +2202,9 @@ function renderClaimsSection(snap) {
       const unassigned = Math.max(0, itemTotalQty - totalClaimed);
 
       let statusBadge = '';
-      if (Math.abs(totalClaimed - itemTotalQty) < 0.0001) {
+      if (isComplimentary) {
+        statusBadge = '<span class="badge badge-complimentary">Complimentary · No allocation needed</span>';
+      } else if (Math.abs(totalClaimed - itemTotalQty) < 0.0001) {
         statusBadge = '<span class="badge badge-verified">✓ Fully Allocated</span>';
       } else if (totalClaimed < itemTotalQty) {
         statusBadge = `<span class="badge badge-pending">⚠️ ${unassigned} unassigned</span>`;
@@ -2205,36 +2226,54 @@ function renderClaimsSection(snap) {
         return `<span class="chip ${isSelected ? 'own-chip' : ''}">${escapeHtml(name)}: ${qStr}${badgeLabel}</span>`;
       }).join('');
 
+      const priceDisplay = isComplimentary
+        ? '<span class="complimentary-badge">Complimentary · RM 0.00</span>'
+        : formatSen(item.line_sen);
+
+      const metaDisplay = isComplimentary
+        ? `Total Qty: ${itemTotalQty} &bull; ${statusBadge}`
+        : `Total: ${itemTotalQty} &bull; Allocated: ${totalClaimed} / ${itemTotalQty} &bull; ${statusBadge}`;
+
+      const progressBarHtml = isComplimentary ? '' : `
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill ${totalClaimed > itemTotalQty ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
+        </div>
+      `;
+
+      const actionsHtml = isComplimentary ? `
+        <div style="font-size: 0.85rem; color: var(--text-muted); padding: 4px 0;">
+          Complimentary receipt record. No diner allocation needed.
+        </div>
+      ` : `
+        <div class="claim-actions">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Your Portion:</span>
+            <div class="quantity-stepper numeric-stepper" role="group" aria-label="Your portion">
+              <button type="button" class="btn btn-secondary btn-sm stepper-btn claim-dec-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}" aria-label="Decrease portion" ${targetQty <= 0 ? 'disabled' : ''}>−</button>
+              <span class="step-val" aria-live="polite">${targetQty}</span>
+              <button type="button" class="btn btn-secondary btn-sm stepper-btn claim-inc-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}" aria-label="Increase portion" ${targetQty >= itemTotalQty ? 'disabled' : ''}>+</button>
+            </div>
+          </div>
+          <div>
+            <button class="btn btn-secondary btn-sm claim-all-btn" data-id="${item.id}" data-target="${state.currentUserId}" data-rev="${itemRevision}" data-total="${itemTotalQty}" data-unassigned="${unassigned}">
+              Claim All
+            </button>
+          </div>
+        </div>
+      `;
+
       return `
-        <div class="item-card" id="item-card-${item.id}" data-item-id="${item.id}" data-revision="${itemRevision}">
+        <div class="item-card ${isComplimentary ? 'is-complimentary' : ''}" id="item-card-${item.id}" data-item-id="${item.id}" data-revision="${itemRevision}">
           <div class="item-header">
             <div>
               <div class="item-label">${escapeHtml(item.label)}</div>
-              <div class="item-meta">Total: ${itemTotalQty} &bull; Allocated: ${totalClaimed} / ${itemTotalQty} &bull; ${statusBadge}</div>
+              <div class="item-meta">${metaDisplay}</div>
             </div>
-            <div class="item-price">${formatSen(item.line_sen)}</div>
+            <div class="item-price">${priceDisplay}</div>
           </div>
 
-          <div class="progress-bar-wrap">
-            <div class="progress-bar-fill ${totalClaimed > itemTotalQty ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
-          </div>
-
-          <div class="claim-actions">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Your Portion:</span>
-              <div class="quantity-stepper numeric-stepper" role="group" aria-label="Your portion">
-                <button type="button" class="btn btn-secondary btn-sm stepper-btn claim-dec-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}" aria-label="Decrease portion" ${targetQty <= 0 ? 'disabled' : ''}>−</button>
-                <span class="step-val" aria-live="polite">${targetQty}</span>
-                <button type="button" class="btn btn-secondary btn-sm stepper-btn claim-inc-btn" data-id="${item.id}" data-current="${targetQty}" data-target="${state.currentUserId}" data-rev="${itemRevision}" aria-label="Increase portion" ${targetQty >= itemTotalQty ? 'disabled' : ''}>+</button>
-              </div>
-            </div>
-            <div>
-              <button class="btn btn-secondary btn-sm claim-all-btn" data-id="${item.id}" data-target="${state.currentUserId}" data-rev="${itemRevision}" data-total="${itemTotalQty}" data-unassigned="${unassigned}">
-                Claim All
-              </button>
-            </div>
-          </div>
-
+          ${progressBarHtml}
+          ${actionsHtml}
           ${chipsHtml ? `<div class="chips-row">${chipsHtml}</div>` : ''}
         </div>
       `;
@@ -2253,6 +2292,7 @@ function renderClaimsSection(snap) {
   const itemsHtml = items.map(item => {
     const stateItem = snap.items?.find(i => i.item_id === item.id);
     const itemRevision = stateItem ? stateItem.item_revision : 0;
+    const isComplimentary = item.line_sen === 0;
     const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
 
     const totalClaimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
@@ -2270,7 +2310,10 @@ function renderClaimsSection(snap) {
 
     let statusBadge = '';
     let cardStatusClass = 'is-unassigned';
-    if (isComplete) {
+    if (isComplimentary) {
+      statusBadge = '<span class="badge badge-complimentary">Complimentary · No allocation needed</span>';
+      cardStatusClass = 'is-complimentary';
+    } else if (isComplete) {
       statusBadge = '<span class="badge badge-verified">✓ Fully Allocated</span>';
       cardStatusClass = 'is-complete';
     } else if (isOver) {
@@ -2281,39 +2324,65 @@ function renderClaimsSection(snap) {
       cardStatusClass = 'is-unassigned';
     }
 
-    const dinerPills = activeParts.map(p => {
-      const claim = claims.find(c => c.participant_id === p.id);
-      const claimedQty = claim ? ratToNum(claim.quantity) : 0;
-      const isClaimed = claimedQty > 0;
-      const qStr = claim ? formatRat(claim.quantity) : '0';
+    const priceDisplay = isComplimentary
+      ? '<span class="complimentary-badge">Complimentary · RM 0.00</span>'
+      : formatSen(item.line_sen);
 
-      if (!isClaimed) {
-        const title = canQuickAssign
-          ? `Assign 1 portion to ${escapeHtml(p.name)}`
-          : `Quick assignment unavailable for ${escapeHtml(p.name)}. ${quickAssignHelp}`;
-        return `
-          <button type="button" class="hybrid-pill hybrid-pill-available" data-action="hybrid-quick-assign" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="${title}" ${canQuickAssign ? '' : `disabled aria-describedby="quick-assign-help-${item.id}"`}>
-            <span class="pill-plus">+</span>
-            <span class="pill-avatar">${p.organizer ? '👑' : '🍽️'}</span>
-            <span class="pill-name">${escapeHtml(p.name)}</span>
-          </button>
-        `;
-      } else {
-        const isOrgAssigned = Boolean(claim.assigned_by && claim.assigned_by !== claim.participant_id);
-        const title = `${escapeHtml(p.name)}: allocated ${qStr} portion${qStr === '1' ? '' : 's'}. Tap to edit in Details / Split`;
-        return `
-          <button type="button" class="hybrid-pill hybrid-pill-allocated ${isOrgAssigned ? 'is-org-assigned' : 'is-diner-claimed'}" data-action="hybrid-open-details" data-item="${item.id}" data-target="${p.id}" title="${title}">
-            <span class="pill-avatar">${p.organizer ? '👑' : '🍽️'}</span>
-            <span class="pill-name">${escapeHtml(p.name)}</span>
-            <span class="pill-sep">·</span>
-            <span class="pill-qty">${qStr}</span>
-          </button>
-        `;
-      }
-    }).join('');
+    const metaDisplay = isComplimentary
+      ? `Total Qty: ${itemTotalQty} &bull; ${statusBadge}`
+      : `Total Qty: ${itemTotalQty} &bull; Allocated: ${formatRat(totalClaimedRat)} / ${itemTotalQty} &bull; ${statusBadge}`;
+
+    const progressBarHtml = isComplimentary ? '' : `
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill ${isOver ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
+      </div>
+    `;
+
+    const clusterHtml = isComplimentary ? `
+      <div class="complimentary-notice" style="font-size: 0.85rem; color: var(--text-muted); padding: 6px 0;">
+        Complimentary receipt record. No allocation needed.
+      </div>
+    ` : `
+      <div class="hybrid-pill-cluster">
+        ${activeParts.map(p => {
+          const claim = claims.find(c => c.participant_id === p.id);
+          const claimedQty = claim ? ratToNum(claim.quantity) : 0;
+          const isClaimed = claimedQty > 0;
+          const qStr = claim ? formatRat(claim.quantity) : '0';
+
+          if (!isClaimed) {
+            const title = canQuickAssign
+              ? `Assign 1 portion to ${escapeHtml(p.name)}`
+              : `Quick assignment unavailable for ${escapeHtml(p.name)}. ${quickAssignHelp}`;
+            return `
+              <button type="button" class="hybrid-pill hybrid-pill-available" data-action="hybrid-quick-assign" data-item="${item.id}" data-target="${p.id}" data-rev="${itemRevision}" title="${title}" ${canQuickAssign ? '' : `disabled aria-describedby="quick-assign-help-${item.id}"`}>
+                <span class="pill-plus">+</span>
+                <span class="pill-avatar">${p.organizer ? '👑' : '🍽️'}</span>
+                <span class="pill-name">${escapeHtml(p.name)}</span>
+              </button>
+            `;
+          } else {
+            const isOrgAssigned = Boolean(claim.assigned_by && claim.assigned_by !== claim.participant_id);
+            const title = `${escapeHtml(p.name)}: allocated ${qStr} portion${qStr === '1' ? '' : 's'}. Tap to edit in Details / Split`;
+            return `
+              <button type="button" class="hybrid-pill hybrid-pill-allocated ${isOrgAssigned ? 'is-org-assigned' : 'is-diner-claimed'}" data-action="hybrid-open-details" data-item="${item.id}" data-target="${p.id}" title="${title}">
+                <span class="pill-avatar">${p.organizer ? '👑' : '🍽️'}</span>
+                <span class="pill-name">${escapeHtml(p.name)}</span>
+                <span class="pill-sep">·</span>
+                <span class="pill-qty">${qStr}</span>
+              </button>
+            `;
+          }
+        }).join('')}
+        <button type="button" class="btn btn-secondary btn-sm hybrid-details-btn" data-action="hybrid-toggle-details" data-item="${item.id}" aria-expanded="${isExpanded}">
+          <span>${isExpanded ? '▴ Close' : '▾ Details / Split'}</span>
+        </button>
+      </div>
+      ${canQuickAssign ? '' : `<p class="item-meta" id="quick-assign-help-${item.id}">${quickAssignHelp}</p>`}
+    `;
 
     let drawerHtml = '';
-    if (isExpanded) {
+    if (isExpanded && !isComplimentary) {
       drawerHtml = `
         <div class="hybrid-drawer" id="hybrid-drawer-${item.id}">
           ${renderHybridDetailContent(item, snap, activeParts, false)}
@@ -2326,24 +2395,13 @@ function renderClaimsSection(snap) {
         <div class="item-header">
           <div>
             <div class="item-label">${escapeHtml(item.label)}</div>
-            <div class="item-meta">Total Qty: ${itemTotalQty} &bull; Allocated: ${formatRat(totalClaimedRat)} / ${itemTotalQty} &bull; ${statusBadge}</div>
+            <div class="item-meta">${metaDisplay}</div>
           </div>
-          <div class="item-price">${formatSen(item.line_sen)}</div>
+          <div class="item-price">${priceDisplay}</div>
         </div>
 
-        <div class="progress-bar-wrap">
-          <div class="progress-bar-fill ${isOver ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
-        </div>
-
-        <div class="hybrid-pill-cluster">
-          ${dinerPills}
-          <button type="button" class="btn btn-secondary btn-sm hybrid-details-btn" data-action="hybrid-toggle-details" data-item="${item.id}" aria-expanded="${isExpanded}">
-            <span>${isExpanded ? '▴ Close' : '▾ Details / Split'}</span>
-          </button>
-        </div>
-
-        ${canQuickAssign ? '' : `<p class="item-meta" id="quick-assign-help-${item.id}">${quickAssignHelp}</p>`}
-
+        ${progressBarHtml}
+        ${clusterHtml}
         ${drawerHtml}
       </div>
     `;
@@ -3417,8 +3475,8 @@ function bindEvents(snap) {
       let priceSen;
       try {
         priceSen = parseSen(document.getElementById('new-item-price').value);
-        if (priceSen <= 0) {
-          showAlert('Price must be greater than RM 0.00', 'error');
+        if (priceSen < 0) {
+          showAlert('Price must not be negative', 'error');
           return;
         }
       } catch (err) {
@@ -3470,7 +3528,10 @@ function bindEvents(snap) {
           currentForm.reset();
         }
         await fetchSnapshot(true);
-        showAlert(`Added "${label}" (${formatSen(priceSen)}) ✓`, 'success');
+        const addedMsg = priceSen === 0
+          ? `Added "${label}" (Complimentary · RM 0.00) ✓`
+          : `Added "${label}" (${formatSen(priceSen)}) ✓`;
+        showAlert(addedMsg, 'success');
       } catch (err) {
         state.mutationActive = false;
         handleApiError(err);
@@ -3573,21 +3634,35 @@ function bindEvents(snap) {
       const priceInput = row.querySelector('.ocr-edit-item-price');
       const label = labelInput ? (labelInput.value.trim() || `Item ${i + 1}`) : `Item ${i + 1}`;
       const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value, 10) || 1) : 1;
-      let lineSen = 0;
+      let lineSen = null;
+      let parseError = false;
       if (priceInput) {
-        try {
-          lineSen = parseSen(priceInput.value);
-        } catch {
-          lineSen = 0;
+        const raw = priceInput.value.trim();
+        if (raw === '') {
+          parseError = true;
+          lineSen = null;
+        } else {
+          try {
+            lineSen = parseSen(raw);
+          } catch {
+            parseError = true;
+            lineSen = NaN;
+          }
         }
       }
       const existingId = (cand.items && cand.items[i]) ? cand.items[i].id : `item-${i + 1}`;
-      items.push({ id: existingId, label, quantity: qty, line_sen: lineSen });
+      items.push({ id: existingId, label, quantity: qty, line_sen: lineSen, parse_error: parseError });
 
       // Update unit price estimate as accessible tooltip on amount input
-      const unitSen = qty > 0 ? Math.round(lineSen / qty) : lineSen;
+      const unitSen = (typeof lineSen === 'number' && !isNaN(lineSen) && qty > 0) ? Math.round(lineSen / qty) : null;
       if (priceInput) {
-        priceInput.title = qty > 1 ? `Estimated unit price: ~RM ${(unitSen / 100).toFixed(2)} each` : 'Line total';
+        if (unitSen !== null && qty > 1) {
+          priceInput.title = `Estimated unit price: ~RM ${(unitSen / 100).toFixed(2)} each`;
+        } else if (unitSen === 0) {
+          priceInput.title = 'Complimentary item (RM 0.00)';
+        } else {
+          priceInput.title = 'Line total';
+        }
       }
 
       // Update minus stepper button state
@@ -3656,7 +3731,7 @@ function bindEvents(snap) {
       }
     }
 
-    const subtotalSen = items.reduce((acc, it) => acc + (it.line_sen || 0), 0);
+    const subtotalSen = items.reduce((acc, it) => acc + (typeof it.line_sen === 'number' && !isNaN(it.line_sen) && it.line_sen >= 0 ? it.line_sen : 0), 0);
     const adjTotalSen = adjustments.reduce((acc, a) => acc + (a.amount_sen || 0), 0);
     const totalSen = subtotalSen + adjTotalSen;
 
@@ -3831,8 +3906,8 @@ function bindEvents(snap) {
       }
 
       for (const it of candidate.items) {
-        if (!it.label || it.line_sen <= 0) {
-          showAlert(`Item "${it.label || 'Unnamed'}" must have a valid name and price greater than RM 0.00`, 'error');
+        if (!it.label || it.line_sen === null || isNaN(it.line_sen) || it.line_sen < 0) {
+          showAlert(`Item "${it.label || 'Unnamed'}" must have a valid name and non-negative price (RM 0.00 or greater)`, 'error');
           return;
         }
       }
@@ -4024,6 +4099,10 @@ function bindEvents(snap) {
         const rev = parseInt(btn.getAttribute('data-rev'), 10);
         const item = snap.receipt?.items?.find(i => i.id === itemId);
         if (!item) return;
+        if (item.line_sen === 0) {
+          showAlert('Complimentary items do not require allocation.', 'info');
+          return;
+        }
 
         const claims = snap.claims?.filter(c => c.item_id === itemId) || [];
         const claimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
@@ -4108,6 +4187,10 @@ function bindEvents(snap) {
         const rev = parseInt(btn.getAttribute('data-rev'), 10);
         const item = snap.receipt?.items?.find(i => i.id === itemId);
         if (!item) return;
+        if (item.line_sen === 0) {
+          showAlert('Complimentary items do not require allocation.', 'info');
+          return;
+        }
 
         const set = state.selectedSplitDiners.get(itemId);
         const selectedIds = Array.from(set || []);
@@ -4173,6 +4256,10 @@ function bindEvents(snap) {
         const frac = btn.getAttribute('data-frac');
         const item = snap.receipt?.items?.find(i => i.id === itemId);
         if (!item) return;
+        if (item.line_sen === 0) {
+          showAlert('Complimentary items do not require allocation.', 'info');
+          return;
+        }
 
         const otherClaims = (snap.claims || [])
           .filter(c => c.item_id === itemId && c.participant_id !== targetPid)
@@ -4236,6 +4323,11 @@ function bindEvents(snap) {
   document.querySelectorAll('.claim-inc-btn, .claim-dec-btn, .claim-all-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const itemId = btn.getAttribute('data-id');
+      const item = snap.receipt?.items?.find(i => i.id === itemId);
+      if (item && item.line_sen === 0) {
+        showAlert('Complimentary items do not require allocation.', 'info');
+        return;
+      }
       const currentVal = parseFloat(btn.getAttribute('data-current') || '0');
       const targetUserId = btn.getAttribute('data-target') || state.currentUserId;
       const rev = parseInt(btn.getAttribute('data-rev'), 10);

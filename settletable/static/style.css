@@ -628,6 +628,24 @@ button:active, .btn:active {
   color: #fde68a;
 }
 
+.badge-complimentary {
+  background-color: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.complimentary-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c7d2fe;
+  background-color: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
 /* Item Claim Cards */
 .item-card {
   background-color: var(--bg-card);
@@ -1852,6 +1870,11 @@ input[type=number].ocr-edit-item-qty:focus {
 
 .hybrid-item-card.is-over {
   border-color: rgba(244, 63, 94, 0.45);
+}
+
+.hybrid-item-card.is-complimentary {
+  border-color: rgba(99, 102, 241, 0.4);
+  background-color: rgba(99, 102, 241, 0.03);
 }
 
 .hybrid-pill-cluster {

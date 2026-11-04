@@ -338,7 +338,7 @@ def format_compact_meal_blocks(
             c_qty = c.get("quantity", 1) if isinstance(c, dict) else getattr(c, "quantity", 1)
             c_qty_str = f"{c_qty[0]}/{c_qty[1]}" if isinstance(qty, list) and len(qty) == 2 else str(c_qty)
             splitters.append(f"{c_name} ({c_qty_str})")
-        split_str = ", ".join(splitters) if splitters else "Unclaimed"
+        split_str = ", ".join(splitters) if splitters else ("Complimentary" if line_sen == 0 else "Unclaimed")
 
         items_rows.append({
             "object": "block",
@@ -622,7 +622,7 @@ def format_full_meal_blocks(
             c_qty = c.get("quantity", 1) if isinstance(c, dict) else getattr(c, "quantity", 1)
             c_qty_str = f"{c_qty[0]}/{c_qty[1]}" if isinstance(qty, list) and len(qty) == 2 else str(c_qty)
             splitters.append(f"{c_name} ({c_qty_str})")
-        split_str = ", ".join(splitters) if splitters else "Unclaimed"
+        split_str = ", ".join(splitters) if splitters else ("Complimentary" if line_sen == 0 else "Unclaimed")
 
         items_rows.append({
             "object": "block",

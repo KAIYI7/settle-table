@@ -41,3 +41,5 @@ jobs:
         run: node tools/verify_peer_settlement_flow.mjs
       - name: Numeric stepper and financial UX clarity browser regression
         run: node tools/verify_ux_polish.mjs
+      - name: Complimentary zero-priced items browser regression
+        run: node tools/verify_complimentary_items_flow.mjs

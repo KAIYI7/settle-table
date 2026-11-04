@@ -238,6 +238,36 @@ class TestNotionModelsAndFormatting(unittest.TestCase):
         # 9 fixed + 5 participants + 15 items = 29 blocks
         self.assertEqual(total, 9 + 5 + 15)
 
+    def test_complimentary_item_renders_complimentary_in_notion_receipt(self):
+        """Verify that zero-priced items without claims render as 'Complimentary' instead of 'Unclaimed'."""
+        snapshot = {
+            "finalized": True,
+            "revision": 3,
+            "receipt": {
+                "subtotal_sen": 1500,
+                "total_sen": 1500,
+                "items": [
+                    {"id": "rice", "label": "Chicken Rice", "quantity": 1, "line_sen": 1500},
+                    {"id": "water", "label": "Warm Water", "quantity": 2, "line_sen": 0},
+                ],
+                "adjustments": [],
+            },
+            "calculation": {
+                "consumption": {"P1": {"base_sen": 1500, "adjustments_sen": 0, "total_sen": 1500}}
+            },
+            "participants": [{"id": "P1", "name": "Alice", "is_organizer": True}],
+            "claims": [{"item_id": "rice", "participant_id": "P1", "quantity": 1}],
+        }
+        blocks = format_compact_meal_blocks("meal-comp", snapshot)
+        tables = [b for b in blocks if b.get("type") == "table"]
+        items_table = tables[1]
+        rows = items_table["table"]["children"]
+        # Row 0: header, Row 1: Chicken Rice, Row 2: Warm Water
+        water_row = rows[2]
+        cells = water_row["table_row"]["cells"]
+        split_cell_text = cells[4][0]["text"]["content"]
+        self.assertEqual(split_cell_text, "Complimentary")
+
     def test_table_rows_have_block_object_structure(self):
         """Verify that all table_row children generated for tables (including rollups) have object='block'."""
         snapshot_small = {
