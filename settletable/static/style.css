@@ -2637,4 +2637,42 @@ input[type=number].ocr-edit-item-qty:focus {
   }
 }
 
+/* ==========================================================================
+   Contextual Workflow Navigation & Scroll Clearance
+   ========================================================================== */
+#review-section,
+#allocation-section,
+#finalize-section,
+#apportionment-section {
+  scroll-margin-top: calc(var(--app-header-height, 68px) + 16px);
+}
+
+@media (max-width: 640px) {
+  #review-section,
+  #allocation-section,
+  #finalize-section,
+  #apportionment-section {
+    scroll-margin-top: calc(var(--app-header-height, 56px) + 12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+}
+
+.workflow-section-heading:focus,
+.finalize-warning:focus {
+  outline: none;
+}
+
+.workflow-section-heading:focus-visible,
+.finalize-warning:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
+
 
