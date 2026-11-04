@@ -491,10 +491,10 @@ finally:
         self.apply("O", ReplaceReceipt("zero", 1, 1, zero))
         snapshot = self.snapshot()
         self.apply("O", ReviewReceipt("review", 2, 2, snapshot.receipt_digest))
-        self.assertEqual(self.assertRejected(lambda: self.apply("O", Finalize("unassigned", 3, 2))),
-                         "incomplete_quantity")
-        self.apply("A", SetOwnQuantity("assign-zero", "dish", 1, self.item_revision(), 2))
-        result = self.apply("O", Finalize("zero-final", 4, 2))
+        # Complimentary RM0.00 items do not require allocation; claiming is rejected
+        self.assertEqual(self.assertRejected(lambda: self.apply("A",
+            SetOwnQuantity("assign-zero", "dish", 1, self.item_revision(), 2))), "complimentary_item")
+        result = self.apply("O", Finalize("zero-final", 3, 2))
         self.assertEqual({row.sen for row in result.calculation.consumption}, {0})
 
     def test_changed_payload_collision_cannot_rewrite_an_accepted_claim(self):

@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError, replace
 from fractions import Fraction
 import settletable.calculation as financial
 
-from settletable.calculation import Meal, Item, Split, Share, calculate
+from settletable.calculation import Meal, Item, Split, Share, Adjustment, calculate
 
 
 class CalculationTests(unittest.TestCase):
@@ -218,6 +218,61 @@ class CalculationTests(unittest.TestCase):
         result = calculate(meal)
         self.assertEqual(tuple((p.participant_id, p.sen) for p in result.consumption),
                          (("A", 334), ("B", 667)))
+
+    def test_complimentary_zero_priced_items_without_mandatory_allocation(self):
+        # 1. Zero-priced item with empty shares split calculates cleanly
+        zero_meal = Meal(
+            ("A", "B"),
+            (
+                Item("rice", 1500, Split("quantity", (Share("A", 1),)), quantity=1),
+                Item("water", 0, Split("quantity", ()), quantity=2),
+            ),
+            1500, 1500
+        )
+        res = calculate(zero_meal)
+        self.assertEqual(tuple((p.participant_id, p.sen) for p in res.consumption), (("A", 1500), ("B", 0)))
+        alloc_by_id = {a.source_id: a.shares for a in res.items}
+        self.assertEqual(alloc_by_id["water"], ())
+
+        # 2. All-zero receipt with only complimentary items
+        all_zero_meal = Meal(
+            ("A", "B"),
+            (
+                Item("ice_water", 0, Split("quantity", ()), quantity=3),
+                Item("warm_water", 0, Split("quantity", ()), quantity=1),
+            ),
+            0, 0
+        )
+        res_zero = calculate(all_zero_meal)
+        self.assertEqual(tuple((p.participant_id, p.sen) for p in res_zero.consumption), (("A", 0), ("B", 0)))
+
+        # 3. Adjustment scoped exclusively to complimentary item with amount > 0 raises zero_base
+        with self.assertRaisesRegex(ValueError, "zero_base"):
+            calculate(Meal(
+                ("A", "B"),
+                (
+                    Item("rice", 1500, Split("quantity", (Share("A", 1),)), quantity=1),
+                    Item("water", 0, Split("quantity", ()), quantity=2),
+                ),
+                1500, 1600,
+                adjustments=(Adjustment("service", "service", 100, eligible_item_ids=("water",)),)
+            ))
+
+        # 4. Paid item with empty shares split raises collection_bound
+        with self.assertRaisesRegex(ValueError, "collection_bound"):
+            calculate(Meal(
+                ("A", "B"),
+                (Item("rice", 1500, Split("quantity", ()), quantity=1),),
+                1500, 1500
+            ))
+
+        # 5. Split with non-tuple shares raises tuple_required
+        with self.assertRaisesRegex(ValueError, "tuple_required"):
+            calculate(Meal(
+                ("A", "B"),
+                (Item("water", 0, Split("quantity", []), quantity=1),),
+                0, 0
+            ))
 
 
 if __name__ == "__main__":
