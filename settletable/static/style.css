@@ -2643,7 +2643,8 @@ input[type=number].ocr-edit-item-qty:focus {
 #review-section,
 #allocation-section,
 #finalize-section,
-#apportionment-section {
+#apportionment-section,
+#record-transfer-form {
   scroll-margin-top: calc(var(--app-header-height, 68px) + 16px);
 }
 
@@ -2651,7 +2652,8 @@ input[type=number].ocr-edit-item-qty:focus {
   #review-section,
   #allocation-section,
   #finalize-section,
-  #apportionment-section {
+  #apportionment-section,
+  #record-transfer-form {
     scroll-margin-top: calc(var(--app-header-height, 56px) + 12px);
   }
 }
@@ -2672,6 +2674,17 @@ input[type=number].ocr-edit-item-qty:focus {
   outline: 2px solid var(--border-focus);
   outline-offset: 4px;
   border-radius: var(--radius-sm);
+}
+
+.prefill-transfer-banner {
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #c7d2fe;
 }
 
 

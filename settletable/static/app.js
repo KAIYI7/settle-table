@@ -3125,7 +3125,7 @@ function renderPeerSettlementCard(snap) {
                   data-receiver="${escapeHtml(st.receiver_id)}"
                   data-amount="${(st.amount_sen / 100).toFixed(2)}"
                   style="font-size: 0.75rem; padding: 3px 10px; margin-left: auto;">
-            Record Payment
+            Use Suggestion
           </button>
         `;
       }
@@ -3232,10 +3232,11 @@ function renderPeerSettlementCard(snap) {
     ).join('');
 
     recordFormHtml = `
-      <div class="card" style="margin-top: 1.5rem; padding: 1rem; border-left: 3px solid var(--accent-indigo);">
-        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--text-main);">
+      <div class="card" id="record-transfer-form" style="margin-top: 1.5rem; padding: 1rem; border-left: 3px solid var(--accent-indigo);">
+        <div id="record-transfer-heading" class="card-title workflow-section-heading" tabindex="-1" style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--text-main);">
           Record Confirmed Peer Reimbursement
         </div>
+        <div id="prefill-transfer-banner" class="prefill-transfer-banner" role="status" aria-live="polite" style="display: none;"></div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
           <div>
             <label for="transfer-sender-select" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Payer (Debtor):</label>
@@ -4747,12 +4748,18 @@ function bindEvents(snap) {
       const sSelect = document.getElementById('transfer-sender-select');
       const rSelect = document.getElementById('transfer-receiver-select');
       const aInput = document.getElementById('transfer-amount-input');
+      const banner = document.getElementById('prefill-transfer-banner');
 
       if (sSelect && sender) sSelect.value = sender;
       if (rSelect && receiver) rSelect.value = receiver;
       if (aInput && amount) aInput.value = amount;
 
-      if (aInput) aInput.focus();
+      if (banner) {
+        banner.textContent = 'ℹ️ Details pre-filled. Review and confirm the reimbursement below.';
+        banner.style.display = 'block';
+      }
+
+      navigateToWorkflowSection('record-transfer-form', 'record-transfer-heading');
     });
   });
 
@@ -4763,6 +4770,7 @@ function bindEvents(snap) {
       const rSelect = document.getElementById('transfer-receiver-select');
       const aInput = document.getElementById('transfer-amount-input');
       const nInput = document.getElementById('transfer-note-input');
+      const banner = document.getElementById('prefill-transfer-banner');
       if (!sSelect || !rSelect || !aInput) return;
 
       const senderId = sSelect.value;
@@ -4802,6 +4810,7 @@ function bindEvents(snap) {
           amount_sen: amountSen,
           note: nInput && nInput.value.trim() ? nInput.value.trim() : null,
         };
+        if (banner) banner.style.display = 'none';
         const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
         if (res && res.ok) {
           showAlert(`Recorded ${formatSen(amountSen)} reimbursement ✓`, 'success');
