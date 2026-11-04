@@ -15,6 +15,10 @@
  * 3. Financial Feature Copy & Clarity:
  *    - Restaurant Funding card explanatory text and column headers.
  *    - Peer Settlement card explanatory text, disclaimer banner, and column headers.
+ * 4. Financial Form Dropdowns (Payer, Recipient, Restaurant Payer, Payment Method):
+ *    - Native <select> elements preserved with zero custom JavaScript dropdown replacement.
+ *    - Custom subtle SVG chevron positioned with 15px right inset and 42px right padding.
+ *    - Disabled and focus indicators with responsive long participant name containment.
  */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -262,8 +266,8 @@ async function run() {
   const page = chrome.page;
 
   try {
-    // [1/7] Bootstrap meal
-    console.log('[1/7] Bootstrapping room with Alice (Organizer) and Bob (Diner)...');
+    // [1/8] Bootstrap meal
+    console.log('[1/8] Bootstrapping room with Alice (Organizer) and Bob (Diner)...');
     await page.navigate(origin + '/');
     await page.waitFor(() => document.getElementById('create-meal-form') !== null);
     await page.evaluate((id) => {
@@ -275,8 +279,8 @@ async function run() {
     await page.waitFor(() => document.getElementById('manual-refresh-btn') !== null);
     console.log('   ✓ Meal created and Add Item Form rendered');
 
-    // [2/7] OCR Staging Quantity Stepper & Mobile Touch Target Measurement (375px)
-    console.log('[2/7] Testing OCR Candidate Stepper & Measuring Button Touch Targets at 375px...');
+    // [2/8] OCR Staging Quantity Stepper & Mobile Touch Target Measurement (375px)
+    console.log('[2/8] Testing OCR Candidate Stepper & Measuring Button Touch Targets at 375px...');
     await page.setViewport(375, 667);
     await new Promise(r => setTimeout(r, 150));
 
@@ -338,8 +342,8 @@ async function run() {
     await page.waitFor('document.getElementById("add-item-form") !== null');
     console.log('   ✓ Discarded OCR candidate; returned to Add Item form');
 
-    // [3/7] Manual Add Item Stepper & Mobile Touch Target Measurement (375px)
-    console.log('[3/7] Testing Manual Add Item Numeric Stepper & Measuring Button Touch Targets at 375px...');
+    // [3/8] Manual Add Item Stepper & Mobile Touch Target Measurement (375px)
+    console.log('[3/8] Testing Manual Add Item Numeric Stepper & Measuring Button Touch Targets at 375px...');
     const addStepperRects = await page.evaluate(() => {
       const container = document.querySelector('#add-item-form .numeric-stepper');
       const input = document.getElementById('new-item-qty');
@@ -431,8 +435,8 @@ async function run() {
     await page.waitFor('state.snapshot?.receipt?.items?.length === 1');
     console.log('   ✓ Added item "Steak" with quantity 2');
 
-    // [4/7] Diner Portion Steppers & Mobile Touch Target Measurement (375px)
-    console.log('[4/7] Testing Diner Portion Stepper & Measuring Button Touch Targets at 375px...');
+    // [4/8] Diner Portion Steppers & Mobile Touch Target Measurement (375px)
+    console.log('[4/8] Testing Diner Portion Stepper & Measuring Button Touch Targets at 375px...');
     await page.evaluate(() => document.querySelector('.hybrid-details-btn').click());
     await page.waitFor('document.querySelector(".quantity-stepper.numeric-stepper") !== null');
 
@@ -473,8 +477,8 @@ async function run() {
     }
     console.log('   ✓ Portion Stepper buttons verified >= 44x44px touch targets with accessible ARIA labels');
 
-    // [5/7] Verifying and finalizing meal to render financial cards
-    console.log('[5/7] Verifying and finalizing meal to render financial cards...');
+    // [5/8] Verifying and finalizing meal to render financial cards
+    console.log('[5/8] Verifying and finalizing meal to render financial cards...');
     await page.evaluate(() => {
       document.getElementById('review-confirm-check').checked = true;
       document.getElementById('review-confirm-check').dispatchEvent(new Event('change', { bubbles: true }));
@@ -508,8 +512,8 @@ async function run() {
     await page.waitFor('document.getElementById("peer-settlement-card") !== null');
     console.log('   ✓ Meal finalized; Restaurant Funding & Peer Settlement cards rendered');
 
-    // [6/7] Verify Financial Copy & Clarity
-    console.log('[6/7] Verifying Financial UX Clarity Text and Distinctions...');
+    // [6/8] Verify Financial Copy & Clarity
+    console.log('[6/8] Verifying Financial UX Clarity Text and Distinctions...');
     const copyChecks = await page.evaluate(() => {
       const fundingCard = document.getElementById('restaurant-funding-card');
       const fundingDesc = fundingCard?.querySelector('.card-desc')?.textContent;
@@ -556,8 +560,131 @@ async function run() {
     }
     console.log('   ✓ Peer Settlement description, organizer disclaimer notice, and column headers verified');
 
-    // [7/7] Verify Mobile Responsive Viewport (375x667) Page Layout and Zero Horizontal Overflow
-    console.log('[7/7] Verifying Mobile Viewport (375px) Overall Page Layout and Zero Horizontal Overflow...');
+    // [7/8] Verify Financial Form Dropdowns (Payer, Recipient, Restaurant Payer, Payment Method)
+    console.log('[7/8] Verifying Financial Form Dropdown Selectors and Chevron Placement...');
+    const payerSelectMetrics = await page.evaluate(() => {
+      const pSelect = document.getElementById('payer-participant-select');
+      const mSelect = document.getElementById('payer-method-select');
+      if (!pSelect || !mSelect) return null;
+      const pStyle = window.getComputedStyle(pSelect);
+      const mStyle = window.getComputedStyle(mSelect);
+      return {
+        payerTagName: pSelect.tagName,
+        payerAppearance: pStyle.appearance || pStyle.webkitAppearance,
+        payerBgImage: pStyle.backgroundImage,
+        payerBgPos: pStyle.backgroundPosition,
+        payerPadRight: parseFloat(pStyle.paddingRight),
+        payerMinHeight: parseFloat(pStyle.minHeight),
+        methodTagName: mSelect.tagName,
+        methodAppearance: mStyle.appearance || mStyle.webkitAppearance,
+        methodBgImage: mStyle.backgroundImage,
+        methodBgPos: mStyle.backgroundPosition,
+        methodPadRight: parseFloat(mStyle.paddingRight),
+        methodMinHeight: parseFloat(mStyle.minHeight),
+      };
+    });
+
+    if (!payerSelectMetrics) throw new Error('Missing #payer-participant-select or #payer-method-select');
+    if (payerSelectMetrics.payerTagName !== 'SELECT' || payerSelectMetrics.methodTagName !== 'SELECT') {
+      throw new Error('Expected native <select> elements for restaurant payment dropdowns');
+    }
+    if (payerSelectMetrics.payerAppearance !== 'none' || payerSelectMetrics.methodAppearance !== 'none') {
+      throw new Error(`Expected appearance: none for selects, got payer=${payerSelectMetrics.payerAppearance}, method=${payerSelectMetrics.methodAppearance}`);
+    }
+    if (!payerSelectMetrics.payerBgImage.includes('data:image/svg+xml') || !payerSelectMetrics.methodBgImage.includes('data:image/svg+xml')) {
+      throw new Error('Expected SVG chevron background-image on restaurant payment dropdowns');
+    }
+    if (payerSelectMetrics.payerPadRight < 40 || payerSelectMetrics.methodPadRight < 40) {
+      throw new Error(`Expected padding-right >= 40px for chevron clearance, got payer=${payerSelectMetrics.payerPadRight}px, method=${payerSelectMetrics.methodPadRight}px`);
+    }
+    if (payerSelectMetrics.payerMinHeight < 44 || payerSelectMetrics.methodMinHeight < 44) {
+      throw new Error(`Expected min-height >= 44px for touch targets, got payer=${payerSelectMetrics.payerMinHeight}px`);
+    }
+    console.log('   ✓ Restaurant Payer and Payment Method dropdowns: native select, custom chevron, 42px right padding, >=44px touch height');
+
+    // Record partial restaurant payment by Alice to trigger debtor/creditor peer reimbursement form
+    await page.evaluate(() => {
+      const pSelect = document.getElementById('payer-participant-select');
+      const mSelect = document.getElementById('payer-method-select');
+      const amountInput = document.getElementById('payer-amount-input');
+      const recordBtn = document.getElementById('record-contribution-btn');
+      pSelect.selectedIndex = 1; // Alice
+      pSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      mSelect.value = 'card';
+      mSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      amountInput.value = '20.00';
+      amountInput.dispatchEvent(new Event('input', { bubbles: true }));
+      recordBtn.click();
+    });
+
+    await page.waitFor('document.getElementById("transfer-sender-select") !== null');
+    await page.waitFor('document.getElementById("transfer-receiver-select") !== null');
+
+    const transferSelectMetrics = await page.evaluate(() => {
+      const sSelect = document.getElementById('transfer-sender-select');
+      const rSelect = document.getElementById('transfer-receiver-select');
+      const sStyle = window.getComputedStyle(sSelect);
+      const rStyle = window.getComputedStyle(rSelect);
+
+      // Verify focus state
+      sSelect.focus();
+      const focusedBgImage = window.getComputedStyle(sSelect).backgroundImage;
+      const focusedBorder = window.getComputedStyle(sSelect).borderColor;
+
+      // Verify long participant name handling
+      const longOpt = document.createElement('option');
+      longOpt.value = 'long-test-id';
+      longOpt.textContent = 'Alexander Bartholomew Montgomery-Smith III (owes RM 120.50)';
+      sSelect.appendChild(longOpt);
+      sSelect.value = 'long-test-id';
+      sSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+      const sRect = sSelect.getBoundingClientRect();
+      const parentRect = sSelect.parentElement.getBoundingClientRect();
+
+      return {
+        senderTagName: sSelect.tagName,
+        senderAppearance: sStyle.appearance || sStyle.webkitAppearance,
+        senderBgImage: sStyle.backgroundImage,
+        senderBgPos: sStyle.backgroundPosition,
+        senderPadRight: parseFloat(sStyle.paddingRight),
+        senderMinHeight: parseFloat(sStyle.minHeight),
+        receiverTagName: rSelect.tagName,
+        receiverAppearance: rStyle.appearance || rStyle.webkitAppearance,
+        receiverBgImage: rStyle.backgroundImage,
+        receiverBgPos: rStyle.backgroundPosition,
+        receiverPadRight: parseFloat(rStyle.paddingRight),
+        receiverMinHeight: parseFloat(rStyle.minHeight),
+        focusedBgImage,
+        focusedBorder,
+        senderWidth: sRect.width,
+        parentWidth: parentRect.width,
+        overflowsCell: sRect.width > parentRect.width + 1,
+      };
+    });
+
+    if (transferSelectMetrics.senderTagName !== 'SELECT' || transferSelectMetrics.receiverTagName !== 'SELECT') {
+      throw new Error('Expected native <select> elements for peer reimbursement dropdowns');
+    }
+    if (transferSelectMetrics.senderAppearance !== 'none' || transferSelectMetrics.receiverAppearance !== 'none') {
+      throw new Error(`Expected appearance: none for peer selects, got sender=${transferSelectMetrics.senderAppearance}, receiver=${transferSelectMetrics.receiverAppearance}`);
+    }
+    if (!transferSelectMetrics.senderBgImage.includes('data:image/svg+xml') || !transferSelectMetrics.receiverBgImage.includes('data:image/svg+xml')) {
+      throw new Error('Expected SVG chevron background-image on peer reimbursement dropdowns');
+    }
+    if (transferSelectMetrics.senderPadRight < 40 || transferSelectMetrics.receiverPadRight < 40) {
+      throw new Error(`Expected padding-right >= 40px, got sender=${transferSelectMetrics.senderPadRight}px`);
+    }
+    if (transferSelectMetrics.senderMinHeight < 44 || transferSelectMetrics.receiverMinHeight < 44) {
+      throw new Error(`Expected min-height >= 44px, got sender=${transferSelectMetrics.senderMinHeight}px`);
+    }
+    if (transferSelectMetrics.overflowsCell) {
+      throw new Error(`Long participant option overflowed container cell: select=${transferSelectMetrics.senderWidth}px > parent=${transferSelectMetrics.parentWidth}px`);
+    }
+    console.log('   ✓ Payer (Debtor) and Recipient dropdowns: native select, custom chevron, 42px right padding, >=44px height, long name containment');
+
+    // [8/8] Verify Mobile Responsive Viewport (375x667) Page Layout and Zero Horizontal Overflow
+    console.log('[8/8] Verifying Mobile Viewport (375px) Overall Page Layout and Zero Horizontal Overflow...');
     const mobileMetrics = await page.evaluate(() => {
       const docScrollWidth = document.documentElement.scrollWidth;
       const bodyScrollWidth = document.body.scrollWidth;
@@ -568,6 +695,16 @@ async function run() {
       const fundingBox = fundingCard?.getBoundingClientRect();
       const settleBox = settleCard?.getBoundingClientRect();
 
+      const pSelect = document.getElementById('payer-participant-select');
+      const mSelect = document.getElementById('payer-method-select');
+      const sSelect = document.getElementById('transfer-sender-select');
+      const rSelect = document.getElementById('transfer-receiver-select');
+
+      const pBox = pSelect?.getBoundingClientRect();
+      const mBox = mSelect?.getBoundingClientRect();
+      const sBox = sSelect?.getBoundingClientRect();
+      const rBox = rSelect?.getBoundingClientRect();
+
       return {
         viewportWidth: vpWidth,
         docScrollWidth,
@@ -576,16 +713,21 @@ async function run() {
         settleCardWidth: settleBox?.width,
         fundingOverflows: (fundingBox?.right || 0) > vpWidth,
         settleOverflows: (settleBox?.right || 0) > vpWidth,
+        payerSelectOverflows: (pBox?.right || 0) > vpWidth,
+        methodSelectOverflows: (mBox?.right || 0) > vpWidth,
+        senderSelectOverflows: (sBox?.right || 0) > vpWidth,
+        receiverSelectOverflows: (rBox?.right || 0) > vpWidth,
         docOverflows: docScrollWidth > vpWidth,
         bodyOverflows: bodyScrollWidth > vpWidth,
       };
     });
 
     console.log(`   Viewport width: ${mobileMetrics.viewportWidth}px, Document scrollWidth: ${mobileMetrics.docScrollWidth}px`);
-    if (mobileMetrics.docOverflows || mobileMetrics.bodyOverflows || mobileMetrics.fundingOverflows || mobileMetrics.settleOverflows) {
+    if (mobileMetrics.docOverflows || mobileMetrics.bodyOverflows || mobileMetrics.fundingOverflows || mobileMetrics.settleOverflows ||
+        mobileMetrics.payerSelectOverflows || mobileMetrics.methodSelectOverflows || mobileMetrics.senderSelectOverflows || mobileMetrics.receiverSelectOverflows) {
       throw new Error(`Horizontal overflow detected at 375px: ${JSON.stringify(mobileMetrics)}`);
     }
-    console.log('   ✓ Mobile viewport 375px verified with zero horizontal overflow');
+    console.log('   ✓ Mobile viewport 375px verified with zero horizontal overflow on cards and form dropdowns');
 
     await page.close();
     console.log('\n===========================================================');
