@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-04 — Suggested Peer Transfer Prefill Navigation: PR #44 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `ac8bea9a1025e579714f34d3fd11c022c1cdb807` merged autonomously under orchestrator governance policy into `main`. GitHub PR #44 ([#44](https://github.com/KAIYI7/settle-table/pull/44)) verified on hosted CI before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Button Retitled to "Use Suggestion" | PASS: suggestion button retitled from `Record Payment` to `Use Suggestion` (`.prefill-transfer-btn`), eliminating ambiguity and making clear that no transaction is executed upon clicking. |
+| Non-Submitting Prefill Behavior | PASS: clicking `Use Suggestion` pre-fills Payer (Debtor), Recipient (Creditor), and Amount fields without executing or scheduling any transfer (`state.snapshot.transfers.length === 0`). |
+| Contextual Reimbursement Form Navigation | PASS: automatically navigates to `#record-transfer-form` using `navigateToWorkflowSection()`. Sticky header clearance guaranteed via CSS `scroll-margin-top: calc(var(--app-header-height, 68px) + 16px)` on desktop and `12px` on mobile ($\le 640$px). |
+| Programmatic Heading Focus & Keyboard Suppression | PASS: programmatic focus directed to `#record-transfer-heading` (`tabindex="-1"`) with `{ preventScroll: true }`, ensuring screen reader announcement and keyboard context while suppressing auto-opening of the mobile virtual keyboard. |
+| Accessible Prefill Status Banner | PASS: renders polite live-region status banner (`#prefill-transfer-banner`, `role="status"`, `aria-live="polite"`): `"ℹ️ Details pre-filled. Review and confirm the reimbursement below."` inside the form. Automatically dismissed upon recording or clearing. |
+| Form Editing & Financial Isolation | PASS: manual editing of debtor, creditor, amount, and reference notes preserved before submission. `#record-transfer-btn` remains the sole trigger for recording. Zero changes to calculation engine, authority schema, or Notion export. |
+| Dedicated Browser CDP Verification | PASS: `tools/verify_peer_settlement_flow.mjs` passed 8/8 stages across desktop and 375px mobile viewport (zero horizontal overflow, touch safety, and scroll stability across refresh). Full regression suite passed 100%. |
+| Independent Code Review & Hosted CI | PASS: independent review PASS (unconditional) with 0 blocking/warning findings. Hosted GitHub Actions CI passed on exact PR head SHA `ac8bea9` (check run tests: `conclusion=success`). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-04 — Context-Aware Workflow Navigation & Focus: PR #43 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `bfa7c8aae7a4c77a7e037e783cff9280276febea` merged autonomously under orchestrator governance policy into `main`. GitHub PR #43 ([#43](https://github.com/KAIYI7/settle-table/pull/43)) verified on hosted CI ([run 41816588612](https://github.com/KAIYI7/settle-table/actions/runs/41816588612)) before merge.
