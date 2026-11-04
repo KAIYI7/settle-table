@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-04 — Context-Aware Workflow Navigation & Focus: PR #43 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `bfa7c8aae7a4c77a7e037e783cff9280276febea` merged autonomously under orchestrator governance policy into `main`. GitHub PR #43 ([#43](https://github.com/KAIYI7/settle-table/pull/43)) verified on hosted CI ([run 41816588612](https://github.com/KAIYI7/settle-table/actions/runs/41816588612)) before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Action A: OCR Acceptance Navigation | PASS: after clicking `#ocr-accept-btn`, smoothly navigates to Human Receipt Review (`#review-section`) and places programmatic focus on `#review-confirm-check`. |
+| Action B: Receipt Review Approval Navigation | PASS: after clicking `#review-submit-btn`, inspects authoritative refreshed snapshot: routes to Item Allocation (`#allocation-section`, focusing `#allocation-heading`) if paid items need claims; ignores RM0.00 complimentary items; routes to Seal & Finalize Meal (`#finalize-section`, focusing `#finalize-btn`) if all paid items are allocated; routes to `#finalize-section` and highlights `.finalize-warning` if blocking issues exist. |
+| Action C: Finalize & Apportionment Navigation | PASS: after clicking `#finalize-btn`, smoothly navigates to Final Apportionment Summary (`#apportionment-section`) and places focus on `#apportionment-heading`. |
+| Sticky Header Clearance & Reduced Motion | PASS: CSS `scroll-margin-top: calc(var(--app-header-height, 68px) + 16px)` (desktop) and `12px` (mobile) guarantees clearance below the sticky header. `prefers-reduced-motion` compliance enforced in both CSS (`scroll-behavior: auto !important`) and JavaScript (`behavior = 'auto'`). |
+| Programmatic Focus & Duplicate Jump Prevention | PASS: focus calls use `focus({ preventScroll: true })` inside defensive try/catch to prevent secondary scroll jumps. Accessible `:focus-visible` styling provided for headings and warnings (`tabindex="-1"`). |
+| Viewport Stability & Non-Interference | PASS: background polling, manual header refresh, and failed actions do not scroll. Core financial calculations, authority schema, and Notion exporter remain 100% untouched. |
+| Dedicated Browser CDP Verification | PASS: `tools/verify_context_aware_navigation.mjs` passed 8/8 stages across desktop and 375px mobile (zero horizontal overflow). Full regression suite passed 100%. |
+| Independent Code Review & Hosted CI | PASS: independent review APPROVE with 0 findings. Hosted GitHub Actions CI passed on exact PR head SHA `bfa7c8a` ([run 41816588612](https://github.com/KAIYI7/settle-table/actions/runs/41816588612)). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
+
 ## 2026-11-04 — Complimentary RM0.00 Items Without Mandatory Allocation: PR #42 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `6edcef49c00e4bc8f154c0bf1a56390225253fe1` merged autonomously under orchestrator governance policy into `main`. GitHub PR #42 ([#42](https://github.com/KAIYI7/settle-table/pull/42)) verified on hosted CI ([run 41804800476](https://github.com/KAIYI7/settle-table/actions/runs/41804800476)) before merge.
