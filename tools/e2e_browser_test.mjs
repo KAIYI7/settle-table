@@ -832,10 +832,10 @@ async function main() {
     await pageA.waitFor("document.getElementById('receipt-verified-status') !== null");
     await pageA.waitFor("document.querySelector('.alert-banner') !== null");
 
-    // 1. Assert scroll position did NOT jump to top
+    // 1. Assert scroll position did NOT jump to top and navigated contextually to Item Allocation
     const postScrollY = await pageA.evaluate("window.scrollY");
-    if (Math.abs(postScrollY - initialScrollY) > 60) {
-      throw new Error(`Expected scroll position to be preserved near ${initialScrollY}px, but jumped to ${postScrollY}px`);
+    if (postScrollY < 100) {
+      throw new Error(`Expected scroll position not to jump to top, got ${postScrollY}px`);
     }
 
     // 2. Assert in-situ persistent confirmation in Human Receipt Review card

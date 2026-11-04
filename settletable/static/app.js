@@ -558,6 +558,99 @@ function dismissAlert() {
   syncAlertContainerPlacement();
 }
 
+/**
+ * Smoothly scrolls the viewport to a target workflow section and sets focus
+ * for keyboard and assistive-technology users without duplicate scroll jumps.
+ * Clears the sticky header via CSS scroll-margin-top.
+ * Respects prefers-reduced-motion.
+ *
+ * @param {string|HTMLElement} target - Section ID or element to scroll into view
+ * @param {string|HTMLElement} [focusTarget] - Specific element to focus
+ */
+function navigateToWorkflowSection(target, focusTarget = null) {
+  const elem = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!elem) return;
+
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const behavior = prefersReduced ? 'auto' : 'smooth';
+
+  elem.scrollIntoView({ behavior, block: 'start' });
+
+  // Programmatic focus management
+  let toFocus = null;
+  if (focusTarget) {
+    toFocus = typeof focusTarget === 'string' ? document.getElementById(focusTarget) : focusTarget;
+  }
+  if (!toFocus) {
+    toFocus = elem.querySelector('[tabindex="-1"], input:not([disabled]), button:not([disabled]), h3, .card-title') || elem;
+  }
+
+  if (toFocus && typeof toFocus.focus === 'function') {
+    if (!toFocus.hasAttribute('tabindex') && !['INPUT', 'BUTTON', 'A', 'SELECT', 'TEXTAREA'].includes(toFocus.tagName)) {
+      toFocus.setAttribute('tabindex', '-1');
+    }
+    try {
+      toFocus.focus({ preventScroll: true });
+    } catch {
+      toFocus.focus();
+    }
+  }
+}
+
+/**
+ * Determines the next workflow destination from the authoritative refreshed snapshot
+ * after a successful Approve & Seal Receipt action:
+ * - If any paid items still need allocation, navigate to Item Allocation.
+ * - Complimentary RM0.00 items are ignored when determining allocation completeness.
+ * - If all paid items are fully allocated and finalization is available, navigate to Seal & Finalize Meal.
+ * - If other blocking issues exist, navigate to and highlight the actionable warning.
+ */
+function navigateAfterReceiptReview() {
+  const snap = state.snapshot;
+  if (!snap) return;
+
+  const receipt = snap.receipt;
+  const items = receipt?.items || [];
+  const issues = snap.issues || [];
+  const reviewConfirmed = Boolean(snap.review);
+
+  // 1. Paid items allocation check (complimentary RM0.00 items are ignored)
+  const paidItems = items.filter(it => it.line_sen > 0);
+  const hasUnallocatedPaidItem = paidItems.some(it => {
+    const claims = (snap.claims || []).filter(c => c.item_id === it.id && c.financial_revision === snap.financial_revision);
+    const totalClaimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
+    const totalClaimed = ratToNum(totalClaimedRat);
+    const itemTotalQty = ratToNum(it.quantity);
+    return Math.abs(totalClaimed - itemTotalQty) >= 0.0001;
+  });
+
+  const hasClaimIssues = issues.includes('incomplete_quantity') || issues.includes('pending_claim');
+  const needsAllocation = (paidItems.length > 0 && hasUnallocatedPaidItem) || hasClaimIssues;
+
+  if (needsAllocation) {
+    navigateToWorkflowSection('allocation-section', 'allocation-heading');
+    return;
+  }
+
+  // 2. All paid items are allocated (or receipt is complimentary-only). Check finalization availability.
+  const hasItems = items.length > 0;
+  const canFinalize = hasItems && reviewConfirmed && issues.length === 0;
+
+  if (canFinalize) {
+    navigateToWorkflowSection('finalize-section', 'finalize-btn');
+    return;
+  }
+
+  // 3. Other blocking issues exist (e.g. issues in issues array, or no items)
+  const warningEl = document.querySelector('.finalize-warning');
+  if (warningEl) {
+    if (!warningEl.hasAttribute('tabindex')) warningEl.setAttribute('tabindex', '-1');
+    navigateToWorkflowSection('finalize-section', warningEl);
+  } else {
+    navigateToWorkflowSection('finalize-section', 'finalize-heading');
+  }
+}
+
 function showAlert(message, type = 'error', dismissible = true) {
   syncHeaderHeight();
   syncAlertContainerPlacement();
@@ -1319,7 +1412,7 @@ async function loadMeal(mealId) {
 }
 
 function updateMealUI() {
-  window.settletable = { state, updateMealUI };
+  window.settletable = { state, updateMealUI, navigateToWorkflowSection, navigateAfterReceiptReview };
   const snap = state.snapshot;
   if (!snap) return;
 
@@ -1483,19 +1576,19 @@ function updateMealUI() {
 
     let warningHtml = '';
     if (!reviewConfirmed) {
-      warningHtml += '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Receipt must be verified before finalization.</div>';
+      warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Receipt must be verified before finalization.</div>';
     }
     if (!hasItems) {
-      warningHtml += '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Add receipt items before finalization.</div>';
+      warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Add receipt items before finalization.</div>';
     } else if (hasClaimIssues) {
-      warningHtml += '<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ All items must be fully claimed before finalization.</div>';
+      warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ All items must be fully claimed before finalization.</div>';
     } else if (issues.length > 0) {
-      warningHtml += `<div style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Issues detected: ${escapeHtml(issues.join(', '))}</div>`;
+      warningHtml += `<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Issues detected: ${escapeHtml(issues.join(', '))}</div>`;
     }
 
     html += `
-      <div class="card" style="border-color: ${canFinalize ? 'var(--accent-emerald)' : 'var(--border-subtle)'};">
-        <h3 class="card-title">Seal & Finalize Meal</h3>
+      <div id="finalize-section" class="card" style="border-color: ${canFinalize ? 'var(--accent-emerald)' : 'var(--border-subtle)'};">
+        <h3 id="finalize-heading" class="card-title workflow-section-heading" tabindex="-1">Seal & Finalize Meal</h3>
         <p class="card-desc">Once all items are claimed and verified, finalize to lock claims and compute individual shares.</p>
         
         ${warningHtml}
@@ -1836,8 +1929,8 @@ function renderOrganizerSection(snap) {
       `}
 
       <!-- Review & Verification Card -->
-      <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md);">
-        <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted);">HUMAN RECEIPT REVIEW</div>
+      <div id="review-section" class="review-section" style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md);">
+        <div id="review-heading" class="review-heading workflow-section-heading" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted);" tabindex="-1">HUMAN RECEIPT REVIEW</div>
         <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px;">
           Examine the items above against the merchant receipt. Confirm the digest before finalization.
         </p>
@@ -2177,8 +2270,8 @@ function renderClaimsSection(snap) {
   const items = receipt?.items || [];
   if (items.length === 0) {
     return `
-      <div class="card">
-        <h3 class="card-title">${snap.is_organizer ? 'Item Allocation' : 'Item Claims'}</h3>
+      <div id="allocation-section" class="card">
+        <h3 id="allocation-heading" class="card-title workflow-section-heading" tabindex="-1">${snap.is_organizer ? 'Item Allocation' : 'Item Claims'}</h3>
         <p class="card-desc">No receipt items to claim. The organizer must add items first.</p>
       </div>
     `;
@@ -2280,8 +2373,8 @@ function renderClaimsSection(snap) {
     }).join('');
 
     return `
-      <div class="card">
-        <h3 class="card-title">Claim Your Portions</h3>
+      <div id="allocation-section" class="card">
+        <h3 id="allocation-heading" class="card-title workflow-section-heading" tabindex="-1">Claim Your Portions</h3>
         <p class="card-desc">Tap + or - to set your claimed portion for each item. Overlapping claims split the cost.</p>
         ${itemsHtml}
       </div>
@@ -2440,8 +2533,8 @@ function renderClaimsSection(snap) {
   }
 
   return `
-    <div class="card">
-      <h3 class="card-title">Item Allocation (Organizer & Collaborative)</h3>
+    <div id="allocation-section" class="card">
+      <h3 id="allocation-heading" class="card-title workflow-section-heading" tabindex="-1">Item Allocation (Organizer & Collaborative)</h3>
       <p class="card-desc">
         Item-first allocation: tap an available diner to quickly assign 1 portion, or open Details / Split for custom fractions and equal sharing.
       </p>
@@ -2649,8 +2742,8 @@ function renderFinalizedCalculation(snap) {
   }
 
   return `
-    <div class="card">
-      <div class="card-title" style="color: var(--accent-emerald);">Final Apportionment Summary</div>
+    <div id="apportionment-section" class="card">
+      <div id="apportionment-heading" class="card-title workflow-section-heading" style="color: var(--accent-emerald);" tabindex="-1">Final Apportionment Summary</div>
       <p class="card-desc">Every cent accounted for. Apportionment rounded deterministically with cent conservation.</p>
       ${snap.payment_simulation_enabled ? '<p class="simulation-notice">Simulation only — no money moved; reimbursement unchanged.</p>' : ''}
 
@@ -3953,6 +4046,7 @@ function bindEvents(snap) {
         state.mutationActive = false;
         await fetchSnapshot(true);
         showAlert('Scanned receipt accepted and applied to draft. Mandatory human receipt review is still required before finalization.', 'success');
+        navigateToWorkflowSection('review-section', 'review-confirm-check');
       } catch (err) {
         state.mutationActive = false;
         ocrAcceptBtn.disabled = false;
@@ -3989,6 +4083,7 @@ function bindEvents(snap) {
         state.mutationActive = false;
         await fetchSnapshot(true);
         showAlert('Receipt verified and sealed ✓', 'success');
+        navigateAfterReceiptReview();
       } catch (err) {
         state.mutationActive = false;
         handleApiError(err);
@@ -4388,6 +4483,7 @@ function bindEvents(snap) {
         state.mutationActive = false;
         await fetchSnapshot(true);
         showAlert('Meal finalized successfully!', 'success');
+        navigateToWorkflowSection('apportionment-section', 'apportionment-heading');
       } catch (err) {
         state.mutationActive = false;
         handleApiError(err);
