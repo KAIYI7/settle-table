@@ -403,7 +403,7 @@ async function main() {
     await page.waitFor(() => state.snapshot.funding.status === 'fully_funded');
     console.log('   ✓ Restaurant fully funded: Alice paid RM 50.00, Bob paid RM 10.00');
 
-    console.log('[5/8] Verifying Suggested Transfers and Prefill Button...');
+    console.log('[5/8] Verifying Suggested Transfers, Button Label, and Contextual Navigation...');
     // Alice consumed 30, paid 50 -> Base Net +20.00
     // Bob consumed 30, paid 10 -> Base Net -20.00
     // Suggested: Bob pays Alice RM 20.00
@@ -415,28 +415,73 @@ async function main() {
            `Expected suggestion Bob pays Alice RM 20.00, got: ${suggestionText}`);
     console.log('   ✓ Suggested transfer verified: Bob pays Alice RM 20.00');
 
-    // Click Record Payment prefill button
+    // Verify button label is "Use Suggestion"
+    const prefillBtnText = await page.evaluate(() => {
+      return document.querySelector('.prefill-transfer-btn')?.textContent.trim();
+    });
+    assert(prefillBtnText === 'Use Suggestion', `Expected button text 'Use Suggestion', got '${prefillBtnText}'`);
+    console.log(`   ✓ Prefill button label verified: "${prefillBtnText}"`);
+
+    // Click "Use Suggestion" prefill button
     await page.evaluate(() => {
       document.querySelector('.prefill-transfer-btn').click();
     });
+
+    // Wait for smooth scroll animation to settle
+    let curY = await page.evaluate(() => window.scrollY);
+    let prevY = -1;
+    for (let i = 0; i < 25 && curY !== prevY; i++) {
+      prevY = curY;
+      await new Promise(r => setTimeout(r, 100));
+      curY = await page.evaluate(() => window.scrollY);
+    }
+
     const prefillValues = await page.evaluate(() => {
       const snap = state.snapshot;
       const aliceId = snap.participants.find(p => p.organizer).id;
       const bobId = snap.participants.find(p => !p.organizer).id;
+      const form = document.getElementById('record-transfer-form');
+      const header = document.querySelector('.app-header');
+      const headerH = header ? header.getBoundingClientRect().height : 68;
+      const rect = form ? form.getBoundingClientRect() : null;
+      const active = document.activeElement;
+      const banner = document.getElementById('prefill-transfer-banner');
+
       return {
         sender: document.getElementById('transfer-sender-select').value,
         receiver: document.getElementById('transfer-receiver-select').value,
         amount: document.getElementById('transfer-amount-input').value,
         aliceId,
         bobId,
+        transfersLength: (snap.transfers || []).length,
+        rectTop: rect ? rect.top : null,
+        headerH,
+        activeId: active ? active.id : null,
+        activeTag: active ? active.tagName : null,
+        bannerDisplay: banner ? window.getComputedStyle(banner).display : null,
+        bannerText: banner ? banner.textContent.trim() : null,
       };
     });
+
     assert(prefillValues.sender === prefillValues.bobId, `Expected sender ${prefillValues.bobId}, got ${prefillValues.sender}`);
     assert(prefillValues.receiver === prefillValues.aliceId, `Expected receiver ${prefillValues.aliceId}, got ${prefillValues.receiver}`);
     assert(prefillValues.amount === '20.00', `Expected amount 20.00, got ${prefillValues.amount}`);
-    console.log(`   ✓ Prefill button populated sender=${prefillValues.bobId}, receiver=${prefillValues.aliceId}, amount=20.00`);
+    assert(prefillValues.transfersLength === 0, 'No transfer should be recorded merely by clicking Use Suggestion');
+    console.log(`   ✓ Prefill populated sender=${prefillValues.bobId}, receiver=${prefillValues.aliceId}, amount=20.00 without recording transfer`);
 
-    console.log('[6/8] Recording Partial Reimbursement (RM 8.00) with Note...');
+    // Verify header clearance and programmatic focus
+    assert(prefillValues.rectTop !== null && prefillValues.rectTop >= prefillValues.headerH - 2,
+      `Reimbursement form top (${prefillValues.rectTop}px) must clear sticky header (${prefillValues.headerH}px)`);
+    assert(prefillValues.activeId === 'record-transfer-heading',
+      `Expected activeElement #record-transfer-heading (preventing mobile virtual keyboard), got ${prefillValues.activeTag}#${prefillValues.activeId}`);
+    assert(prefillValues.bannerDisplay !== 'none', 'Banner should be visible');
+    assert(prefillValues.bannerText.includes('Details pre-filled. Review and confirm the reimbursement below.'),
+      `Unexpected banner text: ${prefillValues.bannerText}`);
+    console.log(`   ✓ Contextual navigation verified: form top (${prefillValues.rectTop}px) clears sticky header (${prefillValues.headerH}px)`);
+    console.log(`   ✓ Programmatic focus placed on #${prefillValues.activeId}`);
+    console.log(`   ✓ Accessible confirmation banner displayed: "${prefillValues.bannerText}"`);
+
+    console.log('[6/8] Editing Amount to Partial (RM 8.00) with Note and Confirming...');
     await page.evaluate(async () => {
       document.getElementById('transfer-amount-input').value = '8.00';
       document.getElementById('transfer-note-input').value = 'DuitNow ref 12345';
@@ -448,18 +493,21 @@ async function main() {
       const snap = state.snapshot;
       const xfer = snap.transfers[0];
       const st = snap.settlement.suggested_transfers[0];
+      const banner = document.getElementById('prefill-transfer-banner');
       return {
         amount: xfer.amount_sen,
         note: xfer.note,
         remainingSuggested: st ? st.amount_sen : 0,
         isSettled: snap.settlement.is_settled,
+        bannerDisplay: banner ? window.getComputedStyle(banner).display : null,
       };
     });
     assert(postPartial.amount === 800, `Expected recorded transfer 800 sen, got ${postPartial.amount}`);
     assert(postPartial.note === 'DuitNow ref 12345', `Expected note, got ${postPartial.note}`);
     assert(postPartial.remainingSuggested === 1200, `Expected remaining suggested 1200 sen, got ${postPartial.remainingSuggested}`);
     assert(!postPartial.isSettled, 'Should not be fully settled yet');
-    console.log('   ✓ Partial reimbursement recorded: RM 8.00; remaining obligation: RM 12.00');
+    assert(postPartial.bannerDisplay === 'none', 'Prefill banner should be hidden after recording reimbursement');
+    console.log('   ✓ Partial reimbursement recorded: RM 8.00; remaining obligation: RM 12.00; banner dismissed');
 
     console.log('[7/8] Recording Final Reimbursement (RM 12.00) and verifying All Debts Settled state...');
     await page.evaluate(async () => {
@@ -503,7 +551,7 @@ async function main() {
     assert(postReversal.suggested === 1200, `Expected suggested RM 12.00 after reversal, got: ${postReversal.suggested}`);
     console.log('   ✓ Reversal verified: audited strikethrough and recalculated obligations (RM 12.00)');
 
-    // Test mobile viewport
+    // Test mobile viewport (375px)
     await page.send('Emulation.setDeviceMetricsOverride', {
       width: 375,
       height: 667,
@@ -511,13 +559,66 @@ async function main() {
       mobile: true,
     });
     await new Promise(r => setTimeout(r, 200));
-    const mobileCardVisible = await page.evaluate(() => {
-      const c = document.getElementById('peer-settlement-card');
-      const rect = c.getBoundingClientRect();
-      return rect.width <= 375 && rect.height > 0;
+
+    // Scroll to top to test navigation from above
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // Test mobile prefill navigation with active suggestion after reversal
+    await page.evaluate(() => {
+      document.querySelector('.prefill-transfer-btn').click();
     });
-    assert(mobileCardVisible, 'Expected settlement card to render responsively in 375px mobile viewport');
-    console.log('   ✓ Mobile viewport layout verified (375x667px)');
+
+    // Wait for smooth scroll animation to settle
+    let mCurY = await page.evaluate(() => window.scrollY);
+    let mPrevY = -1;
+    for (let i = 0; i < 25 && mCurY !== mPrevY; i++) {
+      mPrevY = mCurY;
+      await new Promise(r => setTimeout(r, 100));
+      mCurY = await page.evaluate(() => window.scrollY);
+    }
+
+    const mobileMetrics = await page.evaluate(() => {
+      const c = document.getElementById('peer-settlement-card');
+      const form = document.getElementById('record-transfer-form');
+      const heading = document.getElementById('record-transfer-heading');
+      const header = document.querySelector('.app-header');
+      const headerH = header ? header.getBoundingClientRect().height : 56;
+      const cardRect = c.getBoundingClientRect();
+      const formRect = form ? form.getBoundingClientRect() : null;
+      const docWidth = document.documentElement.scrollWidth;
+      const active = document.activeElement;
+      const banner = document.getElementById('prefill-transfer-banner');
+
+      return {
+        cardVisible: cardRect.width <= 375 && cardRect.height > 0,
+        docWidth,
+        scrollY: window.scrollY,
+        formTop: formRect ? formRect.top : null,
+        headerH,
+        activeId: active ? active.id : null,
+        bannerDisplay: banner ? window.getComputedStyle(banner).display : null,
+      };
+    });
+
+    assert(mobileMetrics.cardVisible, 'Expected settlement card to render responsively in 375px mobile viewport');
+    assert(mobileMetrics.docWidth <= 375, `Expected no horizontal overflow at 375px, got width ${mobileMetrics.docWidth}px`);
+    assert(mobileMetrics.formTop !== null && mobileMetrics.formTop >= mobileMetrics.headerH - 2,
+      `Mobile form top (${mobileMetrics.formTop}px) must clear mobile header (${mobileMetrics.headerH}px)`);
+    assert(mobileMetrics.activeId === 'record-transfer-heading',
+      `Expected activeElement #record-transfer-heading on mobile, got #${mobileMetrics.activeId}`);
+    assert(mobileMetrics.bannerDisplay !== 'none', 'Expected prefill banner to display on mobile');
+    console.log(`   ✓ Mobile 375px navigation verified: formTop=${mobileMetrics.formTop}px clears mobile header=${mobileMetrics.headerH}px`);
+    console.log(`   ✓ Mobile touch/input safe: heading focused, virtual keyboard suppressed, zero overflow (width ${mobileMetrics.docWidth}px)`);
+
+    // Verify non-navigation stability: manual refresh does not unexpectedly jump the viewport
+    const yBefore = await page.evaluate(() => window.scrollY);
+    await page.evaluate(async () => {
+      await fetchSnapshot(true);
+    });
+    await new Promise(r => setTimeout(r, 300));
+    const yAfter = await page.evaluate(() => window.scrollY);
+    assert(Math.abs(yAfter - yBefore) < 5, `Expected scroll position preserved across refresh, was ${yBefore} -> ${yAfter}`);
+    console.log(`   ✓ Scroll position stability preserved across snapshot refresh (${yBefore}px -> ${yAfter}px)`);
 
     console.log('\n===========================================================');
     console.log(' ALL PEER SETTLEMENT E2E BROWSER CHECKS PASSED 100%! ');
