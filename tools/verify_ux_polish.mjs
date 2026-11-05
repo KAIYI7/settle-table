@@ -211,12 +211,13 @@ async function run() {
   const chromePath = resolveChromePath();
   const pythonPath = resolvePythonPath();
 
-  const serverPort = await new Promise((res, rej) => {
+  const getFreePort = () => new Promise((res, rej) => {
     const s = createServer();
     s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); });
     s.on('error', rej);
   });
-  const chromePort = serverPort + 10;
+  const serverPort = await getFreePort();
+  const chromePort = await getFreePort();
   const origin = `http://127.0.0.1:${serverPort}`;
   const mealId = `ux-${randomBytes(4).toString('hex')}`;
 
@@ -283,6 +284,17 @@ async function run() {
     console.log('[2/8] Testing OCR Candidate Stepper & Measuring Button Touch Targets at 375px...');
     await page.setViewport(375, 667);
     await new Promise(r => setTimeout(r, 150));
+
+    // Verify Room Home Link touch target at 375px
+    const homeLinkMetrics = await page.evaluate(() => {
+      const link = document.querySelector('.room-home-link');
+      const rect = link?.getBoundingClientRect();
+      return { width: rect?.width, height: rect?.height };
+    });
+    if (!homeLinkMetrics || homeLinkMetrics.height < 44) {
+      throw new Error(`Room Home link touch target < 44px: ${homeLinkMetrics?.height}px`);
+    }
+    console.log(`   ✓ Room Home link verified >= 44px touch target (${homeLinkMetrics.width.toFixed(1)}x${homeLinkMetrics.height.toFixed(1)}px)`);
 
     // Upload minimal synthetic PNG to trigger mock OCR staging
     await page.evaluate(() => {
@@ -479,6 +491,17 @@ async function run() {
 
     // [5/8] Verifying and finalizing meal to render financial cards
     console.log('[5/8] Verifying and finalizing meal to render financial cards...');
+    const reviewLabelMetrics = await page.evaluate(() => {
+      const chk = document.getElementById('review-confirm-check');
+      const label = chk?.closest('label');
+      const rect = label?.getBoundingClientRect();
+      return { width: rect?.width, height: rect?.height };
+    });
+    if (!reviewLabelMetrics || reviewLabelMetrics.height < 44) {
+      throw new Error(`Review confirm label touch target < 44px: ${reviewLabelMetrics?.height}px`);
+    }
+    console.log(`   ✓ Review confirm label verified >= 44px touch target (${reviewLabelMetrics.width.toFixed(1)}x${reviewLabelMetrics.height.toFixed(1)}px)`);
+
     await page.evaluate(() => {
       document.getElementById('review-confirm-check').checked = true;
       document.getElementById('review-confirm-check').dispatchEvent(new Event('change', { bubbles: true }));
@@ -510,7 +533,37 @@ async function run() {
     });
     await page.waitFor('document.getElementById("restaurant-funding-card") !== null');
     await page.waitFor('document.getElementById("peer-settlement-card") !== null');
+    await page.waitFor('document.getElementById("notion-export-card") !== null');
     console.log('   ✓ Meal finalized; Restaurant Funding & Peer Settlement cards rendered');
+
+    // Verify Notion Token Password Field Styling & Touch Target
+    const notionInputMetrics = await page.evaluate(() => {
+      const parent = document.getElementById('notion-parent-id');
+      const token = document.getElementById('notion-token');
+      if (!parent || !token) return null;
+      const parentStyle = window.getComputedStyle(parent);
+      const tokenStyle = window.getComputedStyle(token);
+      const tokenRect = token.getBoundingClientRect();
+      return {
+        tokenHeight: tokenRect.height,
+        tokenMinHeight: tokenStyle.minHeight,
+        tokenBg: tokenStyle.backgroundColor,
+        parentBg: parentStyle.backgroundColor,
+        tokenRadius: tokenStyle.borderRadius,
+        parentRadius: parentStyle.borderRadius,
+      };
+    });
+    if (!notionInputMetrics) throw new Error('Missing #notion-token or #notion-parent-id');
+    if (notionInputMetrics.tokenHeight < 44) {
+      throw new Error(`Notion token input height < 44px: ${notionInputMetrics.tokenHeight}px`);
+    }
+    if (notionInputMetrics.tokenBg !== notionInputMetrics.parentBg) {
+      throw new Error(`Notion token background mismatch: got ${notionInputMetrics.tokenBg}, expected ${notionInputMetrics.parentBg}`);
+    }
+    if (notionInputMetrics.tokenRadius !== notionInputMetrics.parentRadius) {
+      throw new Error(`Notion token border radius mismatch: got ${notionInputMetrics.tokenRadius}, expected ${notionInputMetrics.parentRadius}`);
+    }
+    console.log('   ✓ Notion password input verified: >=44px height and matching shared form styling');
 
     // [6/8] Verify Financial Copy & Clarity
     console.log('[6/8] Verifying Financial UX Clarity Text and Distinctions...');

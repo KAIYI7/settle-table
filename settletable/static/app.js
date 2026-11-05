@@ -1627,12 +1627,12 @@ function renderOrganizerSection(snap) {
       ? `<span class="complimentary-badge">Complimentary · RM 0.00</span>`
       : `<span style="font-weight: 600;">${formatSen(it.line_sen)}</span>`;
     return `
-    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
-      <div>
+    <div class="review-item-row ${isComplimentary ? 'is-complimentary' : ''}">
+      <div class="review-item-label-group">
         <strong>${escapeHtml(it.label)}</strong>
         <span style="color: var(--text-dim); font-size: 0.85rem;">(x${formatRat(it.quantity)})</span>
       </div>
-      <div>${priceDisplay}</div>
+      <div class="review-item-price-group">${priceDisplay}</div>
     </div>
   `;
   }).join('');
@@ -1934,9 +1934,9 @@ function renderOrganizerSection(snap) {
         <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px;">
           Examine the items above against the merchant receipt. Confirm the digest before finalization.
         </p>
-        <label style="display: flex; align-items: center; gap: 8px; text-transform: none; color: var(--text-main); font-size: 0.9rem; cursor: pointer;">
+        <label class="review-confirm-label">
           <input type="checkbox" id="review-confirm-check" ${reviewConfirmed ? 'checked disabled' : ''} ${state.ocrCandidate && !reviewConfirmed ? 'disabled title="Accept or discard staged candidate before confirming physical bill"' : ''}>
-          I confirm totals match the physical bill.
+          <span>I confirm totals match the physical bill.</span>
         </label>
         ${state.ocrCandidate && !reviewConfirmed ? `
           <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">
