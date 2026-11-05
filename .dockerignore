@@ -1,0 +1,33 @@
+# Git and local metadata
+.git
+.github
+.gitignore
+.gitattributes
+
+# Local data and secrets
+.env
+.local
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite.bak
+
+# Python virtual environments and caches
+__pycache__
+*.py[cod]
+*$py.class
+.venv*
+venv/
+env/
+.pytest_cache/
+
+# Agent scratch and research experiments
+.scratch/
+research/
+docs/plans/
+.agents/
+
+# Temporary files and logs
+*.log
+*.tmp
+tmp/
