@@ -157,6 +157,46 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(res['status'], 400)
         self.assertEqual(res['json']['error'], 'missing_action_header')
 
+    def test_healthz_endpoint(self):
+        res = self.client.get('/healthz')
+        self.assertEqual(res['status'], 200)
+        self.assertEqual(res['json'], {'ok': True, 'status': 'healthy'})
+        self.assertEqual(res['headers']['Content-Type'], 'application/json; charset=utf-8')
+        self.assertEqual(res['headers']['Cache-Control'], 'no-store')
+
+        # Test /api/healthz alias
+        res2 = self.client.get('/api/healthz')
+        self.assertEqual(res2['status'], 200)
+        self.assertEqual(res2['json'], {'ok': True, 'status': 'healthy'})
+
+        # Verify /healthz succeeds even when Host header is an internal IP not in allowed_hosts
+        foreign_client = TransportTestClient(self.app, host='10.0.0.42:8000')
+        res3 = foreign_client.get('/healthz')
+        self.assertEqual(res3['status'], 200)
+        self.assertEqual(res3['json'], {'ok': True, 'status': 'healthy'})
+
+    def test_wsgi_entrypoint_and_env_config(self):
+        import os
+        from settletable.wsgi import create_app
+        old_env = os.environ.copy()
+        try:
+            os.environ['SETTLETABLE_DB_PATH'] = str(self.db_path)
+            os.environ['SETTLETABLE_SERVER_ORIGIN'] = 'https://settletable.example.com'
+            os.environ['SETTLETABLE_ALLOWED_HOSTS'] = 'settletable.example.com,internal.mesh'
+            os.environ['SETTLETABLE_MOCK_NOTION'] = '1'
+            os.environ['SETTLETABLE_MOCK_OCR'] = '1'
+            os.environ['SETTLETABLE_ALLOW_SYNC_EXPORT'] = '1'
+
+            wsgi_app = create_app()
+            self.assertEqual(wsgi_app.server_origin, 'https://settletable.example.com')
+            self.assertEqual(wsgi_app.allowed_hosts, {'settletable.example.com', 'internal.mesh'})
+            self.assertTrue(wsgi_app.allow_sync_export)
+            self.assertIsNotNone(wsgi_app.notion_client)
+            self.assertIsNotNone(wsgi_app.ocr_engine)
+        finally:
+            os.environ.clear()
+            os.environ.update(old_env)
+
     def test_host_header_validation(self):
         bad_client = TransportTestClient(self.app, host='attacker.com')
         res = bad_client.get('/api/invitations/' + 'A'*43)

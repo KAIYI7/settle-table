@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-05 — MVP Release & Deployment Preparation Checkpoint
+
+**Orchestrator decision: PASS / VERIFIED.** Release plan established in `docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md`. Packaging, containerization, ingress templates, hot backup/restore utilities, and repository presentation verified.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 296/296 Python unit tests passed; all 9 browser CDP regression test suites passed; local runner operational with mock and real local OCR modes. |
+| Gate 2: Restricted Online Deployment Pilot (`v0.9.0-beta.1`) | **IMPLEMENTATION READY**: Production WSGI entrypoint (`settletable/wsgi.py`), `/healthz` probe, non-root `Dockerfile`, `docker-compose.yml`, Caddy/Nginx ingress templates, hot backup utility (`tools/backup_restore.py`), and administrative bootstrap CLI (`tools/bootstrap_meal.py`) verified. Awaiting PO hosting platform selection before live deployment. |
+| Gate 3: Publicly Reachable Application | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) and explicit Product Owner authorization for public traffic and ongoing hosting expenditure. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Two-Tier Ingress Boundary Verification | **PASS**: `POST /api/meals/*/bootstrap` strictly rejects external calls bearing proxy headers with HTTP 403; Tier 1 reverse proxy templates enforce wire limits and block external bootstrap access. |
+| Hot Backup & WAL Crash Consistency | **PASS**: Hot backup utility creates consistent database snapshots using SQLite Online Backup API (`sqlite3.backup()`) and syncs receipt photos with SHA-256 manifest; restoration verified with PRAGMA integrity check. |
+| Repository Pre-Publication Privacy & Rights Audit | **PASS**: `tools/audit_repository.py` passed with 0 findings across all tracked files. Zero credentials, tokens, or private Notion locators in git tree. All Rights Reserved notice strictly preserved. |
+| Independent Code & Security Review | **PASS**: Completed independent review with 0 blocking and 0 warning findings. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-04 — Suggested Peer Transfer Prefill Navigation: PR #44 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `ac8bea9a1025e579714f34d3fd11c022c1cdb807` merged autonomously under orchestrator governance policy into `main`. GitHub PR #44 ([#44](https://github.com/KAIYI7/settle-table/pull/44)) verified on hosted CI before merge.

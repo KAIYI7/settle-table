@@ -1,0 +1,58 @@
+# ==============================================================================
+# SettleTable Docker Compose (Single-Instance Production / Self-Hosted)
+# ==============================================================================
+# Features:
+# - Single-instance WSGI app with pinned persistent volume
+# - Non-root execution
+# - Loopback port binding (or optional Caddy TLS reverse proxy)
+
+services:
+  settletable:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: settletable:latest
+    container_name: settletable_app
+    restart: unless-stopped
+    ports:
+      # Bind to loopback interface so reverse proxy (Caddy/Nginx) handles external traffic
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Persistent volume for SQLite WAL database and receipt photos
+      - settletable_data:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SETTLETABLE_DB_PATH=/data/settletable.sqlite
+      - SETTLETABLE_STORAGE_DIR=/data/receipt_photos
+      - SETTLETABLE_SERVER_ORIGIN=${SETTLETABLE_SERVER_ORIGIN:-http://localhost:8000}
+      - SETTLETABLE_ALLOWED_HOSTS=${SETTLETABLE_ALLOWED_HOSTS:-localhost:8000,127.0.0.1:8000,localhost,127.0.0.1}
+      - SETTLETABLE_ALLOW_SYNC_EXPORT=${SETTLETABLE_ALLOW_SYNC_EXPORT:-0}
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # Optional Caddy reverse proxy for automated Let's Encrypt TLS
+  # Enable with: docker compose --profile with-caddy up -d
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: settletable_caddy
+    restart: unless-stopped
+    profiles:
+      - with-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      settletable:
+        condition: service_healthy
+
+volumes:
+  settletable_data:
+    name: settletable_data
+  caddy_data:
+  caddy_config:

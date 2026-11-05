@@ -381,6 +381,10 @@ class SettleTableApp:
         if total_header_bytes > MAX_TOTAL_HEADERS_BYTES:
             raise TransportError('header_too_large', 431)
 
+        # Health check probe for container orchestrators and reverse proxies
+        if method == 'GET' and path in ('/healthz', '/api/healthz'):
+            return 200, self._default_headers(), serialize_json({'ok': True, 'status': 'healthy'})
+
         # 1. Host header validation
         host = environ.get('HTTP_HOST', '')
         if self.allowed_hosts and host not in self.allowed_hosts:
