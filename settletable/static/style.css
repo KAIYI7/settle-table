@@ -384,6 +384,15 @@ main {
   min-height: 28px;
 }
 
+@media (max-width: 768px) {
+  .room-home-link {
+    min-height: 44px;
+    padding: 8px 10px;
+    margin: -6px -8px;
+    touch-action: manipulation;
+  }
+}
+
 .room-home-link:hover,
 .room-home-link:focus-visible {
   color: #a5b4fc;
@@ -475,6 +484,7 @@ label {
 input[type="text"],
 input[type="number"],
 input[type="url"],
+input[type="password"],
 select,
 textarea {
   width: 100%;
@@ -644,6 +654,9 @@ button:active, .btn:active {
   border: 1px solid rgba(99, 102, 241, 0.3);
   padding: 2px 8px;
   border-radius: var(--radius-sm);
+  max-width: 100%;
+  white-space: normal;
+  word-break: break-word;
 }
 
 /* Item Claim Cards */
@@ -660,28 +673,108 @@ button:active, .btn:active {
   background-color: rgba(245, 158, 11, 0.05);
 }
 
+.item-card.is-complimentary,
+.hybrid-item-card.is-complimentary {
+  border-color: rgba(99, 102, 241, 0.4);
+  background-color: rgba(99, 102, 241, 0.03);
+}
+
 .item-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 8px;
   margin-bottom: 10px;
+}
+
+.item-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .item-label {
   font-size: 1.05rem;
   font-weight: 600;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .item-price {
   font-size: 1.05rem;
   font-weight: 700;
   color: #e2e8f0;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.item-card.is-complimentary .item-header,
+.hybrid-item-card.is-complimentary .item-header {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.item-card.is-complimentary .item-price,
+.hybrid-item-card.is-complimentary .item-price {
+  flex-shrink: 1;
+  max-width: 100%;
 }
 
 .item-meta {
   font-size: 0.85rem;
   color: var(--text-muted);
   margin-bottom: 10px;
+  overflow-wrap: break-word;
+}
+
+/* Receipt Review Item Rows */
+.review-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.review-item-label-group {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.review-item-price-group {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.review-item-row.is-complimentary {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.review-item-row.is-complimentary .review-item-price-group {
+  flex-shrink: 1;
+  max-width: 100%;
+}
+
+.review-confirm-label {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 10px;
+  text-transform: none;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.review-confirm-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
 }
 
 .progress-bar-wrap {

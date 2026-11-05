@@ -412,6 +412,28 @@ async function run() {
     if (!domCheck.riceHasPills) throw new Error('Chicken Rice missing allocation pills');
     console.log('   ✓ Complimentary item DOM correctly verified: badges present, allocation controls suppressed');
 
+    // Verify zero horizontal overflow on narrow mobile viewports (320px, 375px, 390px)
+    for (const testWidth of [320, 375, 390]) {
+      await page.setViewport(testWidth, 667);
+      await new Promise(r => setTimeout(r, 100));
+      const overflowCheck = await page.evaluate((vpW) => {
+        const docScrollWidth = document.documentElement.scrollWidth;
+        const compCard = document.querySelector('.hybrid-item-card.is-complimentary') || document.querySelector('.item-card.is-complimentary');
+        const badge = compCard?.querySelector('.complimentary-badge');
+        const badgeRect = badge?.getBoundingClientRect();
+        return {
+          vpW,
+          docScrollWidth,
+          badgeRight: badgeRect?.right,
+          hasOverflow: docScrollWidth > vpW || (badgeRect?.right || 0) > vpW,
+        };
+      }, testWidth);
+      if (overflowCheck.hasOverflow) {
+        throw new Error(`Complimentary item badge caused horizontal overflow at ${testWidth}px: ${JSON.stringify(overflowCheck)}`);
+      }
+    }
+    console.log('   ✓ Verified zero horizontal overflow across narrow mobile viewports (320px, 375px, 390px)');
+
     // [5/6] Allocate Paid Item & Finalize Meal Without Claiming Warm Water
     console.log('[5/6] Allocating paid item to Alice & finalizing without allocating Warm Water...');
     

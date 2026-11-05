@@ -45,3 +45,5 @@ jobs:
         run: node tools/verify_complimentary_items_flow.mjs
       - name: Context-aware workflow navigation and focus browser regression
         run: node tools/verify_context_aware_navigation.mjs
+      - name: Mobile UX audit remediation regression
+        run: node tools/verify_mobile_ux_remediation.mjs
