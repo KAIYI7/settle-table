@@ -1295,7 +1295,7 @@ input[type=number].ocr-edit-item-qty:focus {
 }
 
 .ocr-currency-prefix {
-  padding: 0 8px;
+  padding: 0 6px;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-muted);
@@ -1314,7 +1314,7 @@ input[type=number].ocr-edit-item-qty:focus {
   border: none;
   background: transparent;
   text-align: right;
-  padding: 0 8px;
+  padding: 0 6px;
   font-size: 0.95rem;
   color: var(--text-main);
   font-family: monospace;
@@ -1703,7 +1703,7 @@ input[type=number].ocr-edit-item-qty:focus {
   .ocr-adj-field-details {
     grid-area: details;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 95px;
+    grid-template-columns: minmax(0, 1fr) 118px;
     gap: 8px;
     width: 100%;
     align-items: center;
@@ -1719,7 +1719,7 @@ input[type=number].ocr-edit-item-qty:focus {
 
   .ocr-adj-field-amount .ocr-amount-wrapper {
     height: 44px;
-    width: 95px;
+    width: 118px;
   }
 }
 
@@ -1926,7 +1926,7 @@ input[type=number].ocr-edit-item-qty:focus {
   .ocr-adj-field-details {
     grid-area: details;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 95px;
+    grid-template-columns: minmax(0, 1fr) 118px;
     gap: 8px;
     width: 100%;
     align-items: center;
@@ -1940,7 +1940,7 @@ input[type=number].ocr-edit-item-qty:focus {
   }
   .ocr-adj-field-amount .ocr-amount-wrapper {
     height: 44px;
-    width: 95px;
+    width: 118px;
   }
 }
 

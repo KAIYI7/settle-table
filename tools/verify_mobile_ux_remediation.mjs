@@ -285,6 +285,115 @@ async function run() {
     await page.waitFor('state.snapshot?.receipt?.items?.length === 2');
     console.log('   ✓ Items added: long paid item and long complimentary item');
 
+    // 2b. Verify Monetary Amount Field Clipping in OCR Candidate Adjustments Editor across Mobile Viewports
+    console.log('\n[Stage 2b] Verifying OCR Candidate Monetary Amount Field Clipping Across Mobile Viewports (320, 375, 390, 430)...');
+    await page.evaluate(() => {
+      state.ocrCandidate = {
+        subtotal_sen: 5000,
+        total_sen: 4978,
+        tax_sen: 0,
+        included_tax_sen: 0,
+        items: [
+          { id: 'item_1', label: 'Wagyu Beef Ribeye', quantity: 1, line_sen: 5000, unit_sen: 5000 }
+        ],
+        adjustments: [
+          { id: 'adj_0', label: 'Cash Rounding (-0.01)', kind: 'rounding', amount_sen: -1, scope_mode: 'all_items' },
+          { id: 'adj_1', label: 'BNM Rounding (-0.02)', kind: 'rounding', amount_sen: -2, scope_mode: 'all_items' },
+          { id: 'adj_2', label: 'Voucher Discount (-1.23)', kind: 'discount', amount_sen: -123, scope_mode: 'all_items' },
+          { id: 'adj_3', label: 'Special Promo (-12.34)', kind: 'discount', amount_sen: -1234, scope_mode: 'all_items' },
+          { id: 'adj_4', label: 'Positive Fee (0.01)', kind: 'service', amount_sen: 1, scope_mode: 'all_items' }
+        ]
+      };
+      window.settletable.updateMealUI();
+    });
+    await page.waitFor('document.getElementById("ocr-candidate-card") !== null');
+
+    const mobileAmountViewports = [
+      { name: '320x568 (Small Phone)', width: 320, height: 568 },
+      { name: '375x667 (Standard Phone)', width: 375, height: 667 },
+      { name: '390x844 (Modern Phone / POCO F6 scale)', width: 390, height: 844 },
+      { name: '430x932 (Large Phone)', width: 430, height: 932 },
+    ];
+
+    for (const vp of mobileAmountViewports) {
+      await page.setViewport(vp.width, vp.height);
+      await new Promise(r => setTimeout(r, 150));
+
+      const ocrAmountMetrics = await page.evaluate((targetWidth) => {
+        const docScrollWidth = document.documentElement.scrollWidth;
+        const rows = document.querySelectorAll('.ocr-cand-adj-row');
+        const results = [];
+
+        rows.forEach((row, idx) => {
+          const wrapper = row.querySelector('.ocr-adj-field-amount .ocr-amount-wrapper');
+          const prefix = wrapper?.querySelector('.ocr-currency-prefix');
+          const input = wrapper?.querySelector('input');
+          const kindSelect = row.querySelector('.ocr-adj-field-kind select');
+
+          const wRect = wrapper?.getBoundingClientRect();
+          const pRect = prefix?.getBoundingClientRect();
+          const iRect = input?.getBoundingClientRect();
+          const kRect = kindSelect?.getBoundingClientRect();
+
+          const clientW = input?.clientWidth || 0;
+          const scrollW = input?.scrollWidth || 0;
+          const value = input?.value || '';
+
+          results.push({
+            idx,
+            value,
+            wrapperWidth: wRect?.width || 0,
+            wrapperHeight: wRect?.height || 0,
+            prefixRight: pRect?.right || 0,
+            inputLeft: iRect?.left || 0,
+            clientW,
+            scrollW,
+            isClipped: scrollW > clientW,
+            selectWidth: kRect?.width || 0,
+          });
+        });
+
+        return { docScrollWidth, targetWidth, results };
+      }, vp.width);
+
+      if (ocrAmountMetrics.docScrollWidth > vp.width) {
+        throw new Error(`Horizontal overflow at ${vp.name}: docScrollWidth=${ocrAmountMetrics.docScrollWidth}px > target=${vp.width}px`);
+      }
+
+      for (const res of ocrAmountMetrics.results) {
+        if (res.isClipped) {
+          throw new Error(`Amount clipping detected at ${vp.name} for value "${res.value}": scrollWidth (${res.scrollW}px) > clientWidth (${res.clientW}px)`);
+        }
+        if (res.wrapperWidth < 115) {
+          throw new Error(`Amount wrapper width too narrow at ${vp.name}: got ${res.wrapperWidth}px, expected >= 115px`);
+        }
+        if (res.prefixRight > res.inputLeft + 1) {
+          throw new Error(`Prefix overlaps input at ${vp.name}: prefixRight=${res.prefixRight}px, inputLeft=${res.inputLeft}px`);
+        }
+        if (vp.width === 320 && res.selectWidth < 95) {
+          throw new Error(`Type select width too narrow at 320px: got ${res.selectWidth}px, expected >= 95px`);
+        }
+        if (vp.width >= 375 && res.selectWidth < 140) {
+          throw new Error(`Type select width too narrow at ${vp.name}: got ${res.selectWidth}px, expected >= 140px`);
+        }
+      }
+
+      console.log(`   ✓ ${vp.name}: All 5 monetary values fully visible (clientW=${ocrAmountMetrics.results[0].clientW}px >= 66px), selectWidth=${ocrAmountMetrics.results[0].selectWidth.toFixed(1)}px, docScrollWidth=${ocrAmountMetrics.docScrollWidth}px`);
+
+      if (vp.width === 375) {
+        await maybeCaptureScreenshot(page, 'after_mobile_amount_clipping_375.png');
+      } else if (vp.width === 390) {
+        await maybeCaptureScreenshot(page, 'after_mobile_amount_clipping_390.png');
+      }
+    }
+
+    // Clean up staged OCR candidate before continuing normal room flow
+    await page.evaluate(() => {
+      state.ocrCandidate = null;
+      window.settletable.updateMealUI();
+    });
+    console.log('   ✓ Mobile monetary amount field clipping verified: complete visibility without clipping or page overflow');
+
     // 3. Verify P3: Room Home Breadcrumb & Receipt Review Checkbox Touch Targets
     console.log('\n[Stage 3] Verifying P3 Touch Targets (Home link & Review Checkbox)...');
     await page.setViewport(375, 667);
