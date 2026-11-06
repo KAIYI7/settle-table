@@ -175,8 +175,6 @@ def run_smoke_checks(base_url: str):
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "X-SettleTable-Action": "1",
-                "Origin": base_url,
             },
             method="POST",
         )

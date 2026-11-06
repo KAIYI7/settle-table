@@ -1,7 +1,7 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 12,
-  "staged_bytes_excluding_report": 719719,
+  "staged_files": 3,
+  "staged_bytes_excluding_report": 81352,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 332,
   "untracked_files": 0,
@@ -10,59 +10,14 @@
   "findings": [],
   "files": [
     {
-      "path": "PROJECT_STATUS.md",
-      "bytes": 128210,
-      "sha256": "2f0b50d9fa95a2d5a52d7d7f07d762b765852b6d90b1beb6e568b9efa5ff6627"
-    },
-    {
-      "path": "README.md",
-      "bytes": 17973,
-      "sha256": "b1d8f352750090153c153dfb57787ac2d9d9ce2589a40145b0c8351e9d97a1c7"
-    },
-    {
-      "path": "docs/agents/phase-transitions.md",
-      "bytes": 134420,
-      "sha256": "dd93ea7125ea8779dd48456a2fff4b89e90dea1165cbd320c3f61706dd049a30"
-    },
-    {
-      "path": "docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md",
-      "bytes": 26560,
-      "sha256": "d96c42aa5fbbaf60f74eae018c537b83cf80ea49a86541c468814ca6acc06be2"
-    },
-    {
-      "path": "settletable/static/app.js",
-      "bytes": 224236,
-      "sha256": "1c855f3b4e6fd19331842066b4f40fe637cbd630a40199bc711928d5ee2f3e7d"
-    },
-    {
       "path": "settletable/transport.py",
-      "bytes": 72425,
-      "sha256": "fdd21520b1b1c37afeeb4451e76ddf161a2c9b9cb4e7aef729daf0b4cba66238"
-    },
-    {
-      "path": "tests/test_backup_restore.py",
-      "bytes": 11779,
-      "sha256": "07498c33245d531c4037c40d4b5df6d0d5ac18abb483e2801d7b81e97a4f27c5"
-    },
-    {
-      "path": "tests/test_transport.py",
-      "bytes": 62865,
-      "sha256": "7e8b4168a38f3e668ecd478c50285ad42b037d22904f96d842cfa1d02c839c5f"
-    },
-    {
-      "path": "tools/backup_restore.py",
-      "bytes": 25245,
-      "sha256": "a34c5238b08af8f474820188fa8396c359300aa55b613265f79b64291ba7ca9c"
-    },
-    {
-      "path": "tools/bootstrap_meal.py",
-      "bytes": 7307,
-      "sha256": "ad2a83709797bbc2d723f57a81111754e07d85ebc474ff711d626c8dececf9fd"
+      "bytes": 72734,
+      "sha256": "eecb3434c5fc30c73a028eee32205b7ae61b464c993e5785ad5edbd19808ba6b"
     },
     {
       "path": "tools/deployment_smoke_check.py",
-      "bytes": 8699,
-      "sha256": "8013d14ffe54d5e5a7c99876dee06008ab7fc25200d54c9ddfa93c935bff278b"
+      "bytes": 8618,
+      "sha256": "4b62d3dd53f21be491bb371aa74fb67737caef2aafb78ff5b1a883169bcdfcf7"
     }
   ]
 }

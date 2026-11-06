@@ -446,7 +446,10 @@ class SettleTableApp:
         used_cookie = bool(cookie_cred)
 
         # 3. CSRF & Action check on mutating requests (POST, DELETE)
-        if method in ('POST', 'DELETE'):
+        # Note: POST /api/organizer-claims/inspect is an unauthenticated, read-only query
+        # using POST solely to keep the claim token in the request body rather than the URL line.
+        is_read_only_post = bool(method == 'POST' and path == '/api/organizer-claims/inspect')
+        if method in ('POST', 'DELETE') and not is_read_only_post:
             # Missing or chunked body check
             cl_header = environ.get('CONTENT_LENGTH')
             te_header = environ.get('HTTP_TRANSFER_ENCODING')
