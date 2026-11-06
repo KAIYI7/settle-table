@@ -167,6 +167,25 @@ def run_smoke_checks(base_url: str):
             assert data.get("ok") is True and data.get("valid") is False, f"Unexpected response: {data}"
     t("10. GET /api/organizer-claims/{token} inspection returns valid=false for non-existent token", check_claim_inspection)
 
+    # 11. Clean POST organizer claim inspection (token in body to avoid URL path logging)
+    def check_clean_claim_inspection():
+        body = json.dumps({"claim_token": "abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE"}).encode("utf-8")
+        req = Request(
+            f"{base_url}/api/organizer-claims/inspect",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-SettleTable-Action": "1",
+                "Origin": base_url,
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200, f"Expected 200, got {resp.status}"
+            data = json.loads(resp.read().decode("utf-8"))
+            assert data.get("ok") is True and data.get("valid") is False, f"Unexpected response: {data}"
+    t("11. POST /api/organizer-claims/inspect returns valid=false with token in JSON body", check_clean_claim_inspection)
+
     print(f"\nResults: {passed}/{total} smoke checks passed.")
     if passed == total:
         print("[SUCCESS] All deployment smoke checks verified successfully!\n")

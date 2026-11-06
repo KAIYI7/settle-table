@@ -1203,7 +1203,14 @@ async function renderOrganizerClaimLanding(token) {
   `;
 
   try {
-    const inspection = await apiCall(`/api/organizer-claims/${token}`);
+    // Send token in request body to POST /api/organizer-claims/inspect to prevent token exposure in access logs
+    let inspection;
+    try {
+      inspection = await apiCall('/api/organizer-claims/inspect', 'POST', { claim_token: token });
+    } catch {
+      // Fallback to legacy GET if inspect POST fails
+      inspection = await apiCall(`/api/organizer-claims/${token}`);
+    }
     if (!inspection?.ok || !inspection.valid) {
       const reasonMap = {
         expired: 'This organizer setup / recovery link has expired.',
@@ -1254,7 +1261,13 @@ async function renderOrganizerClaimLanding(token) {
       btn.disabled = true;
       btn.textContent = 'Activating session...';
       try {
-        const res = await apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/${token}/claim`, 'POST', {});
+        // Send token in request body to prevent URL logging in reverse proxy / Gunicorn access logs
+        let res;
+        try {
+          res = await apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/claim`, 'POST', { claim_token: token });
+        } catch {
+          res = await apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/${token}/claim`, 'POST', {});
+        }
         if (res?.ok) {
           window.history.replaceState(null, '', `/#/meal/${inspection.meal_id}`);
           loadMeal(inspection.meal_id);

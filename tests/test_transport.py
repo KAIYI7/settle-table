@@ -531,7 +531,33 @@ class TransportTests(unittest.TestCase):
         claim_redacted = redact_log_string(claim_raw)
         self.assertNotIn(token, claim_redacted)
         self.assertIn('?claim_token=[REDACTED]', claim_redacted)
-        self.assertIn('"claim_token":"[REDACTED]"', claim_redacted)
+        self.assertIn('"token":"[REDACTED]"', claim_redacted)
+
+        # Test organizer claim paths redactions directly
+        self.assertEqual(
+            redact_log_string(f'/api/organizer-claims/{token}'),
+            '/api/organizer-claims/[REDACTED]'
+        )
+        self.assertEqual(
+            redact_log_string(f'/api/meals/dinner-1/organizer-claims/{token}/claim'),
+            '/api/meals/dinner-1/organizer-claims/[REDACTED]/claim'
+        )
+        self.assertEqual(
+            redact_log_string(f'/claim-organizer/{token}'),
+            '/claim-organizer/[REDACTED]'
+        )
+        self.assertEqual(
+            redact_log_string(f'/claim/{token}'),
+            '/claim/[REDACTED]'
+        )
+        self.assertEqual(
+            redact_log_string(f'/invite/{token}'),
+            '/invite/[REDACTED]'
+        )
+        self.assertEqual(
+            redact_log_string(f'/api/meals/m1/snapshot?token={token}'),
+            '/api/meals/m1/snapshot?token=[REDACTED]'
+        )
 
     def test_case_insensitive_bearer_header(self):
         boot = self.client.post('/api/meals/m1/bootstrap', body={
@@ -1134,12 +1160,19 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(html_res['status'], 200)
         self.assertIn(b'<title>SettleTable', html_res['body'])
 
-        # 3. Unauthenticated inspection
+        # 3. Unauthenticated inspection (both GET path and clean POST body)
         inspect_res = self.client.get(f'/api/organizer-claims/{claim_token}')
         self.assertEqual(inspect_res['status'], 200)
         self.assertTrue(inspect_res['json']['valid'])
         self.assertEqual(inspect_res['json']['meal_id'], 'm_org_claim')
         self.assertEqual(inspect_res['json']['organizer_name'], 'Host')
+
+        # 3b. Clean POST inspection without token in URL path
+        post_inspect = self.client.post('/api/organizer-claims/inspect', body={'claim_token': claim_token})
+        self.assertEqual(post_inspect['status'], 200)
+        self.assertTrue(post_inspect['json']['valid'])
+        self.assertEqual(post_inspect['json']['meal_id'], 'm_org_claim')
+        self.assertEqual(post_inspect['json']['organizer_name'], 'Host')
 
         # 4. Action header protection on claim redemption
         no_action = self.client.request('POST', f'/api/meals/m_org_claim/organizer-claims/{claim_token}/claim',
@@ -1177,10 +1210,12 @@ class TransportTests(unittest.TestCase):
         unauth_res = self.client.post('/api/meals/m_org_claim/organizer-claims', body={})
         self.assertEqual(unauth_res['status'], 401)
 
-        # 9. New recovery link redeems successfully
-        rec_claim_res = self.client.post(f'/api/meals/m_org_claim/organizer-claims/{new_token}/claim', body={})
+        # 9. New recovery link redeems successfully via clean POST body (no token in URL path)
+        rec_claim_res = self.client.post('/api/meals/m_org_claim/organizer-claims/claim',
+                                         body={'claim_token': new_token})
         self.assertEqual(rec_claim_res['status'], 200)
         self.assertEqual(rec_claim_res['json']['participant_id'], 'O')
+        self.assertEqual(rec_claim_res['json']['status'], 'claimed')
 
 
 

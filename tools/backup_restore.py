@@ -12,7 +12,11 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import subprocess
 import sys
+import urllib.error
+import urllib.request
+import uuid
 
 # Ensure repository root is in path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -29,27 +33,95 @@ def compute_sha256(filepath: Path) -> str:
     return h.hexdigest()
 
 
-def check_database_unlocked(db_path: Path):
-    """Verify that no active process holds a write lock on the target database."""
-    if not db_path.exists():
-        return
-    test_conn = None
-    try:
-        test_conn = sqlite3.connect(db_path, timeout=0.1)
-        test_conn.execute("PRAGMA busy_timeout=100;")
-        test_conn.execute("BEGIN IMMEDIATE;")
-        test_conn.execute("ROLLBACK;")
-    except sqlite3.OperationalError as e:
+def check_restore_safety(
+    db_path: Path,
+    *,
+    confirm_stopped: bool = False,
+    check_url: str | None = "http://127.0.0.1:8000/healthz",
+    check_docker: bool = True,
+):
+    """Enforce the restore safety contract.
+
+    Restoring a database over an active, running application can cause split-brain
+    WAL desynchronization or file locking errors. Because an idle SQLite connection
+    in WAL mode does not hold an active writer lock, testing SQLite locks alone
+    CANNOT prove that the application process or container is inactive.
+
+    The primary safety invariant is an explicitly stopped application container.
+    This check verifies:
+    1. The operator provided explicit confirmation that the application is stopped (--confirm-stopped).
+    2. Probing the local application health endpoint (if accessible) confirms no server is actively listening.
+    3. Docker CLI inspection (if available) confirms the SettleTable container is not running.
+    4. SQLite exclusive locking confirms no transaction or lock is currently active on disk.
+    """
+    if not confirm_stopped:
         raise RuntimeError(
-            f"Target database '{db_path.name}' is currently locked by a running process: {e}. "
-            "Stop the application container before restoring to prevent database corruption."
-        ) from None
-    finally:
-        if test_conn:
-            try:
-                test_conn.close()
-            except Exception:
-                pass
+            "Restoration safety violation: SettleTable must be stopped prior to restoring data.\n"
+            "Stop the application container ('docker compose down' or 'docker stop settletable_app')\n"
+            "and pass '--confirm-stopped' to proceed."
+        )
+
+    # 1. Probe local health endpoint if configured
+    if check_url:
+        try:
+            req = urllib.request.Request(check_url, headers={"User-Agent": "settletable-restore-check"})
+            with urllib.request.urlopen(req, timeout=0.5) as resp:
+                if resp.status == 200:
+                    raise RuntimeError(
+                        f"Active application detected: server responded with HTTP 200 at '{check_url}'.\n"
+                        "Restoration aborted. Stop the application container before restoring."
+                    )
+        except urllib.error.URLError:
+            pass
+        except TimeoutError:
+            pass
+        except OSError:
+            pass
+
+    # 2. Check Docker container status if docker command is available
+    if check_docker and shutil.which("docker"):
+        try:
+            res = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", "settletable_app"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+            )
+            if res.returncode == 0 and res.stdout.strip() == "true":
+                raise RuntimeError(
+                    "Docker container 'settletable_app' is currently running.\n"
+                    "Restoration aborted. Run 'docker stop settletable_app' or 'docker compose down' before restoring."
+                )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+    # 3. Check SQLite database lock if file exists on disk
+    if db_path.exists():
+        test_conn = None
+        try:
+            test_conn = sqlite3.connect(db_path, timeout=0.1)
+            test_conn.execute("PRAGMA busy_timeout=100;")
+            test_conn.execute("PRAGMA locking_mode=EXCLUSIVE;")
+            test_conn.execute("BEGIN EXCLUSIVE;")
+            test_conn.execute("ROLLBACK;")
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() or "busy" in str(e).lower():
+                raise RuntimeError(
+                    f"Target database '{db_path.name}' is currently locked by a running process: {e}.\n"
+                    "Stop the application container before restoring to prevent database corruption."
+                ) from None
+        except sqlite3.DatabaseError:
+            pass  # File is not a valid SQLite database or is empty; not locked by SQLite engine
+        finally:
+            if test_conn:
+                try:
+                    test_conn.close()
+                except Exception:
+                    pass
+
+
+# Alias for backwards compatibility
+check_database_unlocked = check_restore_safety
 
 
 def perform_quiescent_backup(src_db: Path, src_photos: Path, out_dir: Path) -> Path:
@@ -200,8 +272,35 @@ def perform_quiescent_backup(src_db: Path, src_photos: Path, out_dir: Path) -> P
                 pass
 
 
-def perform_verified_restore(manifest_path: Path, dest_db: Path, dest_photos: Path) -> dict:
-    """Restore database and receipt photos with strict cross-verification and process locking checks."""
+def perform_verified_restore(
+    manifest_path: Path,
+    dest_db: Path,
+    dest_photos: Path,
+    *,
+    confirm_stopped: bool = False,
+    check_url: str | None = "http://127.0.0.1:8000/healthz",
+    check_docker: bool = True,
+    keep_backup: bool = True,
+) -> dict:
+    """Restore database and receipt photos using a verified staged cutover.
+
+    Guarantees:
+    - Pre-flight validation checks manifest, backup database integrity, photo checksums,
+      and lack of extraneous files before touching the destination.
+    - Staged preparation happens in an isolated staging directory on the destination volume.
+    - Previous destination data is safely archived before cutover.
+    - Post-cutover destination integrity is verified; if validation fails, destination
+      is automatically rolled back from the archive.
+    - Old destination receipt photos not in the backup are cleanly archived and do not
+      pollute the restored state.
+
+    Filesystem Multi-Path Atomicity Note:
+    Individual file rename/replace (os.replace) is atomic within the same filesystem volume.
+    However, replacing both a database file and an entire photo directory across multiple
+    filesystem paths cannot be fully atomic across crashes without filesystem-level transactions.
+    SettleTable mitigates this by staging all files first and verifying post-cutover integrity
+    with automated rollback.
+    """
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
 
@@ -214,10 +313,15 @@ def perform_verified_restore(manifest_path: Path, dest_db: Path, dest_photos: Pa
 
     backup_photos_dir = manifest_dir / manifest["receipt_photos_dir"]
 
-    # 1. Active process lock defense: refuse to restore if destination DB is in use
-    check_database_unlocked(dest_db)
+    # 1. Enforce restore safety contract
+    check_restore_safety(
+        dest_db,
+        confirm_stopped=confirm_stopped,
+        check_url=check_url,
+        check_docker=check_docker,
+    )
 
-    # 2. Verify backup database file integrity & checksum
+    # 2. Pre-flight verification of backup database
     actual_db_sha = compute_sha256(backup_db)
     if actual_db_sha != manifest["database"]["sha256"]:
         raise ValueError(
@@ -230,7 +334,7 @@ def perform_verified_restore(manifest_path: Path, dest_db: Path, dest_photos: Pa
     if not res or res[0] != "ok":
         raise RuntimeError(f"Backup database PRAGMA integrity_check failed: {res}")
 
-    # 3. Verify photo files in backup against manifest
+    # 3. Pre-flight verification of backup photos
     raw_photos = manifest.get("photos", {})
     verified_photos = {}
     for filename, meta in raw_photos.items():
@@ -243,7 +347,15 @@ def perform_verified_restore(manifest_path: Path, dest_db: Path, dest_photos: Pa
             raise ValueError(f"Receipt photo '{filename}' checksum mismatch in backup!")
         verified_photos[filename] = actual_photo_sha
 
-    # 4. Verify backup database photo records match manifest
+    # Verify no extraneous files exist in backup photos directory
+    if backup_photos_dir.exists():
+        for p in backup_photos_dir.iterdir():
+            if p.is_file() and p.name not in verified_photos:
+                raise ValueError(
+                    f"Extraneous receipt photo '{p.name}' in backup directory is not recorded in manifest!"
+                )
+
+    # Cross-verify database photo table against manifest
     db_conn = sqlite3.connect(backup_db)
     has_photo_table = db_conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='receipt_photos';"
@@ -254,39 +366,135 @@ def perform_verified_restore(manifest_path: Path, dest_db: Path, dest_photos: Pa
             if fn not in verified_photos or verified_photos[fn] != db_sha:
                 db_conn.close()
                 raise ValueError(f"Database photo record '{fn}' does not match backup photos on disk!")
+        if len(db_rows) != len(verified_photos):
+            db_conn.close()
+            raise ValueError("Count of photo records in database does not match manifest photos!")
     db_conn.close()
 
-    # 5. Restore SQLite database (clear WAL sidecars first to prevent corruption)
+    # 4. Prepare staged restore in an isolated temporary staging directory on the destination volume
     dest_db.parent.mkdir(parents=True, exist_ok=True)
-    for sidecar in (dest_db.with_suffix(".sqlite-wal"), dest_db.with_suffix(".sqlite-shm")):
-        if sidecar.exists():
-            sidecar.unlink()
-    shutil.copy2(backup_db, dest_db)
+    dest_photos.parent.mkdir(parents=True, exist_ok=True)
 
-    # Verify restored database integrity on destination disk
-    dest_check = sqlite3.connect(dest_db)
-    dest_res = dest_check.execute("PRAGMA integrity_check;").fetchone()
-    dest_check.close()
-    if not dest_res or dest_res[0] != "ok":
-        raise RuntimeError(f"Restored database failed integrity check: {dest_res}")
+    restore_id = uuid.uuid4().hex[:8]
+    staging_dir = dest_db.parent / f".restore_staging_{restore_id}"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    staged_db = staging_dir / dest_db.name
+    staged_photos = staging_dir / dest_photos.name
+    staged_photos.mkdir(parents=True, exist_ok=True)
 
-    # 6. Restore receipt photos
-    dest_photos.mkdir(parents=True, exist_ok=True)
-    restored_count = 0
-    if backup_photos_dir.exists():
-        for p in backup_photos_dir.iterdir():
-            if p.is_file():
-                dest_file = dest_photos / p.name
-                shutil.copy2(p, dest_file)
-                restored_count += 1
+    archive_dir = dest_db.parent / f".pre_restore_archive_{restore_id}"
 
-    return {
-        "status": "ok",
-        "restored_db": str(dest_db),
-        "db_sha256": actual_db_sha,
-        "restored_photos_count": restored_count,
-        "restored_photos_dir": str(dest_photos),
-    }
+    try:
+        # Copy to staging
+        shutil.copy2(backup_db, staged_db)
+        for fn in verified_photos:
+            shutil.copy2(backup_photos_dir / fn, staged_photos / fn)
+
+        # Re-verify staged database
+        staged_db_sha = compute_sha256(staged_db)
+        if staged_db_sha != actual_db_sha:
+            raise RuntimeError("Staged database checksum failed verification!")
+        staged_check = sqlite3.connect(staged_db)
+        staged_res = staged_check.execute("PRAGMA integrity_check;").fetchone()
+        staged_check.close()
+        if not staged_res or staged_res[0] != "ok":
+            raise RuntimeError(f"Staged database failed integrity check: {staged_res}")
+
+        # Re-verify staged photos
+        for fn, exp_sha in verified_photos.items():
+            sp = staged_photos / fn
+            if not sp.exists() or compute_sha256(sp) != exp_sha:
+                raise RuntimeError(f"Staged photo '{fn}' failed verification!")
+
+        # 5. Quarantine previous destination data (to allow rollback if cutover fails)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archived_db = False
+        archived_photos = False
+
+        if dest_db.exists():
+            shutil.move(str(dest_db), str(archive_dir / dest_db.name))
+            archived_db = True
+        # Clean any stale WAL sidecars
+        for sidecar in (dest_db.with_suffix(".sqlite-wal"), dest_db.with_suffix(".sqlite-shm")):
+            if sidecar.exists():
+                shutil.move(str(sidecar), str(archive_dir / sidecar.name))
+
+        if dest_photos.exists():
+            shutil.move(str(dest_photos), str(archive_dir / dest_photos.name))
+            archived_photos = True
+
+        # 6. Controlled Cutover
+        try:
+            # Move staged DB to dest_db
+            shutil.move(str(staged_db), str(dest_db))
+            # Move staged photos to dest_photos
+            shutil.move(str(staged_photos), str(dest_photos))
+
+            # 7. Post-cutover validation at final destination
+            if not dest_db.exists() or compute_sha256(dest_db) != actual_db_sha:
+                raise RuntimeError("Post-cutover destination database checksum mismatch!")
+            dest_conn = sqlite3.connect(dest_db)
+            dest_res = dest_conn.execute("PRAGMA integrity_check;").fetchone()
+            dest_conn.close()
+            if not dest_res or dest_res[0] != "ok":
+                raise RuntimeError(f"Post-cutover database failed integrity check: {dest_res}")
+
+            for fn, exp_sha in verified_photos.items():
+                dp = dest_photos / fn
+                if not dp.exists() or compute_sha256(dp) != exp_sha:
+                    raise RuntimeError(f"Post-cutover photo '{fn}' missing or corrupted!")
+
+            dest_photo_count = sum(1 for p in dest_photos.iterdir() if p.is_file())
+            if dest_photo_count != len(verified_photos):
+                raise RuntimeError(
+                    f"Post-cutover photo count mismatch: expected {len(verified_photos)}, found {dest_photo_count}"
+                )
+
+        except Exception as cutover_err:
+            # Automated Rollback to previous destination state!
+            if dest_db.exists():
+                try: dest_db.unlink()
+                except OSError: pass
+            if dest_photos.exists():
+                try: shutil.rmtree(dest_photos)
+                except OSError: pass
+
+            if archived_db and (archive_dir / dest_db.name).exists():
+                shutil.move(str(archive_dir / dest_db.name), str(dest_db))
+            for sidecar in (dest_db.with_suffix(".sqlite-wal"), dest_db.with_suffix(".sqlite-shm")):
+                archived_sc = archive_dir / sidecar.name
+                if archived_sc.exists():
+                    shutil.move(str(archived_sc), str(sidecar))
+            if archived_photos and (archive_dir / dest_photos.name).exists():
+                shutil.move(str(archive_dir / dest_photos.name), str(dest_photos))
+
+            raise RuntimeError(
+                f"Cutover failed: {cutover_err}. Destination rolled back to previous dataset."
+            ) from cutover_err
+
+        # Cutover succeeded: handle archive directory
+        archived_backup_path = None
+        if archived_db or archived_photos:
+            if keep_backup:
+                archived_backup_path = dest_db.parent / f"{dest_db.stem}.pre_restore_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%SZ')}.bak"
+                if archive_dir.exists():
+                    shutil.move(str(archive_dir), str(archived_backup_path))
+            else:
+                shutil.rmtree(archive_dir, ignore_errors=True)
+
+        return {
+            "status": "ok",
+            "restored_db": str(dest_db),
+            "db_sha256": actual_db_sha,
+            "restored_photos_count": len(verified_photos),
+            "restored_photos_dir": str(dest_photos),
+            "previous_dataset_archive": str(archived_backup_path) if archived_backup_path else None,
+        }
+
+    finally:
+        # Clean up staging directory
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def backup_command(args):
@@ -322,11 +530,23 @@ def restore_command(args):
     print(f"Restore Target: {dest_db}")
     print(f"Photos Target:  {dest_photos}")
 
+    check_url = None if args.skip_health_check else args.check_url
+
     try:
-        res = perform_verified_restore(manifest_path, dest_db, dest_photos)
+        res = perform_verified_restore(
+            manifest_path,
+            dest_db,
+            dest_photos,
+            confirm_stopped=args.confirm_stopped,
+            check_url=check_url,
+            check_docker=not args.skip_docker_check,
+            keep_backup=not args.no_backup,
+        )
         print("\n[OK] Database and receipt photos verified and restored.")
         print(f"  Restored DB:      {res['restored_db']} (SHA-256: {res['db_sha256'][:16]}...)")
         print(f"  Restored Photos:  {res['restored_photos_count']} files in {res['restored_photos_dir']}")
+        if res.get("previous_dataset_archive"):
+            print(f"  Previous Archive: {res['previous_dataset_archive']}")
         print("\n[SUCCESS] Restoration completed successfully.")
     except Exception as e:
         print(f"\n[ERROR] Restoration failed: {e}", file=sys.stderr)
@@ -348,6 +568,16 @@ def main():
     restore_parser.add_argument("--manifest", required=True, help="Path to backup manifest.json")
     restore_parser.add_argument("--dest-db", default=".local/settletable.sqlite", help="Destination path for restored database")
     restore_parser.add_argument("--dest-photos", default=None, help="Destination directory for receipt photos")
+    restore_parser.add_argument("--confirm-stopped", action="store_true",
+                                help="Confirm that the SettleTable application container has been stopped before restoring")
+    restore_parser.add_argument("--check-url", default="http://127.0.0.1:8000/healthz",
+                                help="Health URL to check for active application (default: http://127.0.0.1:8000/healthz)")
+    restore_parser.add_argument("--skip-health-check", action="store_true",
+                                help="Skip probing the local application health endpoint")
+    restore_parser.add_argument("--skip-docker-check", action="store_true",
+                                help="Skip checking docker container status")
+    restore_parser.add_argument("--no-backup", action="store_true",
+                                help="Do not retain a backup copy of previous destination data")
 
     args = parser.parse_args()
     if args.command == "backup":

@@ -43,9 +43,9 @@ def run_bootstrap(meal_id: str, organizer_name: str, diners_str: str, db_path: P
         print(f" Organizer:     {organizer_name} (ID: {org_session.participant_id})")
 
         if res.organizer_claim:
-            print(f"\n Organizer Browser Setup Link (Single-Use):")
+            print(f"\n Organizer Browser Setup Link (Single-Use, contains ephemeral claim secret):")
             print(f"   {origin}/#/claim-organizer/{res.organizer_claim.token}")
-            print("   (Open this link in your browser to activate your organizer session)")
+            print("   (Open this link once in your browser to activate your organizer session)")
 
         # Pre-generate invitations for predeclared diners
         if len(participants) > 1:
@@ -79,9 +79,9 @@ def run_recover(meal_id: str, db_path: Path, origin: str, claim_ttl: int = 60480
         print(f" Meal ID:       {meal_id}")
         print(f" Database:      {db_path}")
         print(f" Organizer:     {inspection.organizer_name or 'Organizer'} (ID: {inspection.organizer_id or 'O'})")
-        print(f"\n Organizer Recovery Link (Single-Use, Valid for {claim_ttl // 86400} days):")
+        print(f"\n Organizer Recovery Link (Single-Use, contains ephemeral claim secret; valid for {claim_ttl // 86400} days):")
         print(f"   {origin}/#/claim-organizer/{grant.token}")
-        print("   (Open this link in your browser to restore organizer access)")
+        print("   (Open this link once in your browser to restore organizer access)")
         print("=" * 65 + "\n")
     finally:
         authority.close()
