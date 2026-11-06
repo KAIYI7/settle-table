@@ -1,5 +1,20 @@
 # Phase transition decisions
 
+## 2026-11-06 — Low-Cost Mostly-Available Deployment Strategy Revision Checkpoint
+
+**Orchestrator decision: REVISED / HARDENING REQUIRED.** Following Product Owner directive, deployment strategy is pivoted to low-cost, mostly-available Windows self-hosting (RM0/month target) with tunneling. Commercial cloud hosting (Fly.io, Hetzner, Railway) deferred.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 296/296 Python unit tests passed; all 9 browser CDP regression test suites passed; local runner operational. |
+| Gate 2: Restricted Online Deployment Pilot (`v0.9.0-beta.1`) | **BLOCKED / HARDENING REQUIRED**: Reassessed from "implementation-ready". P1 hardening backlog must be resolved prior to pilot authorization: (1) Organizer browser claim mechanism; (2) Session TTL alignment in `Authority.bootstrap`; (3) Quiescent backup protocol & restore verification; (4) Dockerfile syntax and model caching fixes; (5) Product Owner selection of access gateway (Tailscale Funnel vs Cloudflare Named Tunnel). |
+| Gate 3: Publicly Reachable Application | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) and explicit Product Owner authorization for public traffic. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Access Architecture Assessment | **PRIMARY A (If Domain Approved/Owned)**: Cloudflare Named Tunnel + Cloudflare Access.<br>**PRIMARY B (Strict RM0 / No Domain Spend)**: Tailscale Funnel (`*.ts.net`).<br>**FALLBACK**: ngrok Free (1 GB/mo bandwidth cap). |
+| Readiness Claim Correction | **CORRECTED**: Documentation claims regarding 7-day session TTL and "atomic hot backup" corrected to reflect actual codebase constraints (`session_ttl=3600` default and sequential photo sync). |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-05 — MVP Release & Deployment Preparation Checkpoint
 
 **Orchestrator decision: PASS / VERIFIED.** Release plan established in `docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md`. Packaging, containerization, ingress templates, hot backup/restore utilities, and repository presentation verified.
