@@ -36,10 +36,11 @@ services:
   # Optional Cloudflare Named Tunnel connector (remotely managed via token)
   # Recommended for self-hosted MVP deployments behind custom domain.
   # Reaches settletable container on the shared Compose network at http://settletable:8000.
-  # Pinned to tested stable release 2026.10.7 for reproducibility.
+  # Pinned by semantic release tag and multi-arch manifest list digest for immutable reproducibility:
+  # Digest sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba covers both linux/amd64 and linux/arm64.
   # Enable with: docker compose --profile with-cloudflared up -d
   cloudflared:
-    image: cloudflare/cloudflared:2026.10.7
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
     container_name: settletable_tunnel
     restart: unless-stopped
     profiles:

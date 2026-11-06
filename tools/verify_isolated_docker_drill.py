@@ -15,7 +15,11 @@ import tempfile
 import uuid
 
 
+recorded_invocations = []
+
+
 def run_cmd(cmd, desc=""):
+    recorded_invocations.append(cmd)
     print(f"  * {desc} ... ", end="", flush=True)
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
@@ -55,6 +59,18 @@ def main():
         run_cmd(["docker", "volume", "create", src_volume], "Create isolated source volume")
         run_cmd(["docker", "volume", "create", dest_volume], "Create isolated destination volume")
 
+        # 1b. Verify destination volume contains zero user data or files prior to restore
+        check_empty_script = """
+from pathlib import Path
+data_dir = Path('/data')
+files = [p.relative_to(data_dir).as_posix() for p in data_dir.glob('**/*') if p.is_file()]
+assert len(files) == 0, f"Destination volume contained existing files prior to restore: {files}"
+"""
+        run_cmd(
+            ["docker", "run", "--rm", "-v", f"{dest_volume}:/data", image_tag, "python", "-c", check_empty_script],
+            "Verify destination volume is clean and empty prior to restore",
+        )
+
         # 2. Seed synthetic meal and receipt photo in source volume
         seed_script = f"""
 from pathlib import Path
@@ -84,6 +100,7 @@ print("Seeding successful:", meta['filename'])
             "Seed synthetic meal and receipt photo into source volume",
         )
         org_cred = [line.split(":", 1)[1].strip() for line in seed_out.splitlines() if line.startswith("ORG_CRED:")][0]
+        seeded_photo_filename = [line.split(":", 1)[1].strip() for line in seed_out.splitlines() if line.startswith("Seeding successful:")][0]
 
         # 3. Execute the documented backup command using the source volume
         backup_cmd = [
@@ -160,22 +177,33 @@ print("Restored database integrity, meal snapshot, and receipt photo hash verifi
             "Verify restored volume integrity, photo hash, and organizer access",
         )
 
-        # 7. Confirm that production volume 'settletable_data' is untouched
-        print("  * Checking primary application volume protection ... ", end="", flush=True)
-        # Verify settletable_data does not contain the drill meal id
-        check_prod_script = f"""
+        # 7. Prove volume isolation and production non-interference without mounting production volumes
+        # a) Verify that all executed commands strictly targeted ephemeral drill volumes and never touched settletable_data
+        for invocation in recorded_invocations:
+            for token in invocation:
+                assert "settletable_data" not in token, f"CRITICAL: Production volume 'settletable_data' referenced in command: {' '.join(invocation)}"
+
+        # b) Verify that src_volume and dest_volume are distinct, independent Docker volume entities
+        src_inspect = json.loads(subprocess.run(["docker", "volume", "inspect", src_volume], capture_output=True, text=True, check=True).stdout)
+        dest_inspect = json.loads(subprocess.run(["docker", "volume", "inspect", dest_volume], capture_output=True, text=True, check=True).stdout)
+        assert src_inspect[0]["Name"] == src_volume, "Source volume name mismatch"
+        assert dest_inspect[0]["Name"] == dest_volume, "Destination volume name mismatch"
+        assert src_volume != dest_volume, "Source and destination volumes must be distinct entities"
+
+        # c) Verify that dest_volume strictly contains only the expected restored database and photo
+        check_containment_script = f"""
 from pathlib import Path
-import sqlite3
-prod_db = Path('/data/settletable.sqlite')
-if prod_db.exists():
-    conn = sqlite3.connect(prod_db)
-    has_meal = conn.execute("SELECT 1 FROM meals WHERE id='{meal_id}';").fetchone()
-    conn.close()
-    assert not has_meal, "CRITICAL: Drill meal was written to primary volume!"
+data_dir = Path('/data')
+entries = {{p.relative_to(data_dir).as_posix() for p in data_dir.glob('**/*') if p.is_file()}}
+expected_files = {{
+    'settletable.sqlite',
+    'receipt_photos/{seeded_photo_filename}',
+}}
+assert entries == expected_files, f"Unexpected files in restored volume: {{entries}} != {{expected_files}}"
 """
         run_cmd(
-            ["docker", "run", "--rm", "-v", "settletable_data:/data", image_tag, "python", "-c", check_prod_script],
-            "Confirmed primary volume was not modified by the drill",
+            ["docker", "run", "--rm", "-v", f"{dest_volume}:/data", image_tag, "python", "-c", check_containment_script],
+            "Confirmed destination volume strict file containment and isolation",
         )
 
         print(f"\n[DRILL SUCCESS] All isolated backup and restore operations verified successfully!")

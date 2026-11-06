@@ -1,7 +1,7 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 10,
-  "staged_bytes_excluding_report": 382752,
+  "staged_files": 7,
+  "staged_bytes_excluding_report": 342535,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 337,
   "untracked_files": 0,
@@ -11,48 +11,33 @@
   "files": [
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 136440,
-      "sha256": "427f3b4d47237a21319dbd5a87a88fca3c1942f3ec0bb6e56d7918c18b21bb03"
+      "bytes": 138849,
+      "sha256": "984ba6b1f6265ea8a63bb1c7e6eb980790b8cd81cacc1fa662355c1d9a810f5a"
     },
     {
       "path": "deploy/cloudflare/README.md",
-      "bytes": 7234,
-      "sha256": "deb0b4c37eab583398cad0b564e8299ae6c36b311c0d2741b9d64f805d8c9f1b"
+      "bytes": 7378,
+      "sha256": "2a7aae4dd4b10e22c798e4debd678dd1773a6572fb881d52e3488dff65069bd6"
     },
     {
       "path": "docker-compose.yml",
-      "bytes": 2735,
-      "sha256": "17721b1a3a389f85c0f9da3e063b0b53ec9df3789975e5fe47cacaab8d727198"
+      "bytes": 2966,
+      "sha256": "eff8b0ca99a99abb54c97df74fe848b068819314c5de71bb5a4defd744868dad"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 142287,
-      "sha256": "5511986a886c3f30e5375d9d0514c06385a95e836b970483ded43b7380e88456"
+      "bytes": 145978,
+      "sha256": "e3db016b54487b975c7d830d8896104c798ad56740232d5b4573a5364723f5be"
     },
     {
       "path": "docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md",
-      "bytes": 33676,
-      "sha256": "3ce28af7af02d273ada49875a7954e73a23f49ce329c36e659312706426a565a"
-    },
-    {
-      "path": "docs/runbooks/windows_host_operations.md",
-      "bytes": 12971,
-      "sha256": "2b24c42e757db3aa7b7675ace6eb8ad887f7d3fa11be5b1b646cde8da2ffd5cd"
-    },
-    {
-      "path": "tests/test_backup_restore.py",
-      "bytes": 13337,
-      "sha256": "18b70a7eee9b41e008e7f21e83902df65aaef70915def37fd420a257fdaefc00"
-    },
-    {
-      "path": "tools/backup_restore.py",
-      "bytes": 25859,
-      "sha256": "bd5778852a3975ccd7fa7b1cadd1093bf01e77e56a0b3494f278a64b08b58e91"
+      "bytes": 37308,
+      "sha256": "c29d2ddf6df7649c4979285dd6805c62cda024359225dac5e8e9867f79e6f133"
     },
     {
       "path": "tools/verify_isolated_docker_drill.py",
-      "bytes": 8213,
-      "sha256": "fac1f9b9857ded7445bc0417f48553a8df52c2e88e926f9ecdb15276b0e005c8"
+      "bytes": 10056,
+      "sha256": "5cc69b4aa4c8ab3462dd548f53999b39fdf98e73180abd7ec9a36a7e7e9ebcee"
     }
   ]
 }
