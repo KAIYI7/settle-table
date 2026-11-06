@@ -20,10 +20,10 @@ cloudflared tunnel --no-autoupdate run --token <TUNNEL_TOKEN>
 ```
 
 **Why this is recommended for SettleTable:**
-- **Zero local secrets in repo**: No credentials JSON file (`<UUID>.json`) or local certificate files to mount into containers or risk committing to Git.
+- **Zero local secrets in repo**: No credentials JSON file (`<UUID>.json`) or local certificate files to mount into containers or risk committing to Git. (Note: the `CLOUDFLARE_TUNNEL_TOKEN` stored in `.env` remains sensitive and must be protected on the local host with restricted file permissions).
 - **Single source of truth**: Public hostnames (e.g. `settle.example.com`) and ingress targets are defined centrally on Cloudflare's edge.
 - **Dynamic reconfiguration**: DNS routing and ingress targets can be updated in the dashboard without editing local files or restarting Docker containers.
-- **Clean Docker Compose integration**: Pass `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and start the connector container using `docker compose --profile with-cloudflared up -d`.
+- **Reproducible Docker Compose integration**: Pinned to tested stable release `cloudflare/cloudflared:2026.10.7`. Pass `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and start the connector container using `docker compose --profile with-cloudflared up -d`.
 
 ### Mode 2: Locally Managed Tunnels (ALTERNATIVE)
 
@@ -94,8 +94,9 @@ When SettleTable is published via a Cloudflare Named Tunnel:
 3. **Loopback Bootstrap Protection**:
    - `POST /api/meals/{meal_id}/bootstrap` enforces loopback access.
    - If ANY reverse proxy forwarding headers are detected (`CF-Connecting-IP`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `True-Client-IP`), the endpoint immediately aborts with `403 Forbidden`. External callers cannot create or bootstrap meals.
-4. **Exact-Origin CSRF Protection**:
+4. **Exact-Origin CSRF Protection & Host Enforcement**:
    - Mutating requests (`POST`, `DELETE`) require `X-SettleTable-Action: 1` and exact origin matching against `SETTLETABLE_SERVER_ORIGIN` (`https://settle.example.com`).
+   - SettleTable enforces `SETTLETABLE_ALLOWED_HOSTS` inside Python WSGI as application defense-in-depth, rejecting foreign Host headers with HTTP 400 `invalid_host`. In live deployment, Cloudflare's edge catch-all 404 rule provides additional boundary defense.
 5. **No Intermediate Caching**:
    - Dynamic API responses return `Cache-Control: no-store`.
    - Receipt photos return `Cache-Control: private, no-cache, no-store, must-revalidate`.

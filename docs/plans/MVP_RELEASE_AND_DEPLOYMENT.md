@@ -197,10 +197,10 @@ Before any external deployment or invited-friend pilot is authorized, the follow
 ### Stage B Gate: Mostly-Available Hosting Preparation
 - **Scope:** Prepare Windows Docker + Tunnel configuration, operational runbooks, and synthetic reverse-proxy verification.
 - **Criteria:**
-  - [x] Selected gateway configured: Cloudflare Named Tunnel (`cloudflared`) via remotely-managed token mode in Docker Compose (`with-cloudflared` profile).
+  - [x] Selected gateway configured: Cloudflare Named Tunnel (`cloudflared`) via remotely-managed token mode in Docker Compose (`with-cloudflared` profile), pinned to tested stable release `cloudflare/cloudflared:2026.10.7`.
   - [x] Locally-managed alternative documented with inactive template (`deploy/cloudflare/config.template.yml`) and guide (`deploy/cloudflare/README.md`).
   - [x] Windows host operations runbook completed (`docs/runbooks/windows_host_operations.md`): power/sleep prevention, Docker Desktop auto-start, crash consistency, WAN outage auto-reconnect, and stopped-container disaster recovery.
-  - [x] Stopped-container consistent backup and verified restore protocol documented with Docker volume handling.
+  - [x] Stopped-container consistent backup and verified restore protocol documented with Docker volume handling; non-destructive end-to-end drill verified using isolated synthetic Docker volumes (`tools/verify_isolated_docker_drill.py`).
   - [x] Synthetic reverse-proxy / Cloudflare ingress test suite implemented (`tests/test_reverse_proxy_ingress.py` - 9 tests passing):
     - [x] Public custom domain Host validation (settle.example.com accepted; foreign/spoofed hosts return 400 invalid_host).
     - [x] Exact-origin CSRF protection under public HTTPS (HTTPS origin matches; HTTP scheme mismatch, foreign origins, and null origins return 403; missing action header returns 400).
@@ -213,7 +213,7 @@ Before any external deployment or invited-friend pilot is authorized, the follow
     - [x] Deny-by-default behavior for unmatched ingress hostnames.
   - [ ] Live external activation: Stable HTTPS FQDN verified live across computer reboots and tunnel restarts (Requires Product Owner authorization to purchase domain, configure DNS, and start tunnel).
 - **Authority:** Autonomous configuration dry-run and offline preparation; opening tunnel to external traffic strictly requires Product Owner authorization.
-- **Status:** **PASS (Offline Preparation Complete)**. Offline templates, Docker Compose tunnel profile, Windows operational runbooks, and synthetic ingress test suites are fully verified. Live external deployment remains stopped pending Product Owner domain purchase and activation authorization.
+- **Status:** **PASS (Offline Preparation Complete & Verified)**. Offline templates, Docker Compose tunnel profile, Windows operational runbooks, synthetic ingress test suites, and isolated Docker recovery drill are fully verified. Live external deployment remains stopped pending Product Owner domain purchase and activation authorization.
 
 ### Stage C Gate: Restricted Online Pilot (`v0.9.0-beta.1`)
 - **Scope:** Live testing with Product Owner and invited friends.
@@ -261,6 +261,27 @@ Before any external deployment or invited-friend pilot is authorized, the follow
    - `cloudflared.exe` installed directly on Windows and registered as a Windows Service pointing to `http://127.0.0.1:8000`.
    - Kept as an optional alternative for operators who prefer native Windows service management over containerized connectors.
 
+### 7.3 Application-Level Abuse Controls & Pre-Activation Ingress Invariants
+
+Review of publicly reachable endpoints under a custom domain:
+1. **Join Requests (`POST /api/meals/{meal_id}/join-requests`)**:
+   - Protected by bounded table limits: max 20 active pending requests per meal, max 100 historical records (`resource_limit`).
+   - Constant-time anti-enumeration response (`invalid_join_target`) across invalid, organizer, or inactive targets.
+   - Duplicate prevention rejects concurrent requests for the same participant (`active_join_request_exists`).
+   - Unauthenticated join requests do not bump meal revision.
+2. **Organizer Claims (`/api/organizer-claims/*`)**:
+   - Inspection (`POST /api/organizer-claims/inspect`) takes unguessable 43-character token, hashes with domain-separated salt before DB lookup, and returns `valid: false` for nonexistent tokens without credentials.
+   - Redemption is single-use (`consumed = 1`) inside `BEGIN IMMEDIATE`, rotating credentials and revoking prior claims.
+3. **Receipt Uploads & OCR Processing**:
+   - Strictly restricted to authenticated organizers (`is_org == True`). Public unauthenticated requests and regular diners receive 401/403 and cannot trigger OCR or upload files.
+   - Strict MIME validation (JPEG, PNG, WebP) and magic byte header validation (`validate_image_payload`).
+   - Request size boundary capped at `MAX_BODY_BYTES` (50MB).
+4. **Pre-Activation Ingress Verification Checks**:
+   - Cache-Control: Dynamic API responses enforce `Cache-Control: no-store`; receipt photos enforce `Cache-Control: private, no-cache, no-store, must-revalidate`. Intermediary caching on Cloudflare edge is bypassed.
+   - Request Boundaries: 4KB single header limit (431), 16KB total headers limit (431), 50MB body limit (413).
+   - Host & Origin Defense-in-Depth: Application enforces exact origin matching on mutating requests (`X-SettleTable-Action: 1` + Origin/Referer matching `SETTLETABLE_SERVER_ORIGIN`) and allowed hostnames (`SETTLETABLE_ALLOWED_HOSTS`).
+   - Loopback Bootstrap Invariant: Ingress blocks `/api/meals/*/bootstrap` with HTTP 403 Forbidden upon detecting any proxy forwarding headers (`CF-Connecting-IP`, `True-Client-IP`, `X-Forwarded-*`).
+
 ---
 
 ## 8. Future Manual Deployment Checklist (Product Owner Authorization Boundaries)
@@ -272,7 +293,7 @@ When the Product Owner decides to proceed to live external hosting, the followin
 | **1** | **Domain Registration** | **Product Owner Authorization** | Register custom domain name (e.g. `example.com`) at registrar of choice (~RM45–RM70/year). Delegate nameservers to Cloudflare. |
 | **2** | **Zero Trust Tunnel Creation** | **Product Owner Authorization** | In Cloudflare Zero Trust dashboard (*Networks > Tunnels*), create a new Named Tunnel (e.g. `settletable-prod`). |
 | **3** | **Public Hostname Route** | **Product Owner Authorization** | Add public hostname in dashboard: Subdomain `settle`, Domain `example.com`, Service `HTTP`, URL `settletable:8000`. |
-| **4** | **Configure Local `.env`** | Operator / PO | Copy `deploy/env.template` to `.env`. Set `CLOUDFLARE_TUNNEL_TOKEN=<token>`, `SETTLETABLE_SERVER_ORIGIN=https://settle.example.com`, and `SETTLETABLE_ALLOWED_HOSTS=settle.example.com,localhost:8000,127.0.0.1:8000,settletable:8000`. |
+| **4** | **Configure Local `.env`** | Operator / PO | Copy `deploy/env.template` to `.env`. Set `CLOUDFLARE_TUNNEL_TOKEN=<token>`, `SETTLETABLE_SERVER_ORIGIN=https://settle.example.com`, and `SETTLETABLE_ALLOWED_HOSTS=settle.example.com,localhost:8000,127.0.0.1:8000,settletable:8000`. Ensure `.env` read permissions are restricted. |
 | **5** | **Start Tunnel Connector** | **Product Owner Authorization** | Launch services with tunnel profile: `docker compose --profile with-cloudflared up -d`. |
 | **6** | **Live Ingress Verification** | Automated / Operator | Run deployment smoke checks against live public endpoint: `python tools/deployment_smoke_check.py --url https://settle.example.com`. |
-| **7** | **Restricted Pilot Launch** | **Product Owner Authorization** | Bootstrap meal locally via `python tools/bootstrap_meal.py create`, claim organizer session via setup link, issue invitation links to invited friends, and conduct restricted pilot (`v0.9.0-beta.1`). |
+| **7** | **Restricted Pilot Launch** | **Product Owner Authorization** | Bootstrap meal locally via `python tools/bootstrap_meal.py bootstrap --meal-id <id>`, claim organizer session via setup link, issue invitation links to invited friends, and conduct restricted pilot (`v0.9.0-beta.1`). |
