@@ -4,7 +4,7 @@
 # Features:
 # - Single-instance WSGI app with pinned persistent volume
 # - Non-root execution
-# - Loopback port binding (or optional Caddy TLS reverse proxy)
+# - Loopback port binding (or optional Caddy TLS reverse proxy / Cloudflare Tunnel)
 
 services:
   settletable:
@@ -15,7 +15,7 @@ services:
     container_name: settletable_app
     restart: unless-stopped
     ports:
-      # Bind to loopback interface so reverse proxy (Caddy/Nginx) handles external traffic
+      # Bind to loopback interface so reverse proxy, tunnel, or host CLI can reach the app
       - "127.0.0.1:8000:8000"
     volumes:
       # Persistent volume for SQLite WAL database and receipt photos
@@ -33,7 +33,24 @@ services:
       restart_policy:
         condition: on-failure
 
-  # Optional Caddy reverse proxy for automated Let's Encrypt TLS
+  # Optional Cloudflare Named Tunnel connector (remotely managed via token)
+  # Recommended for self-hosted MVP deployments behind custom domain.
+  # Reaches settletable container on the shared Compose network at http://settletable:8000.
+  # Enable with: docker compose --profile with-cloudflared up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: settletable_tunnel
+    restart: unless-stopped
+    profiles:
+      - with-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      settletable:
+        condition: service_healthy
+
+  # Optional Caddy reverse proxy for automated Let's Encrypt TLS (alternative to Cloudflare)
   # Enable with: docker compose --profile with-caddy up -d
   caddy:
     image: caddy:2.8-alpine

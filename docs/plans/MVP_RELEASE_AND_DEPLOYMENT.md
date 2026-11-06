@@ -195,14 +195,25 @@ Before any external deployment or invited-friend pilot is authorized, the follow
 - **Status:** **PASS / COMPLETED (PR #47 + Corrective Review PR #48)**. Stage A local hardening prerequisites are fully met. Product Owner decision finalized: **Cloudflare Named Tunnel (`cloudflared`)** with custom domain (Tailscale Funnel fallback). Ready for Stage B external hosting gateway preparation.
 
 ### Stage B Gate: Mostly-Available Hosting Preparation
-- **Scope:** Prepare Windows Docker + Tunnel configuration.
+- **Scope:** Prepare Windows Docker + Tunnel configuration, operational runbooks, and synthetic reverse-proxy verification.
 - **Criteria:**
-  - [ ] Selected gateway configured (Tailscale Funnel or Cloudflare Named Tunnel).
-  - [ ] Host power/sleep settings documented.
-  - [ ] Stable HTTPS FQDN verified across computer reboots and tunnel restarts.
-  - [ ] Exact origin matches stable tunnel domain; mutating requests succeed with `X-SettleTable-Action: 1`.
-  - [ ] External calls to `/api/meals/*/bootstrap` return 403 Forbidden.
-- **Authority:** Autonomous configuration dry-run; opening tunnel to external traffic requires Product Owner authorization.
+  - [x] Selected gateway configured: Cloudflare Named Tunnel (`cloudflared`) via remotely-managed token mode in Docker Compose (`with-cloudflared` profile).
+  - [x] Locally-managed alternative documented with inactive template (`deploy/cloudflare/config.template.yml`) and guide (`deploy/cloudflare/README.md`).
+  - [x] Windows host operations runbook completed (`docs/runbooks/windows_host_operations.md`): power/sleep prevention, Docker Desktop auto-start, crash consistency, WAN outage auto-reconnect, and stopped-container disaster recovery.
+  - [x] Stopped-container consistent backup and verified restore protocol documented with Docker volume handling.
+  - [x] Synthetic reverse-proxy / Cloudflare ingress test suite implemented (`tests/test_reverse_proxy_ingress.py` - 9 tests passing):
+    - [x] Public custom domain Host validation (settle.example.com accepted; foreign/spoofed hosts return 400 invalid_host).
+    - [x] Exact-origin CSRF protection under public HTTPS (HTTPS origin matches; HTTP scheme mismatch, foreign origins, and null origins return 403; missing action header returns 400).
+    - [x] Cloudflare forwarding headers (CF-Connecting-IP, CF-Ray, CF-Visitor, X-Forwarded-Proto) processed cleanly.
+    - [x] External meal bootstrap rejected with 403 Forbidden on ANY proxy forwarding headers (including CF-Connecting-IP, True-Client-IP, X-Cluster-Client-IP).
+    - [x] Unauthenticated access to private meal data and receipt photos denied (401 invalid_session).
+    - [x] Private API and receipt photo responses never cached by shared intermediaries (`Cache-Control: no-store` and `private, no-cache, no-store, must-revalidate`).
+    - [x] Secret tokens completely redacted from application request logs.
+    - [x] Abuse protections verified: header limits (431), payload boundaries (413), and integer bounds (400).
+    - [x] Deny-by-default behavior for unmatched ingress hostnames.
+  - [ ] Live external activation: Stable HTTPS FQDN verified live across computer reboots and tunnel restarts (Requires Product Owner authorization to purchase domain, configure DNS, and start tunnel).
+- **Authority:** Autonomous configuration dry-run and offline preparation; opening tunnel to external traffic strictly requires Product Owner authorization.
+- **Status:** **PASS (Offline Preparation Complete)**. Offline templates, Docker Compose tunnel profile, Windows operational runbooks, and synthetic ingress test suites are fully verified. Live external deployment remains stopped pending Product Owner domain purchase and activation authorization.
 
 ### Stage C Gate: Restricted Online Pilot (`v0.9.0-beta.1`)
 - **Scope:** Live testing with Product Owner and invited friends.
@@ -224,21 +235,44 @@ Before any external deployment or invited-friend pilot is authorized, the follow
 
 ---
 
-## 7. Finalized Product Owner Decisions & Stage B Readiness
+## 7. Stage B Implementation Rationale & Connector Topology
 
-Following the post-Stage-A review, the Product Owner has finalized the hosting direction:
+### 7.1 Cloudflare Management Mode Analysis
 
-1. **Access Gateway Finalized**:
-   - **Primary Selected**: **Cloudflare Named Tunnel (`cloudflared`)** with a dedicated SettleTable subdomain under a custom domain (e.g. `settle.yourdomain.com`).
-   - **Cost Allocation**: RM0/month hosting fees; modest annual domain fee (~RM45–RM70/year) accepted in principle. No spending or domain purchase authorized at this time.
-   - **Fallback Recorded**: **Tailscale Funnel (`*.ts.net`)** remains documented as the immediate zero-cost fallback if domain setup is delayed.
-2. **Diner Access Model Finalized**:
-   - Zero-software, zero-login diner browser experience confirmed.
-   - **No Cloudflare Access pre-authentication for diners**: Diners access meals directly via standard mobile/desktop browsers without third-party email OTP friction.
-   - SettleTable's built-in invitation tokens, organizer authorization, exact-origin CSRF validation, and join-request approvals remain authoritative.
-3. **Availability Target**:
-   - Mostly-available operation on the host Windows computer running Docker Desktop.
-   - Occasional host downtime (sleep, reboots, internet hiccups) explicitly accepted.
-4. **Readiness for Stage B**:
-   - Local Stage A reliability, session lifecycle, token redaction, and quiescent staged backup/restore hardening are fully verified and merged.
-   - Stage B external hosting preparation can proceed autonomously upon signal, stopping strictly before external tunnel exposure, DNS modifications, or domain purchases.
+1. **Remotely-Managed Tunnels (Selected & Recommended)**:
+   - **Mechanism**: The tunnel and its public hostnames are created and managed via the Cloudflare Zero Trust Dashboard (or API/Terraform). The local connector container runs with a single tunnel token: `cloudflared tunnel --no-autoupdate run --token <TUNNEL_TOKEN>`.
+   - **Rationale**:
+     - Eliminates local credential JSON files and certificate bundles from the repository and host filesystem.
+     - Provides a single source of truth: routing and DNS are managed centrally on Cloudflare's edge.
+     - Docker Compose integration requires only passing `CLOUDFLARE_TUNNEL_TOKEN` via environment variable or `.env`.
+     - Zero configuration drift or desynchronization between local YAML files and remote Cloudflare routing.
+2. **Locally-Managed Tunnels (Documented Alternative)**:
+   - **Mechanism**: Uses a local YAML configuration file (`deploy/cloudflare/config.template.yml`) and credentials JSON file generated by `cloudflared tunnel create`.
+   - **Trade-offs**: Introduces competing sources of configuration between local files and Cloudflare DNS, requires mounting credentials files into Docker containers on Windows, and increases the risk of accidental secret leakage. Kept as an offline template for reference only.
+
+### 7.2 Connector Topology Analysis
+
+1. **Topology A: Docker Compose Bridge Network (Selected & Recommended)**:
+   - `cloudflared` runs as a container service (`settletable_tunnel`) alongside `settletable_app` on the shared Docker bridge network (`tabwise_default`).
+   - Ingress target: `http://settletable:8000`.
+   - Port `8000` on the Windows host remains bound to `127.0.0.1:8000` solely for local operator health probes and administrative CLI commands.
+   - External traffic never touches the host's physical network adapter directly.
+2. **Topology B: Native Windows Service (Documented Alternative)**:
+   - `cloudflared.exe` installed directly on Windows and registered as a Windows Service pointing to `http://127.0.0.1:8000`.
+   - Kept as an optional alternative for operators who prefer native Windows service management over containerized connectors.
+
+---
+
+## 8. Future Manual Deployment Checklist (Product Owner Authorization Boundaries)
+
+When the Product Owner decides to proceed to live external hosting, the following sequential checklist defines the exact actions requiring human authority versus automated steps:
+
+| Step | Action | Authority Required | Description / Command |
+|---|---|---|---|
+| **1** | **Domain Registration** | **Product Owner Authorization** | Register custom domain name (e.g. `example.com`) at registrar of choice (~RM45–RM70/year). Delegate nameservers to Cloudflare. |
+| **2** | **Zero Trust Tunnel Creation** | **Product Owner Authorization** | In Cloudflare Zero Trust dashboard (*Networks > Tunnels*), create a new Named Tunnel (e.g. `settletable-prod`). |
+| **3** | **Public Hostname Route** | **Product Owner Authorization** | Add public hostname in dashboard: Subdomain `settle`, Domain `example.com`, Service `HTTP`, URL `settletable:8000`. |
+| **4** | **Configure Local `.env`** | Operator / PO | Copy `deploy/env.template` to `.env`. Set `CLOUDFLARE_TUNNEL_TOKEN=<token>`, `SETTLETABLE_SERVER_ORIGIN=https://settle.example.com`, and `SETTLETABLE_ALLOWED_HOSTS=settle.example.com,localhost:8000,127.0.0.1:8000,settletable:8000`. |
+| **5** | **Start Tunnel Connector** | **Product Owner Authorization** | Launch services with tunnel profile: `docker compose --profile with-cloudflared up -d`. |
+| **6** | **Live Ingress Verification** | Automated / Operator | Run deployment smoke checks against live public endpoint: `python tools/deployment_smoke_check.py --url https://settle.example.com`. |
+| **7** | **Restricted Pilot Launch** | **Product Owner Authorization** | Bootstrap meal locally via `python tools/bootstrap_meal.py create`, claim organizer session via setup link, issue invitation links to invited friends, and conduct restricted pilot (`v0.9.0-beta.1`). |

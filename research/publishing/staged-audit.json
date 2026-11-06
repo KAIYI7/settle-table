@@ -1,23 +1,63 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 3,
-  "staged_bytes_excluding_report": 81352,
+  "staged_files": 11,
+  "staged_bytes_excluding_report": 420337,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 332,
+  "tracked_files": 336,
   "untracked_files": 0,
-  "ignored_files": 27887,
+  "ignored_files": 27888,
   "valid_json_files": 1,
   "findings": [],
   "files": [
     {
-      "path": "settletable/transport.py",
-      "bytes": 72734,
-      "sha256": "eecb3434c5fc30c73a028eee32205b7ae61b464c993e5785ad5edbd19808ba6b"
+      "path": "PROJECT_STATUS.md",
+      "bytes": 132929,
+      "sha256": "7d85652e4c4473e34c9d5891cccac6d3495694a932caf75992ebbed0ed9ea983"
     },
     {
-      "path": "tools/deployment_smoke_check.py",
-      "bytes": 8618,
-      "sha256": "4b62d3dd53f21be491bb371aa74fb67737caef2aafb78ff5b1a883169bcdfcf7"
+      "path": "deploy/cloudflare/README.md",
+      "bytes": 6731,
+      "sha256": "bdcbef7e4e00df620c69acea1d684c89949428154a7fe9e396ff3d5668b318f7"
+    },
+    {
+      "path": "deploy/cloudflare/config.template.yml",
+      "bytes": 1920,
+      "sha256": "81c8475b40cf87f3cb6e5f38209fd1a9ead230faaefe80b087609ffe5d9c73a4"
+    },
+    {
+      "path": "deploy/env.template",
+      "bytes": 2781,
+      "sha256": "abc92b4344b41dd7e5a9452aa3888cc41f34900ed54fdedb3ba81912052fcc33"
+    },
+    {
+      "path": "docker-compose.yml",
+      "bytes": 2665,
+      "sha256": "8c7be9c45afab4fbf56fc1577eb59770e71444492d995b57422387074cb3dacf"
+    },
+    {
+      "path": "docs/agents/phase-transitions.md",
+      "bytes": 137974,
+      "sha256": "f91d90e89423ba3e033638c571ee333905873159dd5fb7e85b1b81c03af356ae"
+    },
+    {
+      "path": "docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md",
+      "bytes": 31156,
+      "sha256": "33f969773fd83baaa30180cbfd40f27af4dafa031390db5d7d4981be90621b53"
+    },
+    {
+      "path": "docs/runbooks/windows_host_operations.md",
+      "bytes": 10869,
+      "sha256": "2f1a3df31bec783cbaffcd318e69bda91485acebcaf7d874fbfc9a4ff6de971c"
+    },
+    {
+      "path": "settletable/transport.py",
+      "bytes": 73030,
+      "sha256": "ab248140b44b53e7a10e26007e8a456c3424610a247e33ee74002135d71ce48e"
+    },
+    {
+      "path": "tests/test_reverse_proxy_ingress.py",
+      "bytes": 20282,
+      "sha256": "50486c6a30753a34553bbf3b0b0a7cea4314d1f1d8b56da7ad9023730919460c"
     }
   ]
 }
