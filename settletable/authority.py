@@ -87,9 +87,28 @@ class JoinRequestRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class OrganizerClaimGrant:
+    meal_id: str
+    token: str = field(repr=False)
+    expires: float | int
+    issue_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class OrganizerClaimInspection:
+    valid: bool
+    meal_id: str | None = None
+    organizer_id: str | None = None
+    organizer_name: str | None = None
+    expires: float | int | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class BootstrapResult:
     meal_id: str
     sessions: tuple[SessionGrant, ...] = field(repr=False)
+    organizer_claim: OrganizerClaimGrant | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,6 +361,13 @@ def _join_claim_verifier(token):
              and re.fullmatch(r'[A-Za-z0-9_-]{43}', token) is not None,
              'invalid_token')
     return hashlib.sha256(b'settletable-join-claim-v1\0' + token.encode('ascii')).digest()
+
+
+def _organizer_claim_verifier(token):
+    _require(type(token) is str and len(token) == 43
+             and re.fullmatch(r'[A-Za-z0-9_-]{43}', token) is not None,
+             'invalid_organizer_claim')
+    return hashlib.sha256(b'settletable-organizer-claim-v1\0' + token.encode('ascii')).digest()
 
 
 def _revision(value):
@@ -657,6 +683,19 @@ class Authority:
                     FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id),
                     FOREIGN KEY(meal_id) REFERENCES meals(id) ON DELETE CASCADE);
                 CREATE INDEX IF NOT EXISTS idx_join_requests_meal_status ON join_requests (meal_id, status);
+                CREATE TABLE IF NOT EXISTS organizer_claims (
+                    verifier BLOB PRIMARY KEY,
+                    meal_id TEXT NOT NULL,
+                    issuer_id TEXT NOT NULL,
+                    issue_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires REAL NOT NULL,
+                    consumed INTEGER NOT NULL DEFAULT 0,
+                    revoked INTEGER NOT NULL DEFAULT 0,
+                    generation INTEGER NOT NULL,
+                    UNIQUE(meal_id, issue_id),
+                    FOREIGN KEY(meal_id) REFERENCES meals(id) ON DELETE CASCADE);
+                CREATE INDEX IF NOT EXISTS idx_organizer_claims_meal_status ON organizer_claims (meal_id, consumed, revoked);
                 CREATE TABLE IF NOT EXISTS payment_simulations (
                     integration_id TEXT NOT NULL, meal_id TEXT NOT NULL,
                     finalize_actor_id TEXT NOT NULL, finalize_command_id TEXT NOT NULL,
@@ -804,6 +843,28 @@ class Authority:
         code = 'busy' if type(sqlite_code) is int and sqlite_code & 255 in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) else 'storage_error'
         raise AuthorityError(code) from None
 
+    def _issue_organizer_claim_in_tx(self, meal_id, organizer_id, *, claim_ttl=604800, issue_id=None, issuer_id=None):
+        if issue_id is None:
+            issue_id = f'claim-{secrets.token_urlsafe(16)}'
+        token = secrets.token_urlsafe(32)
+        claim_verifier = _organizer_claim_verifier(token)
+        now = self._now()
+        expires = now + claim_ttl
+        actor = issuer_id or organizer_id
+
+        # Invalidate prior active unconsumed claims for this meal
+        self._db.execute(
+            'UPDATE organizer_claims SET revoked=1 WHERE meal_id=? AND consumed=0 AND revoked=0 AND expires>?',
+            (meal_id, now)
+        )
+
+        self._db.execute(
+            '''INSERT INTO organizer_claims (verifier, meal_id, issuer_id, issue_id, created_at, expires, consumed, revoked, generation)
+               VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1)''',
+            (claim_verifier, meal_id, actor, issue_id, now, expires)
+        )
+        return OrganizerClaimGrant(meal_id, token, expires, issue_id)
+
     def bootstrap(self, meal_id, participants, *, session_ttl=3600):
         _id(meal_id)
         _tuple(participants, 100, 1)
@@ -815,7 +876,7 @@ class Authority:
             _require(type(person.organizer) is bool and person.id not in seen)
             seen.add(person.id)
         _require(sum(p.organizer for p in participants) == 1)
-        _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 2592000)
         state = {'revision': 0, 'financial_revision': 0, 'receipt': None,
                  'item_revisions': {}, 'claims': [], 'review': None,
                  'calculation': None, 'retired_ids': [], 'finalized_revision': None}
@@ -828,18 +889,20 @@ class Authority:
             _require(self._db.execute('SELECT 1 FROM meals WHERE id=?', (meal_id,)).fetchone() is None, 'meal_exists')
             self._db.execute('INSERT INTO meals VALUES (?,?)', (meal_id, _wire(state)))
             expires = self._now() + session_ttl
+            org_person = next(p for p in participants if p.organizer)
             for person, grant in zip(participants, grants):
                 self._db.execute('INSERT INTO participants VALUES (?,?,?,?,1)',
                                  (meal_id, person.id, person.name, int(person.organizer)))
                 self._db.execute('INSERT INTO sessions VALUES (?,?,?,?,0)',
                                  (_verifier(grant.credential), meal_id, person.id, expires))
+            org_claim = self._issue_organizer_claim_in_tx(meal_id, org_person.id, claim_ttl=session_ttl)
             self._hook('after_state')
             self._hook('before_commit')
             commit_attempted = True
             self._db.execute('COMMIT')
             committed = True
             self._hook('after_commit')
-            return BootstrapResult(meal_id, grants)
+            return BootstrapResult(meal_id, grants, org_claim)
         except AuthorityError:
             self._rollback()
             if committed:
@@ -1000,7 +1063,7 @@ class Authority:
         verifier = _verifier(organizer_credential)
         _id(meal_id)
         _id(participant_id)
-        _require(type(invite_ttl) is int and 1 <= invite_ttl <= 604800)
+        _require(type(invite_ttl) is int and 1 <= invite_ttl <= 2592000)
         if issue_id is not None:
             _id(issue_id)
         committed = False
@@ -1096,6 +1159,161 @@ class Authority:
         except Exception:
             self._rollback()
             raise AuthorityError('storage_error') from None
+
+    def issue_organizer_claim(self, meal_id, *, claim_ttl=604800, issue_id=None):
+        """Host/Administrative issuance of an organizer claim link without requiring existing session."""
+        _id(meal_id)
+        _require(type(claim_ttl) is int and 1 <= claim_ttl <= 2592000)
+        if issue_id is not None:
+            _id(issue_id)
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            meal_row = self._db.execute('SELECT 1 FROM meals WHERE id=?', (meal_id,)).fetchone()
+            _require(meal_row is not None, 'meal_not_found')
+            org_row = self._db.execute(
+                'SELECT id FROM participants WHERE meal_id=? AND organizer=1 AND active=1',
+                (meal_id,)
+            ).fetchone()
+            _require(org_row is not None, 'organizer_not_found')
+            grant = self._issue_organizer_claim_in_tx(meal_id, org_row[0], claim_ttl=claim_ttl, issue_id=issue_id)
+            self._db.execute('COMMIT')
+            return grant
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def issue_organizer_recovery(self, organizer_credential, meal_id, *, claim_ttl=604800, issue_id=None):
+        """Active organizer generates a backup recovery link for themselves."""
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        _require(type(claim_ttl) is int and 1 <= claim_ttl <= 2592000)
+        if issue_id is not None:
+            _id(issue_id)
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            actor, is_organizer = self._authenticate(verifier, meal_id)
+            _require(bool(is_organizer), 'forbidden')
+            grant = self._issue_organizer_claim_in_tx(meal_id, actor, claim_ttl=claim_ttl, issue_id=issue_id, issuer_id=actor)
+            self._db.execute('COMMIT')
+            return grant
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def inspect_organizer_claim(self, token):
+        try:
+            claim_verifier = _organizer_claim_verifier(token)
+        except AuthorityError:
+            return OrganizerClaimInspection(valid=False, reason='invalid_token')
+
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN')
+            now = self._now()
+            row = self._db.execute('''
+                SELECT c.meal_id, c.expires, c.consumed, c.revoked, p.id, p.name, p.active
+                FROM organizer_claims c
+                JOIN participants p ON p.meal_id = c.meal_id AND p.organizer = 1
+                WHERE c.verifier = ?
+            ''', (claim_verifier,)).fetchone()
+            self._db.execute('COMMIT')
+            if row is None:
+                return OrganizerClaimInspection(valid=False, reason='not_found')
+            meal_id, expires, consumed, revoked, org_id, org_name, active = row
+            if not active or revoked:
+                return OrganizerClaimInspection(valid=False, meal_id=meal_id, organizer_id=org_id, organizer_name=org_name, expires=expires, reason='revoked')
+            if consumed:
+                return OrganizerClaimInspection(valid=False, meal_id=meal_id, organizer_id=org_id, organizer_name=org_name, expires=expires, reason='consumed')
+            if expires <= now:
+                return OrganizerClaimInspection(valid=False, meal_id=meal_id, organizer_id=org_id, organizer_name=org_name, expires=expires, reason='expired')
+            return OrganizerClaimInspection(valid=True, meal_id=meal_id, organizer_id=org_id, organizer_name=org_name, expires=expires)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
+    def claim_organizer_session(self, claim_token, meal_id, *, session_ttl=3600):
+        claim_verifier = _organizer_claim_verifier(claim_token)
+        _id(meal_id)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 2592000)
+        committed = False
+        commit_attempted = False
+        try:
+            credential = secrets.token_urlsafe(32)
+            sess_verifier = _verifier(credential)
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            now = self._now()
+            row = self._db.execute('''
+                SELECT expires, consumed, revoked
+                FROM organizer_claims
+                WHERE verifier = ? AND meal_id = ?
+            ''', (claim_verifier, meal_id)).fetchone()
+            _require(row is not None, 'invalid_organizer_claim')
+            expires, consumed, revoked = row
+            _require(revoked == 0, 'organizer_claim_revoked')
+            _require(consumed == 0, 'organizer_claim_consumed')
+            _require(expires > now, 'organizer_claim_expired')
+
+            org_row = self._db.execute(
+                'SELECT id, active FROM participants WHERE meal_id=? AND organizer=1',
+                (meal_id,)
+            ).fetchone()
+            _require(org_row is not None and org_row[1] == 1, 'organizer_not_found')
+            organizer_id = org_row[0]
+
+            # Mark claim consumed
+            self._db.execute('UPDATE organizer_claims SET consumed=1 WHERE verifier=?', (claim_verifier,))
+
+            # Issue or refresh organizer session
+            sess_expires = now + session_ttl
+            self._db.execute('''
+                INSERT INTO sessions (verifier, meal_id, participant_id, expires, revoked)
+                VALUES (?, ?, ?, ?, 0)
+                ON CONFLICT(meal_id, participant_id) DO UPDATE SET verifier=?, expires=?, revoked=0
+            ''', (sess_verifier, meal_id, organizer_id, sess_expires, sess_verifier, sess_expires))
+
+            # Bump meal revision
+            state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
+            state['revision'] += 1
+            _revision(state['revision'])
+            self._db.execute('UPDATE meals SET state=? WHERE id=?', (_wire(state), meal_id))
+
+            self._hook('before_commit')
+            commit_attempted = True
+            self._db.execute('COMMIT')
+            committed = True
+            self._hook('after_commit')
+            return SessionGrant(organizer_id, credential)
+        except AuthorityError:
+            self._rollback()
+            if committed:
+                raise AuthorityError('commit_uncertain') from None
+            raise
+        except sqlite3.Error as error:
+            try:
+                transaction_open = self._db is not None and self._db.in_transaction
+            except Exception:
+                transaction_open = None
+            uncertain = committed or (commit_attempted and transaction_open is not True)
+            if uncertain:
+                self._rollback()
+                raise AuthorityError('commit_uncertain') from None
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
 
     def _finalized_allocation(self, credential, meal_id, participant_id, *, initiate=False):
         """Authorized accepted-Finalize seam. Caller owns a short SQLite transaction.
@@ -1197,7 +1415,7 @@ class Authority:
     def redeem_invitation(self, invitation_token, meal_id, *, session_ttl=3600):
         inv_verifier = _invitation_verifier(invitation_token)
         _id(meal_id)
-        _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 2592000)
         committed = False
         commit_attempted = False
         try:
@@ -1260,7 +1478,7 @@ class Authority:
     def rotate_session(self, credential, meal_id, *, session_ttl=3600):
         verifier = _verifier(credential)
         _id(meal_id)
-        _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 2592000)
         committed = False
         commit_attempted = False
         try:
@@ -1467,7 +1685,7 @@ class Authority:
     def claim_join_request(self, meal_id, request_id, claim_token, *, session_ttl=3600):
         _id(meal_id)
         _id(request_id)
-        _require(type(session_ttl) is int and 1 <= session_ttl <= 86400)
+        _require(type(session_ttl) is int and 1 <= session_ttl <= 2592000)
         verifier = _join_claim_verifier(claim_token)
         committed = False
         commit_attempted = False

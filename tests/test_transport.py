@@ -1117,6 +1117,71 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(replay_res['status'], 400)
         self.assertEqual(replay_res['json']['error'], 'invalid_join_request')
 
+    def test_organizer_claim_and_recovery_endpoints(self):
+        # 1. Bootstrap returns organizer_claim info
+        boot_res = self.client.post('/api/meals/m_org_claim/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Host', 'organizer': True},
+                             {'id': 'D', 'name': 'Diner', 'organizer': False}]
+        })
+        self.assertEqual(boot_res['status'], 201)
+        self.assertIn('organizer_claim', boot_res['json'])
+        claim_token = boot_res['json']['organizer_claim']['token']
+        self.assertIn('/#/claim-organizer/', boot_res['json']['organizer_claim']['claim_url'])
+        self.assertIn('Max-Age=', boot_res['headers'].get('Set-Cookie', ''))
+
+        # 2. HTML shell served on /claim-organizer/{token} and /claim/{token}
+        html_res = self.client.get(f'/claim-organizer/{claim_token}')
+        self.assertEqual(html_res['status'], 200)
+        self.assertIn(b'<title>SettleTable', html_res['body'])
+
+        # 3. Unauthenticated inspection
+        inspect_res = self.client.get(f'/api/organizer-claims/{claim_token}')
+        self.assertEqual(inspect_res['status'], 200)
+        self.assertTrue(inspect_res['json']['valid'])
+        self.assertEqual(inspect_res['json']['meal_id'], 'm_org_claim')
+        self.assertEqual(inspect_res['json']['organizer_name'], 'Host')
+
+        # 4. Action header protection on claim redemption
+        no_action = self.client.request('POST', f'/api/meals/m_org_claim/organizer-claims/{claim_token}/claim',
+                                        body={}, headers={'HTTP_X_SETTLETABLE_ACTION': ''})
+        self.assertEqual(no_action['status'], 400)
+        self.assertEqual(no_action['json']['error'], 'missing_action_header')
+
+        # 5. Successful claim redemption sets HttpOnly session cookie with Max-Age
+        redeem_res = self.client.post(f'/api/meals/m_org_claim/organizer-claims/{claim_token}/claim', body={})
+        self.assertEqual(redeem_res['status'], 200)
+        self.assertEqual(redeem_res['json']['participant_id'], 'O')
+        self.assertEqual(redeem_res['json']['status'], 'claimed')
+        set_cookie = redeem_res['headers'].get('Set-Cookie', '')
+        self.assertIn('settletable_session=', set_cookie)
+        self.assertIn('HttpOnly', set_cookie)
+        self.assertIn('Max-Age=604800', set_cookie)
+
+        # 6. Replay of consumed claim fails with 409 organizer_claim_consumed
+        replay_res = self.client.post(f'/api/meals/m_org_claim/organizer-claims/{claim_token}/claim', body={})
+        self.assertEqual(replay_res['status'], 409)
+        self.assertEqual(replay_res['json']['error'], 'organizer_claim_consumed')
+
+        # Extract session cookie for subsequent authenticated tests
+        cookie_val = set_cookie.split(';')[0].split('=', 1)[1]
+
+        # 7. Authenticated organizer generates an emergency recovery link
+        rec_res = self.client.post('/api/meals/m_org_claim/organizer-claims', body={},
+                                   headers={'HTTP_COOKIE': f'settletable_session={cookie_val}'})
+        self.assertEqual(rec_res['status'], 201)
+        self.assertIn('token', rec_res['json'])
+        self.assertIn('claim_url', rec_res['json'])
+        new_token = rec_res['json']['token']
+
+        # 8. Unauthenticated call to generate recovery link fails with 401
+        unauth_res = self.client.post('/api/meals/m_org_claim/organizer-claims', body={})
+        self.assertEqual(unauth_res['status'], 401)
+
+        # 9. New recovery link redeems successfully
+        rec_claim_res = self.client.post(f'/api/meals/m_org_claim/organizer-claims/{new_token}/claim', body={})
+        self.assertEqual(rec_claim_res['status'], 200)
+        self.assertEqual(rec_claim_res['json']['participant_id'], 'O')
+
 
 
 if __name__ == '__main__':

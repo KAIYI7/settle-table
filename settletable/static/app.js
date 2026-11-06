@@ -769,7 +769,14 @@ function route() {
     return;
   }
 
-  // 1b. Check path for general meal join landing /join/{mealId}
+  // 1b. Check path for organizer claim landing /(claim-organizer|claim)/{token}
+  const claimMatch = path.match(/^\/(?:claim-organizer|claim)\/([A-Za-z0-9_-]{43})$/);
+  if (claimMatch) {
+    renderOrganizerClaimLanding(claimMatch[1]);
+    return;
+  }
+
+  // 1c. Check path for general meal join landing /join/{mealId}
   const joinMatch = path.match(/^\/join\/([A-Za-z0-9_-]+)$/);
   if (joinMatch) {
     renderGeneralJoinLanding(joinMatch[1]);
@@ -777,6 +784,22 @@ function route() {
   }
 
   // 2. Hash routing
+  if (hash.startsWith('#/claim-organizer/')) {
+    const token = hash.replace('#/claim-organizer/', '').trim();
+    if (token) {
+      renderOrganizerClaimLanding(token);
+      return;
+    }
+  }
+
+  if (hash.startsWith('#/claim/')) {
+    const token = hash.replace('#/claim/', '').trim();
+    if (token) {
+      renderOrganizerClaimLanding(token);
+      return;
+    }
+  }
+
   if (hash.startsWith('#/meal/')) {
     const mealId = hash.replace('#/meal/', '').trim();
     if (mealId) {
@@ -1159,6 +1182,93 @@ async function renderInviteLanding(token) {
   } catch (err) {
     app.innerHTML = `
       <div class="card">
+        <h2 class="card-title" style="color: var(--accent-rose)">Network Error</h2>
+        <p class="card-desc">Could not connect to SettleTable server. ${escapeHtml(err.message)}</p>
+        <a href="#/" class="btn btn-secondary btn-block">Go to Home</a>
+      </div>
+    `;
+  }
+}
+
+// --- View 2-org: Organizer Claim & Recovery Landing Screen ---
+async function renderOrganizerClaimLanding(token) {
+  stopPolling();
+  document.getElementById('header-user-status').innerHTML = '';
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>Verifying organizer token...</p>
+    </div>
+  `;
+
+  try {
+    const inspection = await apiCall(`/api/organizer-claims/${token}`);
+    if (!inspection?.ok || !inspection.valid) {
+      const reasonMap = {
+        expired: 'This organizer setup / recovery link has expired.',
+        consumed: 'This link has already been used to activate an organizer session.',
+        revoked: 'This link was replaced or revoked by a newer recovery request.',
+        not_found: 'Organizer link not found. Please verify the URL or ask the host administrator to run recovery.',
+        invalid_token: 'Invalid organizer link format.',
+      };
+      app.innerHTML = `
+        <div class="card" style="max-width: 500px; margin: 40px auto;">
+          <h2 class="card-title" style="color: var(--accent-rose)">Organizer Link Invalid</h2>
+          <p class="card-desc">${reasonMap[inspection?.reason] || 'This link cannot be redeemed.'}</p>
+          <a href="#/" class="btn btn-secondary btn-block">Go to Home</a>
+        </div>
+      `;
+      return;
+    }
+
+    // Valid organizer claim card
+    app.innerHTML = `
+      <div class="card" style="max-width: 500px; margin: 40px auto;">
+        <h2 class="card-title">Organizer Access Setup</h2>
+        <p class="card-desc">Activate your organizer session for meal <strong>${escapeHtml(inspection.meal_id)}</strong>.</p>
+        
+        <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
+          <div style="font-size: 0.85rem; color: var(--text-muted);">Organizer:</div>
+          <div style="font-size: 1.25rem; font-weight: 700; color: #a7f3d0;">${escapeHtml(inspection.organizer_name || 'Organizer')}</div>
+        </div>
+
+        <div class="alert alert-info" style="margin-bottom: 20px; font-size: 0.85rem; line-height: 1.45;">
+          <div>
+            <strong>🔑 Organizer Browser Activation:</strong><br>
+            Activating will establish an authenticated Organizer session on this browser.
+            Your session is stored in an encrypted, secure browser cookie.
+          </div>
+        </div>
+
+        <button id="claim-org-btn" class="btn btn-success btn-block" style="font-size: 1.05rem; margin-bottom: 10px;">
+          Activate Organizer Session
+        </button>
+
+        <a href="#/" class="btn btn-secondary btn-block">Cancel & Return to Home</a>
+      </div>
+    `;
+
+    document.getElementById('claim-org-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('claim-org-btn');
+      btn.disabled = true;
+      btn.textContent = 'Activating session...';
+      try {
+        const res = await apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/${token}/claim`, 'POST', {});
+        if (res?.ok) {
+          window.history.replaceState(null, '', `/#/meal/${inspection.meal_id}`);
+          loadMeal(inspection.meal_id);
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Activate Organizer Session';
+        showAlert(`Failed to activate organizer session: ${err.message}`, 'error');
+      }
+    });
+
+  } catch (err) {
+    app.innerHTML = `
+      <div class="card" style="max-width: 500px; margin: 40px auto;">
         <h2 class="card-title" style="color: var(--accent-rose)">Network Error</h2>
         <p class="card-desc">Could not connect to SettleTable server. ${escapeHtml(err.message)}</p>
         <a href="#/" class="btn btn-secondary btn-block">Go to Home</a>
@@ -1987,6 +2097,19 @@ function renderOrganizerSection(snap) {
       </div>
       <div id="invitation-list">
         ${renderInvitationList(snap)}
+      </div>
+
+      <!-- Emergency Organizer Recovery Link -->
+      <div style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-heading);">🛡️ Emergency Organizer Recovery Link</div>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Save this link. If your browser cookies expire or are cleared, opening it restores your organizer session.</div>
+          </div>
+          <button id="gen-recovery-link-btn" class="btn btn-secondary btn-sm" data-meal="${escapeHtml(snap.meal_id)}">
+            ${state.recoveryLink ? '📋 Copy Recovery Link' : '🔑 Create Recovery Link'}
+          </button>
+        </div>
       </div>
     </div>
   `;
@@ -4148,6 +4271,44 @@ function bindEvents(snap) {
       }).catch(() => {
         prompt('Copy this table join link:', joinUrl);
       });
+    });
+  }
+
+  // 4a-rec. Generate / Copy Emergency Organizer Recovery Link
+  const genRecBtn = document.getElementById('gen-recovery-link-btn');
+  if (genRecBtn) {
+    genRecBtn.addEventListener('click', async () => {
+      if (state.recoveryLink) {
+        navigator.clipboard.writeText(state.recoveryLink).then(() => {
+          showAlert('Organizer emergency recovery link copied to clipboard! Keep it safe.', 'success');
+          genRecBtn.textContent = 'Copied! ✓';
+          setTimeout(() => { genRecBtn.textContent = '📋 Copy Recovery Link'; }, 2000);
+        }).catch(() => {
+          prompt('Copy this emergency recovery link:', state.recoveryLink);
+        });
+        return;
+      }
+
+      genRecBtn.disabled = true;
+      genRecBtn.textContent = 'Generating...';
+      try {
+        const res = await apiCall(`/api/meals/${state.mealId}/organizer-claims`, 'POST', {});
+        if (res?.ok && res.claim_url) {
+          state.recoveryLink = res.claim_url;
+          genRecBtn.disabled = false;
+          genRecBtn.textContent = 'Copied! ✓';
+          navigator.clipboard.writeText(res.claim_url).then(() => {
+            showAlert('Emergency recovery link created and copied to clipboard! Bookmark or store it safely.', 'success');
+          }).catch(() => {
+            prompt('Copy this emergency recovery link:', res.claim_url);
+          });
+          setTimeout(() => { genRecBtn.textContent = '📋 Copy Recovery Link'; }, 2000);
+        }
+      } catch (err) {
+        genRecBtn.disabled = false;
+        genRecBtn.textContent = '🔑 Create Recovery Link';
+        showAlert(`Failed to generate recovery link: ${err.message}`, 'error');
+      }
     });
   }
 

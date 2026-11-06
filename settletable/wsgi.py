@@ -24,6 +24,16 @@ def create_app() -> SettleTableApp:
 
     allow_sync_export = os.environ.get("SETTLETABLE_ALLOW_SYNC_EXPORT", "0").lower() in ("1", "true", "yes")
 
+    session_ttl = None
+    session_ttl_str = os.environ.get("SETTLETABLE_SESSION_TTL")
+    if session_ttl_str:
+        try:
+            val = int(session_ttl_str)
+            if 1 <= val <= 2592000:
+                session_ttl = val
+        except ValueError:
+            pass
+
     # Mock clients (strictly for testing and demonstration)
     notion_client = None
     if os.environ.get("SETTLETABLE_MOCK_NOTION") == "1":
@@ -43,6 +53,7 @@ def create_app() -> SettleTableApp:
         notion_client=notion_client,
         ocr_engine=ocr_engine,
         allow_sync_export=allow_sync_export,
+        session_ttl=session_ttl,
     )
 
 
