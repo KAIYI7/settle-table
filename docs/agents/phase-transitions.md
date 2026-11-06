@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-06 — Stage B: Operational Runbook Corrections & Pre-Activation Verification
+
+**Orchestrator decision: PASS / READY FOR PRODUCT OWNER AUTHORIZATION.** Operational runbook corrections, backup/restore CLI argument alignment and aliases, non-destructive isolated Docker recovery drill, pinned cloudflared image, Docker bridge network service resolution verification, and application abuse controls audit completed and verified. Zero external tunnels opened; zero spending incurred.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 319/319 Python unit, calculation, security, restore, and ingress tests passed; all 12 browser CDP regression test suites passed; containerized WSGI application operational. |
+| Gate 2: Restricted Online Deployment Pilot (`v0.9.0-beta.1`) | **STAGE B OFFLINE PREPARATION & DRILL COMPLETE / EXTERNAL ACTIVATION PENDING PO AUTHORIZATION**: (1) Documented runbook commands in `docs/runbooks/windows_host_operations.md` aligned with `tools/backup_restore.py` CLI parser; supported backward-compatible aliases (`--storage-dir`, `--backup-dir`, `--dest-storage-dir`) and directory-based `--manifest` resolution; (2) Non-destructive end-to-end recovery drill (`tools/verify_isolated_docker_drill.py`) executed against isolated ephemeral Docker volumes, verifying SQLite `PRAGMA integrity_check`, receipt photo SHA-256 hashes, and organizer snapshot/authentication while leaving primary data volume `settletable_data` untouched; (3) Pinned `cloudflare/cloudflared:2026.10.7` image (`sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba`) in `docker-compose.yml`; (4) Tested internal service name resolution on Compose bridge network (`http://settletable:8000/healthz` -> 200 OK) without exposing ports; (5) Clarified documentation accuracy: SHA-256 checksummed manifest (not cryptographically signed), container healthcheck status (`settletable_app: Up (healthy)` vs `settletable_tunnel: Up`), WSL2 memory recommendations, and connector token confidentiality in `.env`; (6) Audited existing application-level abuse controls (join requests table bounding, unauthenticated anti-enumeration, claim token single-use domain separation, organizer-only receipt upload/OCR); (7) Maintained strict authorization boundaries: zero external tunnels, zero DNS modifications, zero domain spending. |
+| Gate 3: Publicly Reachable Application | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) and explicit Product Owner authorization for public traffic. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Operational Durability & Verified Recovery Drill | **PASS**: Automated non-destructive drill (`tools/verify_isolated_docker_drill.py`) verifies full backup creation from running container, stopped-container destination cutover, SQLite integrity, photo hash validation, and organizer authentication on restored dataset. |
+| Ingress Security & Exact-Origin Invariants | **PASS**: Custom domain Host validation, exact-origin CSRF enforcement, Cloudflare header processing, proxy header rejection on `/bootstrap`, unauthenticated access denial, and no-cache/no-store enforcement verified via automated test suite. |
+| Application Abuse Controls | **PASS**: Join request table limits (20 pending / 100 historical), anti-enumeration responses, single-use 43-character claim tokens with SHA-256 verifiers, and organizer-only receipt photo uploads and OCR execution protect the application without requiring third-party rate-limiting frameworks. |
+| Pre-Publication Privacy & Rights Audit | **PASS**: `tools/audit_repository.py` passed with 0 findings across all tracked files. |
+| Authorization Boundary Strict Enforcement | **PASS**: Zero external network connections, zero tunnel tokens created, zero DNS records modified, and zero spending incurred. Live external activation requires explicit Product Owner authorization. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-06 — Stage B: Offline Hosting Preparation & Local Verification
 
 **Orchestrator decision: PASS / READY FOR PRODUCT OWNER AUTHORIZATION.** Stage B offline configuration templates, Docker Compose integration, Windows host operations runbook, and synthetic reverse-proxy / Cloudflare ingress test suite completed and verified. Zero external tunnels opened; zero spending incurred.

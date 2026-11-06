@@ -1,9 +1,9 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 11,
-  "staged_bytes_excluding_report": 420337,
+  "staged_files": 10,
+  "staged_bytes_excluding_report": 382752,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 336,
+  "tracked_files": 337,
   "untracked_files": 0,
   "ignored_files": 27888,
   "valid_json_files": 1,
@@ -11,53 +11,48 @@
   "files": [
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 132929,
-      "sha256": "7d85652e4c4473e34c9d5891cccac6d3495694a932caf75992ebbed0ed9ea983"
+      "bytes": 136440,
+      "sha256": "427f3b4d47237a21319dbd5a87a88fca3c1942f3ec0bb6e56d7918c18b21bb03"
     },
     {
       "path": "deploy/cloudflare/README.md",
-      "bytes": 6731,
-      "sha256": "bdcbef7e4e00df620c69acea1d684c89949428154a7fe9e396ff3d5668b318f7"
-    },
-    {
-      "path": "deploy/cloudflare/config.template.yml",
-      "bytes": 1920,
-      "sha256": "81c8475b40cf87f3cb6e5f38209fd1a9ead230faaefe80b087609ffe5d9c73a4"
-    },
-    {
-      "path": "deploy/env.template",
-      "bytes": 2781,
-      "sha256": "abc92b4344b41dd7e5a9452aa3888cc41f34900ed54fdedb3ba81912052fcc33"
+      "bytes": 7234,
+      "sha256": "deb0b4c37eab583398cad0b564e8299ae6c36b311c0d2741b9d64f805d8c9f1b"
     },
     {
       "path": "docker-compose.yml",
-      "bytes": 2665,
-      "sha256": "8c7be9c45afab4fbf56fc1577eb59770e71444492d995b57422387074cb3dacf"
+      "bytes": 2735,
+      "sha256": "17721b1a3a389f85c0f9da3e063b0b53ec9df3789975e5fe47cacaab8d727198"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 137974,
-      "sha256": "f91d90e89423ba3e033638c571ee333905873159dd5fb7e85b1b81c03af356ae"
+      "bytes": 142287,
+      "sha256": "5511986a886c3f30e5375d9d0514c06385a95e836b970483ded43b7380e88456"
     },
     {
       "path": "docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md",
-      "bytes": 31156,
-      "sha256": "33f969773fd83baaa30180cbfd40f27af4dafa031390db5d7d4981be90621b53"
+      "bytes": 33676,
+      "sha256": "3ce28af7af02d273ada49875a7954e73a23f49ce329c36e659312706426a565a"
     },
     {
       "path": "docs/runbooks/windows_host_operations.md",
-      "bytes": 10869,
-      "sha256": "2f1a3df31bec783cbaffcd318e69bda91485acebcaf7d874fbfc9a4ff6de971c"
+      "bytes": 12971,
+      "sha256": "2b24c42e757db3aa7b7675ace6eb8ad887f7d3fa11be5b1b646cde8da2ffd5cd"
     },
     {
-      "path": "settletable/transport.py",
-      "bytes": 73030,
-      "sha256": "ab248140b44b53e7a10e26007e8a456c3424610a247e33ee74002135d71ce48e"
+      "path": "tests/test_backup_restore.py",
+      "bytes": 13337,
+      "sha256": "18b70a7eee9b41e008e7f21e83902df65aaef70915def37fd420a257fdaefc00"
     },
     {
-      "path": "tests/test_reverse_proxy_ingress.py",
-      "bytes": 20282,
-      "sha256": "50486c6a30753a34553bbf3b0b0a7cea4314d1f1d8b56da7ad9023730919460c"
+      "path": "tools/backup_restore.py",
+      "bytes": 25859,
+      "sha256": "bd5778852a3975ccd7fa7b1cadd1093bf01e77e56a0b3494f278a64b08b58e91"
+    },
+    {
+      "path": "tools/verify_isolated_docker_drill.py",
+      "bytes": 8213,
+      "sha256": "fac1f9b9857ded7445bc0417f48553a8df52c2e88e926f9ecdb15276b0e005c8"
     }
   ]
 }

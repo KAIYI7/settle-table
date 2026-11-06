@@ -231,6 +231,39 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertFalse(wal_file.exists())
         self.assertFalse(shm_file.exists())
 
+    def test_backup_restore_cli_flag_compatibility_and_directory_manifest(self):
+        import subprocess, sys
+        # 1. Test backup CLI with canonical flags and aliases
+        cmd_backup = [
+            sys.executable, "tools/backup_restore.py", "backup",
+            "--db", str(self.src_db),
+            "--storage-dir", str(self.src_photos),
+            "--backup-dir", str(self.backup_dir),
+        ]
+        res = subprocess.run(cmd_backup, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Backup failed: {res.stderr}")
+        self.assertIn("Backup completed successfully", res.stdout)
+
+        # 2. Test restore CLI passing directory to --manifest and using --dest-storage-dir
+        cmd_restore = [
+            sys.executable, "tools/backup_restore.py", "restore",
+            "--manifest", str(self.backup_dir),
+            "--dest-db", str(self.restore_db),
+            "--dest-storage-dir", str(self.restore_photos),
+            "--confirm-stopped",
+            "--skip-health-check",
+            "--skip-docker-check",
+        ]
+        res_restore = subprocess.run(cmd_restore, capture_output=True, text=True)
+        self.assertEqual(res_restore.returncode, 0, f"Restore failed: {res_restore.stderr}")
+        self.assertIn("Restoration completed successfully", res_restore.stdout)
+
+        # Verify restored DB integrity
+        conn = sqlite3.connect(self.restore_db)
+        integrity = conn.execute("PRAGMA integrity_check;").fetchone()
+        conn.close()
+        self.assertEqual(integrity[0], "ok")
+
 
 if __name__ == '__main__':
     unittest.main()

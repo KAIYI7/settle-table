@@ -70,8 +70,10 @@ Because SettleTable runs on a Windows workstation, power management settings mus
    - Open Docker Desktop **Settings > General**.
    - Check **Start Docker Desktop when you log in**.
 2. **WSL2 Resource Allocation (`.wslconfig`)**:
-   - RapidOCR CPU inference and Gunicorn workers require adequate memory.
-   - Create or edit `%USERPROFILE%\.wslconfig` in Windows:
+   - Sizing should be treated as an adjustable recommendation tailored to the physical host's RAM:
+     - For workstations with 16 GB+ RAM, allocating 4 GB and 2 vCPUs provides generous headroom for RapidOCR CPU inference and Gunicorn worker threads.
+     - For laptops or machines with 8 GB RAM, 2 GB to 3 GB with swap is sufficient.
+   - To configure, create or edit `%USERPROFILE%\.wslconfig` in Windows:
      ```ini
      [wsl2]
      memory=4GB
@@ -105,8 +107,10 @@ After Windows restarts and you log in:
    ```powershell
    docker compose ps
    ```
-   Both `settletable_app` and `settletable_tunnel` should show state `Up (healthy)`.
-3. Check the application health probe:
+   Expected status:
+   - `settletable_app`: `Up (healthy)` (monitored via built-in `HEALTHCHECK` probe against `/healthz`).
+   - `settletable_tunnel`: `Up` (running as a daemon; the distroless `cloudflared` image has no health check probe defined).
+3. Check the application health probe locally:
    ```powershell
    curl http://127.0.0.1:8000/healthz
    ```
@@ -135,13 +139,14 @@ To ensure disaster recovery and prevent data loss, follow this procedure for bac
 
 ### 6.1 Online Quiescent Backup (Application Running)
 
-SettleTable's backup tool acquires an internal write lock (`BEGIN IMMEDIATE`), snapshots the database via `sqlite3.backup()`, verifies photo SHA-256 hashes against database records, and generates a signed manifest.
+SettleTable's backup tool acquires an internal write lock (`BEGIN IMMEDIATE`), snapshots the database via `sqlite3.backup()`, verifies photo SHA-256 hashes against database records, and generates a SHA-256 checksummed manifest (note: checksummed for data integrity, not cryptographically signed).
 
 Run from the repository root:
 ```powershell
 # Using a disposable container mounting the persistent volume and host backup directory:
-docker compose run --rm -v <HOST_BACKUP_DIR>:/backups settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --storage-dir /data/receipt_photos --backup-dir /backups
+docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
 ```
+*(Note: `--storage-dir` and `--backup-dir` are accepted as aliases).*
 
 ### 6.2 Explicit Stopped-Container Backup (Recommended Gold Standard)
 
@@ -153,7 +158,7 @@ To guarantee 100% quiescence with zero in-flight uploads:
    ```
 2. **Execute Backup**:
    ```powershell
-   docker compose run --rm -v <HOST_BACKUP_DIR>:/backups settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --storage-dir /data/receipt_photos --backup-dir /backups
+   docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
    ```
 3. **Restart the Application**:
    ```powershell
@@ -176,8 +181,10 @@ To guarantee 100% quiescence with zero in-flight uploads:
    Ensure `settletable_app` is `Exited`.
 3. **Execute Verified Staged Restore**:
    ```powershell
-   docker compose run --rm -v <HOST_BACKUP_DIR>:/backups settletable python tools/backup_restore.py restore --db /data/settletable.sqlite --storage-dir /data/receipt_photos --backup-dir /backups/<BACKUP_SUBDIR> --confirm-stopped
+   docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py restore --manifest /backups/<MANIFEST_FILE_OR_DIR> --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
    ```
+   *(Note: `--manifest` accepts either the direct manifest JSON file path e.g. `/backups/manifest_20261106_070457Z.json` or the backup directory containing it).*
+
    *What happens during verified restore:*
    - **Pre-flight verification**: Checks manifest checksums, database `PRAGMA integrity_check;`, and photo SHA-256 hashes before touching live files.
    - **Isolated staging**: Stages files into `/data/.restore_staging_{uuid}`.
@@ -199,12 +206,30 @@ To guarantee 100% quiescence with zero in-flight uploads:
 
 | Task | Command | Expected Outcome |
 |---|---|---|
-| **Check container status** | `docker compose ps` | Status `Up (healthy)` |
+| **Check container status** | `docker compose ps` | `settletable_app: Up (healthy)`; `settletable_tunnel: Up` |
 | **Inspect application logs** | `docker compose logs -f settletable` | Gunicorn access & error logs (tokens redacted) |
 | **Inspect tunnel logs** | `docker compose logs -f cloudflared` | Cloudflare connection registration logs |
 | **Test local health** | `curl -i http://127.0.0.1:8000/healthz` | HTTP 200 `{"ok":true,"status":"healthy"}` |
 | **Test public tunnel ingress** | `curl -i https://settle.example.com/healthz` | HTTP 200 `{"ok":true,"status":"healthy"}` |
 | **Run deployment smoke check** | `python tools/deployment_smoke_check.py` | 11/11 smoke checks pass |
-| **Emergency organizer recovery** | `docker compose exec settletable python tools/bootstrap_meal.py recover --meal-id <id>` | Prints single-use browser setup link |
+| **Administrative bootstrap meal** | `docker compose exec settletable python tools/bootstrap_meal.py bootstrap --meal-id <id>` | Prints single-use organizer setup link |
+| **Emergency organizer recovery** | `docker compose exec settletable python tools/bootstrap_meal.py recover --meal-id <id>` | Prints fresh organizer recovery link |
 | **Restart application service** | `docker compose restart settletable` | Service restarts cleanly |
 | **Restart tunnel service** | `docker compose restart cloudflared` | Tunnel reconnects to edge |
+
+---
+
+## 8. Connector Token Security & Pre-Activation Verification
+
+### 8.1 Tunnel Token Confidentiality
+The `CLOUDFLARE_TUNNEL_TOKEN` stored in `.env` grants authoritative ingress routing to your Cloudflare Tunnel:
+- Restrict read permissions on `.env` in Windows (Right-click `.env` > Properties > Security > ensure only your user account has Read/Write permissions).
+- `.env` is listed in `.gitignore` and must never be committed to source control.
+
+### 8.2 Pre-Activation Verification Scope
+- **Docker Compose validation** (`docker compose config`): Confirms service syntax, volume declarations, and local port bindings, but does **not** test remote Cloudflare network connectivity.
+- **Application Host Header Filtering**: SettleTable enforces `SETTLETABLE_ALLOWED_HOSTS` inside Python WSGI as defense-in-depth. In live deployment, Cloudflare's edge catch-all 404 rule provides additional boundary protection.
+- Before inviting diners to a live dining event, always execute the deployment smoke test against the live public domain:
+  ```powershell
+  python tools/deployment_smoke_check.py --url https://settle.example.com
+  ```

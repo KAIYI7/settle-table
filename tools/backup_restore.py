@@ -522,6 +522,12 @@ def backup_command(args):
 
 def restore_command(args):
     manifest_path = Path(args.manifest).resolve()
+    if manifest_path.is_dir():
+        candidates = sorted(manifest_path.glob("manifest*.json"))
+        if not candidates:
+            raise FileNotFoundError(f"No manifest JSON file found in backup directory: {manifest_path}")
+        manifest_path = candidates[-1]
+
     dest_db = Path(args.dest_db).resolve()
     dest_photos = Path(args.dest_photos).resolve() if args.dest_photos else dest_db.parent / "receipt_photos"
 
@@ -560,14 +566,18 @@ def main():
     # Backup subcommand
     backup_parser = subparsers.add_parser("backup", help="Perform quiescent snapshot of SQLite DB and receipt photos")
     backup_parser.add_argument("--db", default=".local/settletable.sqlite", help="Path to active SQLite database")
-    backup_parser.add_argument("--photos", default=None, help="Path to receipt photos directory (default: <db_dir>/receipt_photos)")
-    backup_parser.add_argument("--out-dir", default=".local/backups", help="Directory where backup will be stored")
+    backup_parser.add_argument("--photos", "--storage-dir", dest="photos", default=None,
+                               help="Path to receipt photos directory (default: <db_dir>/receipt_photos)")
+    backup_parser.add_argument("--out-dir", "--backup-dir", dest="out_dir", default=".local/backups",
+                               help="Directory where backup will be stored")
 
     # Restore subcommand
     restore_parser = subparsers.add_parser("restore", help="Restore database and receipt photos from backup manifest")
-    restore_parser.add_argument("--manifest", required=True, help="Path to backup manifest.json")
+    restore_parser.add_argument("--manifest", "--backup-dir", dest="manifest", required=True,
+                                help="Path to backup manifest.json or backup directory containing manifest")
     restore_parser.add_argument("--dest-db", default=".local/settletable.sqlite", help="Destination path for restored database")
-    restore_parser.add_argument("--dest-photos", default=None, help="Destination directory for receipt photos")
+    restore_parser.add_argument("--dest-photos", "--dest-storage-dir", dest="dest_photos", default=None,
+                                help="Destination directory for receipt photos (default: <dest_db_dir>/receipt_photos)")
     restore_parser.add_argument("--confirm-stopped", action="store_true",
                                 help="Confirm that the SettleTable application container has been stopped before restoring")
     restore_parser.add_argument("--check-url", default="http://127.0.0.1:8000/healthz",
