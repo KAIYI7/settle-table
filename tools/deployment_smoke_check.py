@@ -149,6 +149,24 @@ def run_smoke_checks(base_url: str):
             assert data.get("error") == "origin_mismatch"
     t("8. Mutating requests reject foreign Origin header", check_origin_mismatch)
 
+    # 9. Organizer claim HTML shell route
+    def check_claim_shell():
+        req = Request(f"{base_url}/claim-organizer/abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE")
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200, f"Expected 200, got {resp.status}"
+            content = resp.read().decode("utf-8")
+            assert "<title>SettleTable" in content, "Missing SettleTable title"
+    t("9. GET /claim-organizer/{token} serves HTML shell", check_claim_shell)
+
+    # 10. Organizer claim API inspection
+    def check_claim_inspection():
+        req = Request(f"{base_url}/api/organizer-claims/abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE")
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200, f"Expected 200, got {resp.status}"
+            data = json.loads(resp.read().decode("utf-8"))
+            assert data.get("ok") is True and data.get("valid") is False, f"Unexpected response: {data}"
+    t("10. GET /api/organizer-claims/{token} inspection returns valid=false for non-existent token", check_claim_inspection)
+
     print(f"\nResults: {passed}/{total} smoke checks passed.")
     if passed == total:
         print("[SUCCESS] All deployment smoke checks verified successfully!\n")

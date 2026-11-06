@@ -222,6 +222,88 @@ class AuthoritySecurityTests(unittest.TestCase):
             self.assertFalse(credential in persisted, 'session material leaked')
             self.assertFalse(credential.encode('ascii') in self.path.read_bytes(), 'session material leaked')
 
+    def test_organizer_claims_lifecycle_and_security(self):
+        # 1. Bootstrap automatically issues initial OrganizerClaimGrant
+        boot = self.authority.bootstrap('claim-meal', (
+            auth.Participant('O', 'Org', True), auth.Participant('D', 'Diner', False)))
+        self.assertIsNotNone(boot.organizer_claim)
+        initial_claim = boot.organizer_claim
+        self.assertEqual(initial_claim.meal_id, 'claim-meal')
+        self.assertFalse(initial_claim.token in repr(boot), 'token material leaked')
+
+        # Raw claim token is never persisted in SQLite plaintext
+        with closing(sqlite3.connect(self.path)) as database:
+            dump = '\n'.join(database.iterdump())
+            self.assertFalse(initial_claim.token in dump, 'raw claim token leaked into SQLite')
+
+        # 2. Inspection of unconsumed claim
+        insp = self.authority.inspect_organizer_claim(initial_claim.token)
+        self.assertTrue(insp.valid)
+        self.assertEqual(insp.meal_id, 'claim-meal')
+        self.assertEqual(insp.organizer_id, 'O')
+        self.assertEqual(insp.organizer_name, 'Org')
+
+        # 3. Single-use redemption succeeds
+        sess = self.authority.claim_organizer_session(initial_claim.token, 'claim-meal')
+        self.assertEqual(sess.participant_id, 'O')
+        # Session credential is valid
+        auth_part, is_org = self.authority.authenticate(sess.credential, 'claim-meal')
+        self.assertEqual(auth_part, 'O')
+        self.assertTrue(is_org)
+
+        # 4. Replay of consumed claim fails
+        insp_consumed = self.authority.inspect_organizer_claim(initial_claim.token)
+        self.assertFalse(insp_consumed.valid)
+        self.assertEqual(insp_consumed.reason, 'consumed')
+        with self.assertRaises(auth.AuthorityError) as replayed:
+            self.authority.claim_organizer_session(initial_claim.token, 'claim-meal')
+        self.assertEqual(replayed.exception.code, 'organizer_claim_consumed')
+
+        # 5. Organizer generates recovery link
+        recovery = self.authority.issue_organizer_recovery(sess.credential, 'claim-meal')
+        self.assertIsNotNone(recovery.token)
+
+        # Non-organizer cannot generate recovery link
+        diner_cred = next(s.credential for s in boot.sessions if s.participant_id == 'D')
+        with self.assertRaises(auth.AuthorityError) as denied:
+            self.authority.issue_organizer_recovery(diner_cred, 'claim-meal')
+        self.assertEqual(denied.exception.code, 'forbidden')
+
+        # Generating another recovery link revokes previous unconsumed link
+        newer_recovery = self.authority.issue_organizer_recovery(sess.credential, 'claim-meal')
+        insp_older = self.authority.inspect_organizer_claim(recovery.token)
+        self.assertFalse(insp_older.valid)
+        self.assertEqual(insp_older.reason, 'revoked')
+        with self.assertRaises(auth.AuthorityError) as revoked_redemption:
+            self.authority.claim_organizer_session(recovery.token, 'claim-meal')
+        self.assertEqual(revoked_redemption.exception.code, 'organizer_claim_revoked')
+
+        # 6. Newer recovery link redeems successfully
+        newer_sess = self.authority.claim_organizer_session(newer_recovery.token, 'claim-meal')
+        self.assertEqual(newer_sess.participant_id, 'O')
+
+        # 7. Wrong meal rejection
+        host_claim = self.authority.issue_organizer_claim('claim-meal')
+        with self.assertRaises(auth.AuthorityError) as wrong_meal:
+            self.authority.claim_organizer_session(host_claim.token, 'other-meal')
+        self.assertEqual(wrong_meal.exception.code, 'invalid_organizer_claim')
+
+        # 8. Expired claim rejection
+        current_time = 1000
+        time_authority = auth.Authority(Path(self.temp.name) / 'expiry.sqlite', clock=lambda: current_time)
+        try:
+            exp_boot = time_authority.bootstrap('exp-meal', (auth.Participant('O', 'Org', True),), session_ttl=10)
+            exp_token = exp_boot.organizer_claim.token
+            current_time = 2000  # Advance past 10s TTL
+            exp_insp = time_authority.inspect_organizer_claim(exp_token)
+            self.assertFalse(exp_insp.valid)
+            self.assertEqual(exp_insp.reason, 'expired')
+            with self.assertRaises(auth.AuthorityError) as expired:
+                time_authority.claim_organizer_session(exp_token, 'exp-meal')
+            self.assertEqual(expired.exception.code, 'organizer_claim_expired')
+        finally:
+            time_authority.close()
+
 
 if __name__ == '__main__':
     unittest.main()

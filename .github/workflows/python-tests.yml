@@ -47,3 +47,26 @@ jobs:
         run: node tools/verify_context_aware_navigation.mjs
       - name: Mobile UX audit remediation regression
         run: node tools/verify_mobile_ux_remediation.mjs
+
+  docker-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build Docker container
+        run: docker build -t settletable:ci .
+      - name: Run container and execute deployment smoke check
+        run: |
+          docker run -d --name settletable-ci -p 8000:8000 settletable:ci
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:8000/healthz | grep -q '"status":"healthy"'; then
+              echo "Container is healthy!"
+              break
+            fi
+            echo "Waiting for container..."
+            sleep 1
+          done
+          python3 tools/deployment_smoke_check.py --url http://127.0.0.1:8000
+          docker stop settletable-ci && docker rm settletable-ci

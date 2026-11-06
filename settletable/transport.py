@@ -57,6 +57,11 @@ STATUS_MAP = {
     'calculation_rejected': 400,
     'unsupported_command': 400,
     'invalid_invitation': 400,
+    'invalid_organizer_claim': 400,
+    'organizer_claim_expired': 410,
+    'organizer_claim_consumed': 409,
+    'organizer_claim_revoked': 409,
+    'organizer_not_found': 404,
     'invalid_image': 400,
     # 401 Unauthorized
     'invalid_session': 401,
@@ -258,7 +263,7 @@ class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
                  server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None,
                  notion_client=None, allow_sync_export=False, simulation_config=None, simulation_client=None,
-                 storage_dir=None):
+                 storage_dir=None, session_ttl=None):
         self.db_path = str(db_path)
         self.storage_dir = Path(storage_dir) if storage_dir is not None else None
         self.allowed_hosts = set(allowed_hosts)
@@ -267,6 +272,7 @@ class SettleTableApp:
         self.logger = logger
         self.ocr_engine = ocr_engine
         self.notion_client = notion_client
+        self.session_ttl = session_ttl
         from settletable.payment_simulation import SimulationConfig, KaiPayClient
         self.simulation_config = simulation_config if simulation_config is not None else SimulationConfig.from_env()
         self.simulation_client = (simulation_client or KaiPayClient(self.simulation_config)) if self.simulation_config else None
@@ -275,6 +281,19 @@ class SettleTableApp:
             or os.environ.get('SETTLETABLE_ALLOW_SYNC_EXPORT') == '1'
         )
         self._local = threading.local()
+
+    def _get_session_ttl(self):
+        if getattr(self, 'session_ttl', None) is not None:
+            return self.session_ttl
+        val = os.environ.get('SETTLETABLE_SESSION_TTL')
+        if val:
+            try:
+                ttl = int(val)
+                if 1 <= ttl <= 2592000:
+                    return ttl
+            except ValueError:
+                pass
+        return 604800
 
     def get_ocr_engine(self):
         if self.ocr_engine is not None:
@@ -502,6 +521,14 @@ class SettleTableApp:
                     return 200, self._static_headers('text/html; charset=utf-8', 'no-store, no-cache, must-revalidate'), index_path.read_bytes()
                 raise TransportError('not_found', 404)
 
+            # GET /claim-organizer/{token} or /claim/{token} serves HTML shell for organizer claim landing
+            m_claim_shell = re.fullmatch(r'/(?:claim-organizer|claim)/([A-Za-z0-9_-]{43})', path)
+            if m_claim_shell:
+                index_path = STATIC_DIR / 'index.html'
+                if index_path.exists():
+                    return 200, self._static_headers('text/html; charset=utf-8', 'no-store, no-cache, must-revalidate'), index_path.read_bytes()
+                raise TransportError('not_found', 404)
+
             # GET /static/{filename}
             m_stat = re.fullmatch(r'/static/([A-Za-z0-9_.-]+)', path)
             if m_stat:
@@ -533,6 +560,22 @@ class SettleTableApp:
             }
             return 200, self._default_headers(), serialize_json(out)
 
+        # Unauthenticated organizer claim inspection GET /api/organizer-claims/{token}
+        m_org_claim_inspect = re.fullmatch(r'/api/organizer-claims/([A-Za-z0-9_-]{43})', path)
+        if m_org_claim_inspect and method == 'GET':
+            token = m_org_claim_inspect.group(1)
+            res = authority.inspect_organizer_claim(token)
+            out = {
+                'ok': True,
+                'valid': res.valid,
+                'meal_id': res.meal_id,
+                'organizer_id': res.organizer_id,
+                'organizer_name': res.organizer_name,
+                'expires': res.expires,
+                'reason': res.reason,
+            }
+            return 200, self._default_headers(), serialize_json(out)
+
         # Clear / Exit Session POST /api/session/clear or POST /api/meals/{meal_id}/session/exit
         if method == 'POST' and (path in ('/api/session/clear', '/api/session/exit') or re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/session/exit', path)):
             headers = self._default_headers()
@@ -543,9 +586,10 @@ class SettleTableApp:
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/invitations/([A-Za-z0-9_-]{43})/redeem', path)
         if m and method == 'POST':
             meal_id, token = m.group(1), m.group(2)
-            session_grant = authority.redeem_invitation(token, meal_id)
+            session_ttl = self._get_session_ttl()
+            session_grant = authority.redeem_invitation(token, meal_id, session_ttl=session_ttl)
             headers = self._default_headers()
-            headers.append(('Set-Cookie', f'settletable_session={session_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/'))
+            headers.append(('Set-Cookie', f'settletable_session={session_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={session_ttl}'))
             out = {
                 'ok': True,
                 'meal_id': meal_id,
@@ -592,9 +636,26 @@ class SettleTableApp:
             claim_token = body_data.get('claim_token')
             if not isinstance(claim_token, str):
                 raise TransportError('invalid_input', 400)
-            session_grant = authority.claim_join_request(meal_id, request_id, claim_token)
+            session_ttl = self._get_session_ttl()
+            session_grant = authority.claim_join_request(meal_id, request_id, claim_token, session_ttl=session_ttl)
             headers = self._default_headers()
-            headers.append(('Set-Cookie', f'settletable_session={session_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/'))
+            headers.append(('Set-Cookie', f'settletable_session={session_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={session_ttl}'))
+            out = {
+                'ok': True,
+                'meal_id': meal_id,
+                'participant_id': session_grant.participant_id,
+                'status': 'claimed',
+            }
+            return 200, headers, serialize_json(out)
+
+        # Claim Organizer Session POST /api/meals/{meal_id}/organizer-claims/{token}/claim
+        m_org_claim_redeem = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/organizer-claims/([A-Za-z0-9_-]{43})/claim', path)
+        if m_org_claim_redeem and method == 'POST':
+            meal_id, token = m_org_claim_redeem.group(1), m_org_claim_redeem.group(2)
+            session_ttl = self._get_session_ttl()
+            session_grant = authority.claim_organizer_session(token, meal_id, session_ttl=session_ttl)
+            headers = self._default_headers()
+            headers.append(('Set-Cookie', f'settletable_session={session_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={session_ttl}'))
             out = {
                 'ok': True,
                 'meal_id': meal_id,
@@ -629,10 +690,11 @@ class SettleTableApp:
                     parts.append(Participant(p['id'], p['name'], p.get('organizer', False)))
             except (KeyError, TypeError):
                 raise TransportError('invalid_input', 400)
-            b_res = authority.bootstrap(meal_id, tuple(parts))
+            session_ttl = self._get_session_ttl()
+            b_res = authority.bootstrap(meal_id, tuple(parts), session_ttl=session_ttl)
             organizer_session = next(s for s, p in zip(b_res.sessions, parts) if p.organizer)
             headers = self._default_headers()
-            headers.append(('Set-Cookie', f'settletable_session={organizer_session.credential}; HttpOnly; Secure; SameSite=Strict; Path=/'))
+            headers.append(('Set-Cookie', f'settletable_session={organizer_session.credential}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={session_ttl}'))
             # Defense against credential exposure: Never return all participant credentials
             # to an untrusted client. Only the provisioned organizer session is returned.
             # Diners must join via explicit invitations (issue_invitation -> redeem_invitation).
@@ -642,6 +704,12 @@ class SettleTableApp:
                 'organizer_id': organizer_session.participant_id,
                 'sessions': [{'participant_id': organizer_session.participant_id, 'credential': organizer_session.credential}],
             }
+            if b_res.organizer_claim:
+                out['organizer_claim'] = {
+                    'token': b_res.organizer_claim.token,
+                    'expires': b_res.organizer_claim.expires,
+                    'claim_url': f"{self.server_origin}/#/claim-organizer/{b_res.organizer_claim.token}",
+                }
             return 201, headers, serialize_json(out)
 
         # Snapshot GET /api/meals/{meal_id}/snapshot
@@ -682,9 +750,10 @@ class SettleTableApp:
             if not active_cred:
                 raise TransportError('invalid_session', 401)
             meal_id = m.group(1)
-            new_grant = authority.rotate_session(active_cred, meal_id)
+            session_ttl = self._get_session_ttl()
+            new_grant = authority.rotate_session(active_cred, meal_id, session_ttl=session_ttl)
             headers = self._default_headers()
-            headers.append(('Set-Cookie', f'settletable_session={new_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/'))
+            headers.append(('Set-Cookie', f'settletable_session={new_grant.credential}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={session_ttl}'))
             out = {
                 'ok': True,
                 'participant_id': new_grant.participant_id,
@@ -694,6 +763,26 @@ class SettleTableApp:
             if bearer_cred and not used_cookie:
                 out['credential'] = new_grant.credential
             return 200, headers, serialize_json(out)
+
+        # Issue Organizer Recovery Link POST /api/meals/{meal_id}/organizer-claims
+        m_org_claim_issue = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/organizer-claims', path)
+        if m_org_claim_issue and method == 'POST':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_org_claim_issue.group(1)
+            claim_ttl = body_data.get('claim_ttl', self._get_session_ttl())
+            if not isinstance(claim_ttl, int) or not (1 <= claim_ttl <= 2592000):
+                raise TransportError('invalid_input', 400)
+            grant = authority.issue_organizer_recovery(active_cred, meal_id, claim_ttl=claim_ttl)
+            out = {
+                'ok': True,
+                'meal_id': grant.meal_id,
+                'token': grant.token,
+                'expires': grant.expires,
+                'issue_id': grant.issue_id,
+                'claim_url': f"{self.server_origin}/#/claim-organizer/{grant.token}",
+            }
+            return 201, self._default_headers(), serialize_json(out)
 
         # Issue Invitation POST /api/meals/{meal_id}/invitations
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/invitations', path)

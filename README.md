@@ -198,24 +198,29 @@ SettleTable is packaged as a reproducible, single-instance container application
   - Deploy via Docker Compose with Caddy reverse proxy.
   - Estimated cost: **~$4.10 / month**.
 
-### Administrative Meal Provisioning
+### Administrative Meal Provisioning & Organizer Recovery
 
 Because public clients cannot call the bootstrap endpoint, provision meals directly on the host:
 
 ```bash
 python tools/bootstrap_meal.py --meal-id dinner-friday --organizer "Alice" --diners "Bob, Charlie"
 ```
-The CLI outputs the organizer's session token and diner invitation links.
+The CLI outputs a secure, single-use Organizer Browser Setup Link (`/#/claim-organizer/<token>`) that activates the organizer session and issues the `settletable_session` HttpOnly cookie directly to the organizer's browser, along with diner invitation links.
 
-### Hot Backup & Disaster Recovery
+If an organizer loses access (e.g., cleared browser cookies or device change), generate an emergency single-use recovery link on the host:
+```bash
+python tools/bootstrap_meal.py recover --meal-id dinner-friday
+```
 
-Perform live, crash-consistent hot backups while the server is actively running:
+### Quiescent Backup & Verified Restore
+
+Perform consistent backups while the server is running (using an immediate write-quiescence lock to ensure synchronized database snapshots and verified receipt photo manifests):
 
 ```bash
-# Hot backup SQLite WAL database and receipt photos
+# Quiescent backup of SQLite database and receipt photos with SHA-256 manifest
 python tools/backup_restore.py backup --db /data/settletable.sqlite --out-dir /data/backups
 
-# Disaster recovery restore from a backup manifest
+# Verified disaster recovery restore from a backup manifest (enforces stopped instance and validates SHA-256 hashes)
 python tools/backup_restore.py restore --manifest /data/backups/manifest_TIMESTAMP.json --dest-db /data/settletable.sqlite
 ```
 
@@ -226,7 +231,7 @@ python tools/backup_restore.py restore --manifest /data/backups/manifest_TIMESTA
 SettleTable includes extensive automated test coverage across mathematical correctness, state machine transitions, adversarial security, and end-to-end browser journeys:
 
 ```bash
-# Run all Python unit, calculation, and security tests (294 tests)
+# Run all Python unit, calculation, and security tests (303 tests)
 python -m unittest discover -s tests -v
 
 # Run transport adapter unit tests
