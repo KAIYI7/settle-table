@@ -157,8 +157,8 @@ def redact_log_string(s: str) -> str:
     s = re.sub(r'(settletable_session=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s)
     # 5. Notion and integration tokens
     s = re.sub(r'(secret_|ntn_)[A-Za-z0-9_-]{10,}', r'\1[REDACTED]', s)
-    # 6. Query strings: token, claim_token, cred, credential
-    s = re.sub(r'([?&](?:token|claim_token|cred|credential)=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
+    # 6. Query strings: token, claim_token, cred, credential (matches start of query string or after ? / &)
+    s = re.sub(r'((?:^|[?&])(?:token|claim_token|cred|credential)=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
     # 7. JSON fields in logged request/response payloads or diagnostic messages
     s = re.sub(r'"(?:token|claim_token|cred|credential|organizer_credential|settletable_session)"\s*:\s*"[^"]+"', r'"token":"[REDACTED]"', s)
     return s
@@ -345,6 +345,8 @@ class SettleTableApp:
 
         if self.logger:
             raw_path = environ.get('PATH_INFO', '/')
+            if '?' in raw_path:
+                raw_path = raw_path.split('?', 1)[0]
             method = environ.get('REQUEST_METHOD', 'GET').upper()
             safe_path = redact_log_string(raw_path)
             qs = environ.get('QUERY_STRING')
@@ -712,9 +714,12 @@ class SettleTableApp:
         if m and method == 'POST':
             # Ingress/Proxy header protection: a reverse proxy forwarding requests to loopback
             # would make untrusted external calls appear to originate from 127.0.0.1.
-            # Reject if any proxy forwarding headers are present.
-            proxy_headers = ('HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED_HOST',
-                             'HTTP_X_FORWARDED_PROTO', 'HTTP_FORWARDED', 'HTTP_X_REAL_IP')
+            # Reject if any proxy forwarding headers are present (including Cloudflare and CDN client IP headers).
+            proxy_headers = (
+                'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED_HOST',
+                'HTTP_X_FORWARDED_PROTO', 'HTTP_FORWARDED', 'HTTP_X_REAL_IP',
+                'HTTP_CF_CONNECTING_IP', 'HTTP_TRUE_CLIENT_IP', 'HTTP_X_CLUSTER_CLIENT_IP'
+            )
             if any(h in environ for h in proxy_headers):
                 raise TransportError('forbidden', 403)
 

@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-06 — Stage B: Offline Hosting Preparation & Local Verification
+
+**Orchestrator decision: PASS / READY FOR PRODUCT OWNER AUTHORIZATION.** Stage B offline configuration templates, Docker Compose integration, Windows host operations runbook, and synthetic reverse-proxy / Cloudflare ingress test suite completed and verified. Zero external tunnels opened; zero spending incurred.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 318/318 Python unit, calculation, security, restore, and ingress tests passed; all 12 browser CDP regression test suites passed; containerized WSGI application operational. |
+| Gate 2: Restricted Online Deployment Pilot (`v0.9.0-beta.1`) | **STAGE B OFFLINE PREPARATION COMPLETE / EXTERNAL ACTIVATION PENDING PO AUTHORIZATION**: (1) Remotely-managed Cloudflare Named Tunnel selected as primary pattern per official Cloudflare docs, eliminating local credentials files; (2) Inactive locally-managed template (`deploy/cloudflare/config.template.yml`) and guide (`deploy/cloudflare/README.md`) prepared; (3) Docker Compose optional profile `with-cloudflared` configured for Topology A (internal network routing to `http://settletable:8000`); (4) `deploy/env.template` updated for custom domain origin and allowed hosts without Cloudflare Access; (5) Windows host operational runbook authored (`docs/runbooks/windows_host_operations.md`) covering sleep/power management, Docker Desktop auto-start, crash consistency, WAN outage recovery, and stopped-container disaster recovery; (6) 9-point synthetic ingress test suite (`tests/test_reverse_proxy_ingress.py`) verified 100%; (7) Future manual deployment checklist documented with explicit Product Owner approval boundaries. |
+| Gate 3: Publicly Reachable Application | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) and explicit Product Owner authorization for public traffic. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Ingress Security & Exact-Origin Invariants | **PASS**: Synthetic tests prove custom domain Host validation (400 invalid_host on spoofed host), exact-origin CSRF enforcement under public HTTPS (403 on scheme mismatch, foreign origin, null origin; 400 on missing action header), Cloudflare header processing, proxy header rejection on `/bootstrap` (403 on CF-Connecting-IP, X-Forwarded-For, etc.), unauthenticated access denied (401 invalid_session), and no-cache/no-store enforcement on dynamic API and photo endpoints. |
+| Operational Durability & Stopped-Container Restore | **PASS**: Windows host power management, Docker Desktop WSL2 configuration, SQLite WAL crash consistency, WAN drop automatic reconnection, and stopped-container verified restore with automated cutover rollback fully documented. |
+| Pre-Publication Privacy & Rights Audit | **PASS**: `tools/audit_repository.py` passed with 0 findings across all tracked files. |
+| Authorization Boundary Strict Enforcement | **PASS**: Zero external network connections, zero tunnel tokens created, zero DNS records modified, and zero spending incurred. Live external activation requires explicit Product Owner authorization. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-06 — Stage A: Post-Merge Corrective Hardening: PR #48 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head merged autonomously under orchestrator governance policy into `main`. GitHub PR #48 verified on hosted CI before merge.
