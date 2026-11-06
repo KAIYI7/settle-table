@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-06 — Stage B: Final Pre-Activation Reconciliation
+
+**Orchestrator decision: PASS / READY FOR PRODUCT OWNER AUTHORIZATION.** Bounded pre-activation reconciliation completed: (1) Production volume isolation proven without mounting or referencing `settletable_data`; (2) `cloudflare/cloudflared` pinned by immutable multi-arch digest `2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba`; (3) Request limits reconciled with actual transport constants (1MB JSON / 5MB image); (4) Gate definitions updated to distinguish public network reachability from unrestricted public product access; (5) Canonical storage path `/data/receipt_photos` aligned; (6) Comprehensive 12-item pre-activation checklist prepared. Zero external tunnels opened; zero spending incurred.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 319/319 Python unit, calculation, security, restore, and ingress tests passed; all 12 browser CDP regression test suites passed; containerized WSGI application operational. |
+| Gate 2: Publicly Reachable Restricted Online Pilot (`v0.9.0-beta.1`) | **STAGE B OFFLINE PREPARATION & DRILL COMPLETE / EXTERNAL ACTIVATION PENDING PO AUTHORIZATION**: Application is reachable from the public internet via Cloudflare Named Tunnel on dedicated subdomain without Cloudflare Access; native organizer claim and diner invitation mechanisms protect individual meals, while public `/bootstrap` is denied. Offline configuration templates, pinned Docker Compose connector, Windows host runbook, synthetic ingress suite, non-destructive isolated Docker recovery drill, and 12-point pre-activation checklist completed. |
+| Gate 3: Unrestricted Public Product Access & Multi-Tenant Identity | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) where arbitrary public visitors can create persistent accounts, access multi-meal dashboards, and manage self-serve meal discovery. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Volume Isolation & Drill Integrity | **PASS**: Non-destructive Docker recovery drill (`tools/verify_isolated_docker_drill.py`) refactored to verify volume isolation strictly using ephemeral test volumes without mounting, creating, or referencing `settletable_data`. Destination volume empty state prior to restore, strict file containment post-restore, and volume entity independence verified. |
+| Image Reproducibility & Cryptographic Pinning | **PASS**: `docker-compose.yml` pins `cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba` covering both `linux/amd64` and `linux/arm64`. |
+| Transport Wire Limits & Content Boundaries | **PASS**: Transport limits accurately documented: `MAX_BODY_BYTES` (1 MB) for JSON API payloads, `MAX_IMAGE_BYTES` (5 MB) for receipt photo uploads and RapidOCR extraction, 4 KB single header, 16 KB total headers. |
+| Pre-Publication Privacy & Rights Audit | **PASS**: `tools/audit_repository.py` passed with 0 findings across all tracked files. |
+| Authorization Boundary Strict Enforcement | **PASS**: Zero external network connections, zero tunnel tokens created, zero DNS records modified, and zero spending incurred. Live external activation requires explicit Product Owner authorization. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-06 — Stage B: Operational Runbook Corrections & Pre-Activation Verification
 
 **Orchestrator decision: PASS / READY FOR PRODUCT OWNER AUTHORIZATION.** Operational runbook corrections, backup/restore CLI argument alignment and aliases, non-destructive isolated Docker recovery drill, pinned cloudflared image, Docker bridge network service resolution verification, and application abuse controls audit completed and verified. Zero external tunnels opened; zero spending incurred.

@@ -23,7 +23,7 @@ cloudflared tunnel --no-autoupdate run --token <TUNNEL_TOKEN>
 - **Zero local secrets in repo**: No credentials JSON file (`<UUID>.json`) or local certificate files to mount into containers or risk committing to Git. (Note: the `CLOUDFLARE_TUNNEL_TOKEN` stored in `.env` remains sensitive and must be protected on the local host with restricted file permissions).
 - **Single source of truth**: Public hostnames (e.g. `settle.example.com`) and ingress targets are defined centrally on Cloudflare's edge.
 - **Dynamic reconfiguration**: DNS routing and ingress targets can be updated in the dashboard without editing local files or restarting Docker containers.
-- **Reproducible Docker Compose integration**: Pinned to tested stable release `cloudflare/cloudflared:2026.10.7`. Pass `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and start the connector container using `docker compose --profile with-cloudflared up -d`.
+- **Reproducible Docker Compose integration**: Pinned by version tag and multi-arch manifest list digest `cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba` covering both `linux/amd64` and `linux/arm64`. Pass `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and start the connector container using `docker compose --profile with-cloudflared up -d`.
 
 ### Mode 2: Locally Managed Tunnels (ALTERNATIVE)
 
