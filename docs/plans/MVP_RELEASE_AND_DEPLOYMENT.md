@@ -1,220 +1,234 @@
-# SettleTable — Official MVP Release & Deployment Plan
+# SettleTable — Low-Cost, Mostly-Available MVP Deployment Plan
 
 **Document:** `docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md`  
-**Date:** 2026-11-05  
-**Status:** Orchestrator Release Plan & Decision Record  
-**Target Milestones:**
-- Restricted Deployment Pilot: `v0.9.0-beta.1`
-- Official Release Candidate: `v1.0.0`
+**Date:** 2026-11-06 (Revised from 2026-11-05 baseline)  
+**Status:** PROPOSED / Architecture & Roadmap Revision Record  
+**Repository Checkpoint:** `de450929e98beabec87987ec9d26fcad78a92968`  
+**Product Owner Preference:** Free or near-zero recurring cost (prefer RM0/month); mostly-available hosting on Windows machine; invited-friend audience.
 
 ---
 
-## 1. Executive Summary & Context
+## 1. Executive Summary & Strategy Pivot
 
-SettleTable has completed its core functional and algorithmic scope through PR #46. The platform encompasses:
-- Cent-conserving deterministic apportionment (`tabwise-apportion-v1`) with integer minor units (`sen`).
-- Air-gapped local Malaysian dining receipt OCR (RapidOCR CPU ONNX) with Malaysian SST/service charge parsing.
-- Crash-consistent receipt photo retention and pan/zoom preview.
-- Multi-diner real-time collaboration with pre-minted invitations and general meal join requests.
-- Multi-payer contributions and net balance reconciliation.
-- Suggested peer transfer calculation, partial reimbursements, and settlement tracking.
-- Optional decoupled asynchronous Notion financial export with original receipt photo attachments.
-- Full desktop Google Chrome UAT, physical Android Chrome UAT on POCO F6, and 294 passing automated regression tests.
+Following the initial deployment preparation report (`de45092`), the Product Owner reconsidered the hosting strategy. The previous plan prioritized commercial cloud platforms (Fly.io at ~$7–$14/mo, Hetzner VPS at ~$4/mo, Railway at ~$8–$11/mo). 
 
-The account/login and "My Meals" roadmap is documented in `docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md` and remains a future architectural phase. Login implementation is **not** part of this release milestone.
+**The deployment strategy is hereby revised to prioritize low-cost, mostly-available self-hosting on the owner's Windows hardware:**
+- **Cost Target:** RM0/month recurring hosting fees. A modest annual domain registration/renewal fee (~RM45–RM70/year) may be considered separately, but no spending is currently authorized.
+- **Availability Target:** Mostly available. The application is reachable when the Windows host, Docker daemon, network tunnel, and residential internet connection are operating. Occasional downtime (e.g. host sleep, reboots, internet hiccups) is explicitly acceptable. 24/7 SLA is unnecessary.
+- **Audience:** The Product Owner and invited friends (restricted pilot), not unrestricted anonymous public users.
+- **Accessibility:** Zero-software diner experience: diners must be able to collaborate using ordinary mobile and desktop browsers without installing VPN clients.
+- **Architectural Continuity:** Retain the single-instance Python standard-library WSGI adapter (`settletable.transport`), local SQLite WAL database, local filesystem receipt photo storage, CPU ONNX RapidOCR pipeline, and deterministic mathematical engine (`tabwise-apportion-v1`).
 
-The objective of this plan is to transition SettleTable from a local development/demo setup into a reproducible, deployment-ready, self-hostable MVP while strictly preserving its zero-trust boundaries and security invariants.
+An enduring HTTPS origin, repeatable startup, durable data persistence, safe browser sessions, access controls, and off-host backups take priority over always-on cloud compute.
 
 ---
 
-## 2. Phase A — Release Readiness Investigation & Findings
+## 2. Phase A — Release Readiness Investigation & Defect Verification
 
-Each architectural component was inspected against the current `main` branch. Findings are labeled using the project's evidence classification:
-- **`[VERIFIED]`**: Inspected directly in source code or proven by passing deterministic tests.
+Each architectural component was re-inspected against the actual implementation at `de45092`. Findings are labeled using the project's evidence classification:
+- **`[VERIFIED]`**: Inspected directly in source code or proven by passing tests.
 - **`[OBSERVED]`**: Confirmed operational behavior or measured runtime characteristic.
 - **`[INFERENCE]`**: Logical architectural conclusion or necessary deployment deduction.
 - **`[UNKNOWN]`**: Unmeasured or dependent on external environment factors.
 
-### 2.1 Investigation Matrix
+### 2.1 Investigation & Defect Verification Matrix
 
-| Capability / Boundary | Status / Finding | Classification | Deployment Impact |
+| Capability / Boundary | Verified Status & Evidence | Classification | Impact on Self-Hosted Pilot |
 |---|---|---|---|
-| **Loopback Meal Bootstrap** | `SettleTableApp._dispatch` strictly rejects `POST /api/meals/{id}/bootstrap` if `REMOTE_ADDR` is not loopback (`127.0.0.1`, `::1`, `localhost`) or if **any** proxy headers (`X-Forwarded-For`, `X-Forwarded-Proto`, etc.) are present. | `[VERIFIED]` | External web clients cannot provision new meals via public reverse proxy routes. Meals must be provisioned locally/administratively (via CLI or internal loopback tunnel). Arbitrary public meal creation is prohibited by design. |
-| **Organizer Session Expiry & Recovery** | Organizer sessions have a 7-day TTL (`SESSION_TTL = 604800`s) stored in SQLite `sessions`. Tokens are opaque 43-character URL-safe strings returned once at bootstrap via `HttpOnly; SameSite=Strict` cookie. No ordinary password or email recovery exists. | `[VERIFIED]` | If an organizer clears their browser cookies, switches devices, or allows their session to expire, they permanently lose organizer authority for that meal. Ordinary recovery requires the future account roadmap. |
-| **Reverse Proxy & Origin CSRF** | Mutating endpoints (`POST`, `DELETE`) require `X-SettleTable-Action: 1` and strict origin matching against `server_origin`. `HTTP_HOST` must match `allowed_hosts`. | `[VERIFIED]` | Reverse proxy must forward `Host` and `X-Forwarded-*` headers correctly. The application environment must explicitly set `SETTLETABLE_ALLOWED_HOSTS` and `SETTLETABLE_SERVER_ORIGIN` to match the public HTTPS domain; otherwise, all client mutations are blocked with HTTP 403. |
-| **WSGI Serving & Concurrency** | Current runner (`tools/run_demo.py`) uses Python `wsgiref.simple_server` (single-threaded, blocking). `Authority` uses thread-local SQLite connections (`threading.local()`) and WAL mode. | `[VERIFIED]` | Production deployment requires a multi-threaded, single-process WSGI server (e.g. Gunicorn `gthread` with 1 worker process and 4–8 threads). Multi-process or multi-instance deployment is strictly prohibited due to SQLite WAL locking boundaries. |
-| **SQLite WAL Single-Instance Boundary** | SQLite runs with `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=1000`, and `PRAGMA foreign_keys=ON`. Multi-reader/single-writer semantics are strictly single-host. | `[VERIFIED]` | Application **must run as exactly one instance**. Horizontal container autoscaling or running multiple replicas against a network share (NFS/CIFS) will cause database lock timeouts and potential corruption. |
-| **Backups & Receipt Photo Consistency** | Metadata is in SQLite; receipt image binaries are stored as files on disk (`<db_dir>/receipt_photos/`). Simple file copying during WAL writes yields corrupted snapshots. | `[VERIFIED]` | Hot backup requires the SQLite Online Backup API (`sqlite3.backup` or `VACUUM INTO`) to safely checkpoint pages, coupled with an atomic sync of the `receipt_photos/` directory. |
-| **Real Local OCR Engine & Resources** | RapidOCR uses ONNX Runtime on CPU. Model weights (~15–20 MB) are cached locally. Memory consumption: ~150–300 MB baseline, spiking to 500 MB–1 GB during multi-megapixel inference. | `[VERIFIED]` / `[OBSERVED]` | Host/container requires at least 1 GB RAM (preferably 2 GB RAM). OCR models should be pre-baked into the container image to prevent outbound download dependencies at runtime. |
-| **Mock Clients & Testing Flags** | `MockOcrEngine` and `MockNotionClient` can be enabled via CLI flags or `SETTLETABLE_MOCK_*=1`. | `[VERIFIED]` | Production deployment must ensure these environment variables are unset/0 to prevent simulated mocks from handling real financial receipts. |
-| **Notion Export & Token Security** | Notion export is 100% decoupled and optional. Tokens are never persisted to SQLite. `redact_log_string` scrubs tokens from all log outputs. Background daemon thread performs async export with a 60s timeout. | `[VERIFIED]` | Low operational risk. Notion connection failures or rate limits do not block or corrupt meal state. |
-| **Abuse Controls & Wire Bounds** | Request bounds enforced: body $\le 1\text{MB}$ (images $\le 5\text{MB}$), headers $\le 16\text{KB}$, JSON depth $\le 10$, int digits $\le 19$. Structured error codes returned; stack traces never disclosed. | `[VERIFIED]` | Application-level defense-in-depth is solid. Ingress reverse proxy (Tier 1) must enforce connection rate limiting, slowloris defense, and raw wire buffers before requests hit WSGI. |
-| **Guest Invitation & Join Flows** | Pre-minted token links (`/invite/{token}`) and general join requests (`/join/{meal_id}`) operate cleanly over public HTTPS without loopback requirements. | `[VERIFIED]` | Fully online-ready for invited diners and guest participants. |
-| **Startup, Shutdown & Crash Recovery** | SQLite WAL mode automatically recovers on restart. Uncommitted temporary photo uploads are cleaned up. Background exports cleanly time out after 60s. | `[VERIFIED]` | Safe for container restarts and host reboots. A graceful shutdown hook (`SIGTERM` handler) is needed to close database connections cleanly. |
+| **Organizer Session TTL Defect** | `Authority.bootstrap()` in `settletable/authority.py:807` defaults to `session_ttl=3600` (1 hour) and caps at `86400` (24 hours). The previous documentation claim of a 7-day TTL (`604800s`) was **false**. | `[VERIFIED]` | **P1 Defect**: An organizer loses session authorization after 60 minutes. Because no recovery mechanism exists, meals become permanently un-finalizable. Session TTL must be aligned and made configurable up to 7 days. |
+| **Administrative Bootstrap Usability Defect** | `tools/bootstrap_meal.py` prints a raw 43-character session credential string to stdout. The browser client relies entirely on `HttpOnly; SameSite=Strict` cookies (`settletable_session`) and has no route or UI to import a raw token. | `[VERIFIED]` | **P1 Defect**: Running the CLI does not establish a working browser session for the organizer. An organizer clicking `/#/meal/{id}` receives `401 invalid_session`. A secure, single-use Organizer Claim Link (analogous to invitation redemption) is required. |
+| **Backup Atomicity Limitation** | `tools/backup_restore.py` runs `sqlite3.Connection.backup()` and then copies photos from disk *sequentially afterward*. | `[VERIFIED]` | **P1 Defect**: This is not an atomic hot backup. If a photo is uploaded or deleted during the copy, DB and filesystem desynchronize. A formal quiescence/maintenance consistency protocol is required. |
+| **Restore Verification Defect** | `tools/backup_restore.py restore` copies files without checking whether the application is running and holding SQLite WAL locks, and does not verify restored photo hashes against the database table. | `[VERIFIED]` | **P1 Defect**: Restoring over an active SQLite process risks corruption. Restore must enforce application quiescence and cross-verify photo hashes against the database manifest. |
+| **Dockerfile Redirection & Error Masking** | `Dockerfile:20` has unquoted `gunicorn>=21.2.0`, which invokes shell redirection in bash. Line 23 has `|| true` on RapidOCR cache generation, silently masking build-time model download failures. | `[VERIFIED]` | **P2 Defect**: Packaging bugs must be corrected (`"gunicorn>=21.2.0"`, remove `|| true`, ensure non-root permission to model cache directory). |
+| **CI Container Test Absence** | `.github/workflows/python-tests.yml` runs unit tests and Node.js CDP tests directly on ubuntu-24.04 without testing the `Dockerfile` build or container startup. | `[VERIFIED]` | **P2 Defect**: Container build and smoke test must be added to CI to guarantee reproducibility. |
+| **Loopback Meal Bootstrap Ingress Protection** | `POST /api/meals/{id}/bootstrap` rejects requests with proxy headers (`X-Forwarded-For`, etc.) or non-loopback `REMOTE_ADDR` with `403 Forbidden`. | `[VERIFIED]` | **Sound Invariant**: Prevents arbitrary public meal creation over tunnels. External access must remain blocked. |
+| **Exact-Origin CSRF Protection** | Mutating requests enforce `X-SettleTable-Action: 1` and exact origin matching against `SETTLETABLE_SERVER_ORIGIN`. | `[VERIFIED]` | **Sound Invariant**: Guarantees browser CSRF defense over tunnels. `SETTLETABLE_SERVER_ORIGIN` must match the public tunnel domain. |
+| **SQLite WAL Single-Instance Boundary** | SQLite runs with `PRAGMA journal_mode=WAL` and `busy_timeout=1000`. Thread-local connections serialize database transactions safely. | `[VERIFIED]` | **Sound Invariant**: Single-process multi-threaded Gunicorn (`--workers 1 --threads 4`) correctly enforces single-instance locking. |
+| **RapidOCR Resource Overhead** | CPU inference uses ~150–300 MB baseline RAM, peaking to 500 MB–1 GB during multi-megapixel image processing. | `[VERIFIED]` / `[OBSERVED]` | **Host Requirement**: The Windows self-hosting machine (typically 8–32 GB RAM) has ample headroom compared to constrained free cloud tiers. |
+| **Diner Invitation & Join Workflows** | `/invite/{token}` and `/join/{meal_id}` function cleanly over public HTTPS without loopback requirements. | `[VERIFIED]` | **Sound Invariant**: Ready for invited diners over public tunnels. |
 
 ---
 
-## 3. Phase B — Hosting Platform Comparison & Architecture
+## 3. Phase B — Hosting Architecture Comparison (Low-Cost / Mostly-Available)
 
-### 3.1 Evaluation Criteria
-1. **Single-Instance Enforcement**: Ability to pin container/VM to exactly 1 replica without horizontal autoscaling.
-2. **Persistent NVMe/SSD Storage**: POSIX-compliant persistent volume for SQLite WAL and receipt photos.
-3. **RAM & CPU for Real OCR**: Sufficient memory (1–2 GB) to avoid ONNX Runtime OOM during image processing.
-4. **HTTPS & Origin Integrity**: Automated TLS termination with proper Host and SNI preservation.
-5. **Operational Complexity**: Setup overhead, maintenance burden, and observability.
-6. **Cost Efficiency**: Estimated monthly cost for low-traffic restricted pilot.
+### 3.1 Target Evaluation Criteria
+1. **Direct Recurring Cost**: Strictly prefer RM0/month.
+2. **Domain Requirement & Annual Fee**: Does the option require an owned custom domain (e.g. ~$10–$15/year), or does it provide a free stable subdomain?
+3. **Guest / Diner Friction**: Can diners participate via ordinary mobile browsers without installing VPN clients, configuring profiles, or creating third-party accounts?
+4. **Stable Public HTTPS Origin**: Does the hostname remain identical across reboots, host sleeps, and tunnel reconnections (essential for exact-origin CSRF and invitation links)?
+5. **Security & Access Control**: Can the pilot be restricted to invited friends while shielding the host machine from unrestricted Internet probing?
+6. **Provider Limits**: Are bandwidth quotas, request caps, and connection limits adequate for dining sessions with 5 MB receipt photo uploads?
 
-### 3.2 Platform Comparison Matrix
+### 3.2 Access Gateway Comparison Matrix
 
-| Platform | Architecture & Storage | Minimum Tier for Real OCR (1–2 GB RAM) | Estimated Monthly Cost | Pros | Cons | Recommendation Verdict |
+| Gateway Option | Direct Hosting Fee | Domain Prerequisite & Cost | Guest / Diner Experience | Stable URL Across Restarts | Provider Quotas & Limits | Verdict |
 |---|---|---|---|---|---|---|
-| **Fly.io** | Containers on Firecracker microVMs. Persistent NVMe volumes (`fly volumes`) with POSIX semantics. Single machine pinning (`auto_stop_machines = false`, 1 instance). | `shared-cpu-1x` (1 GB RAM) or `shared-cpu-2x` (2 GB RAM) + 3 GB Volume | **$6.85 – $13.85 / mo**<br>($6.70 compute + $0.45 volume for 1GB; $13.39 + $0.45 for 2GB) | Built-in volume snapshotting (24h), global Anycast HTTPS, native Dockerfile build, direct SSH console (`fly ssh console`). | Ephemeral rootfs requires explicit volume mounting for `/data`; stopping machine stops billing for compute but volume charges remain ($0.15/GB/mo). | **PRIMARY RECOMMENDATION (Managed PaaS)** |
-| **Small VPS (Hetzner Cloud CX22 / CAX11)** | Dedicated KVM VPS with local NVMe SSD. Full Linux root access (Ubuntu/Debian). Local Docker Compose + Caddy. | 2 vCPU, 4 GB RAM, 40 GB NVMe SSD | **~$4.10 / mo**<br>(€3.79 / mo) | Highest CPU/RAM headroom for lowest cost. Zero cold starts, complete control over Tier 1 Caddy reverse proxy, local cron backups to S3/B2, no multi-instance risk. | Requires basic server administration (OS updates, SSH hardening, firewall/ufw setup, Docker daemon management). | **PRIMARY RECOMMENDATION (Self-Hosted / VPS)** |
-| **Railway** | Docker deployment with persistent volume attachment. | Hobby plan ($5 base) + usage; 1 GB RAM container + 3 GB volume | **$8.00 – $11.00 / mo**<br>($5 platform + ~$3 compute + $0.45 volume) | Git push deploy, simple UI, easy environment variable management, automatic HTTPS. | Volume pricing is per-second metered; UI makes it easy to accidentally scale replicas unless explicitly locked; fewer low-level disk controls than Fly. | **FALLBACK RECOMMENDATION** |
-| **Render** | Web Service with attached Persistent Disk. Disks only available on paid plans. | Starter Service ($7.00/mo) + 3 GB Persistent Disk ($0.75/mo) | **$7.75 – $14.75 / mo**<br>(Starter 512MB is $7, Standard 2GB is $14 + disk) | Automatically enforces single-instance limit when a disk is attached. Automatic daily snapshots retained 7 days. | 512 MB Starter plan ($7/mo) risks OOM crashes during RapidOCR inference; upgrading to Standard 2 GB costs $14.75/mo. | Viable, but higher cost for adequate OCR RAM. |
+| **Windows Docker + Cloudflare Named Tunnel + Cloudflare Access** | **$0 / month** | **Required:** Custom domain (~$10–$15/yr / ~RM45–RM70/yr) pointed to Cloudflare DNS. | **Zero Software:** Ordinary browser. Access can be restricted via Email OTP PIN (allowlist of friends' emails) or open tunnel relying on app tokens. | **YES**: Permanent custom FQDN (e.g. `settletable.example.com`). Reconnects automatically on boot. | Cloudflare Zero Trust free tier: **Up to 50 users**. **Unmetered bandwidth**. | **PRIMARY RECOMMENDATION (If Domain Approved or Owned)** |
+| **Windows Docker + Tailscale Funnel** | **$0 / month** | **None (RM0/yr):** Uses auto-assigned `*.ts.net` MagicDNS subdomain. | **Zero Software:** Public internet traffic routes through Tailscale edge to local port. Diners open standard browser. | **YES**: Permanent stable FQDN (e.g. `node.tailnet.ts.net`) with automated Let's Encrypt TLS. | Tailscale Personal: **Free for up to 6 users**, unlimited user devices. Relay throughput limits apply on DERP relays if direct path unavailable. | **PRIMARY RECOMMENDATION (Strict RM0 / No Domain Spend)** |
+| **Windows Docker + Tailscale Serve (Private Tailnet)** | **$0 / month** | None (RM0/yr) | **High Friction:** Every diner **must install Tailscale**, create a Tailscale account, and accept a device share. | **YES**: Stable tailnet IP/name. | Generous free tier limits. | **REJECTED for General Pilot** (Violates PO requirement for zero-software diner browser access). |
+| **ngrok Free Development Domain** | **$0 / month** | None (RM0/yr) for 1 assigned dev domain. | **Poor / Interstitial:** Visitors must click through an ngrok anti-phishing interstitial warning page. Breaks mobile flow. | **YES**: 1 static domain provided on free tier. | **TIGHT LIMITS**: **1 GB/month bandwidth**, **20k requests/month**. 1 dining session with multiple 5MB photos & polling quickly exhausts quota. | **FALLBACK ONLY (High Quota Risk)** |
+| **Cloudflare Quick Tunnel** | **$0 / month** | None | Ordinary browser. | **NO**: Random URL (`*.trycloudflare.com`) generated per connection. Changes on every restart or disconnect. | Intended for temporary debugging only. | **REJECTED for Persistent Pilot** (Fails stable URL requirement). |
+| **Paid Cloud VPS / PaaS (Fly.io, Hetzner, Railway)** | $4.10 – $14.75 / month | Optional or included | Ordinary browser. | YES | Unlimited / standard VPS quotas. | **DEFERRED** (Superseded by PO low-cost preference). |
 
-### 3.3 Final Hosting Decision
-- **Primary Option A (Zero-Server-Management PaaS):** **Fly.io** (`shared-cpu-1x`, 1 GB RAM, 3 GB persistent volume mounted at `/data`, deployed via Dockerfile).
-- **Primary Option B (Maximum Performance & Cost Efficiency):** **Hetzner Cloud CX22** (4 GB RAM, 40 GB NVMe, Docker Compose with Caddy reverse proxy, costing ~$4.10/mo).
-- **Fallback Option:** **Railway** (Hobby plan with attached persistent volume).
+### 3.3 Gateway Recommendations
 
-*Note: Per AGENTS.md, no hosting accounts, cloud resources, or billing profiles have been created. This is an evaluation and packaging preparation.*
+1. **Primary Recommendation A (If Product Owner approves modest annual domain cost or owns an existing domain):**
+   - **Cloudflare Named Tunnel (`cloudflared`) + Cloudflare Access**:
+   - Zero hosting fees ($0/mo), unlimited bandwidth, permanent custom domain, automated TLS termination, and optional email-allowlist pre-authentication (up to 50 users free).
+   - Cost: $0/mo hosting + ~$10–$15/year domain registration.
 
----
+2. **Primary Recommendation B (Strict RM0/year — Zero Spending Authorized):**
+   - **Tailscale Funnel**:
+   - Costs exactly **RM0/month and RM0/year**. Zero domain purchase required.
+   - Generates a permanent stable HTTPS URL (`https://<node-name>.<tailnet>.ts.net`) with automated Let's Encrypt TLS certificates.
+   - Routes public internet traffic directly to the host machine without requiring invited diners to install Tailscale.
+   - Access control relies on SettleTable's built-in application defense: loopback-only bootstrap, unguessable meal IDs, private invitation tokens, and organizer approval for join requests.
 
-## 4. Phase C — Deployment Packaging Implementation
-
-To make SettleTable reproducible and deployment-ready without modifying core business invariants, the following packaging artifacts are prepared:
-
-### 4.1 Production WSGI Entrypoint (`settletable/wsgi.py`)
-Provides a standardized WSGI application callable that configures `SettleTableApp` strictly from environment variables:
-- `SETTLETABLE_DB_PATH`: Path to SQLite database (default: `.local/settletable.sqlite` or `/data/settletable.sqlite`).
-- `SETTLETABLE_STORAGE_DIR`: Path to receipt photo storage (default: `<db_dir>/receipt_photos`).
-- `SETTLETABLE_SERVER_ORIGIN`: Exact public origin (e.g. `https://settletable.example.com`).
-- `SETTLETABLE_ALLOWED_HOSTS`: Comma-separated list of permitted `Host` header values.
-- `SETTLETABLE_ALLOW_SYNC_EXPORT`: Flag to permit synchronous Notion export in tests.
-- `SETTLETABLE_MOCK_OCR` / `SETTLETABLE_MOCK_NOTION`: Explicitly disabled by default in production.
-
-### 4.2 Lightweight Healthcheck Probe (`/healthz`)
-Added to `settletable.transport`:
-- Responds to `GET /healthz` and `GET /api/healthz`.
-- Returns `200 OK` with JSON `{"ok": true, "status": "healthy"}`.
-- Evaluated immediately after header wire bounds checks, bypassing Host header checks so internal Docker/Kubernetes health probes (`curl -f http://127.0.0.1:8000/healthz`) succeed without needing internal cluster IPs in `allowed_hosts`.
-
-### 4.3 Containerization (`Dockerfile`, `docker-compose.yml`, `.dockerignore`)
-- **Base image:** `python:3.12-slim`.
-- **Security:** Runs as non-root user `settletable` (UID 10001).
-- **Dependencies:** Installs standard system libraries required by OpenCV/ONNX, installs Python requirements, and pre-downloads RapidOCR models at build time so the container requires zero outbound network calls during runtime.
-- **Persistence:** Declares `VOLUME ["/data"]`.
-- **Server:** Runs Gunicorn with `gthread` worker (1 process, 4 threads).
-
-### 4.4 Tier 1 Reverse Proxy Reference Configurations
-- **Caddy (`deploy/caddy/Caddyfile`):** Automated HTTPS, strict HSTS, 10 MB upload body limit, and route blocking for `/api/meals/*/bootstrap`.
-- **Nginx (`deploy/nginx/nginx.conf`):** Wire protection buffers, `client_max_body_size 10M`, and loopback protection.
-- **Environment Template (`deploy/env.template`):** Documented template for production environment variables.
-
-### 4.5 Hot Backup & Disaster Recovery Utility (`tools/backup_restore.py`)
-- **Backup:** Connects to active SQLite database and invokes `sqlite3.Connection.backup()` to create a clean, transactionally consistent checkpointed copy without WAL dependencies. Synchronizes the `receipt_photos/` folder alongside the backup.
-- **Restore:** Validates backup database integrity with `PRAGMA integrity_check`, restores database and photo directory atomically.
-
-### 4.6 Administrative Meal Bootstrap CLI (`tools/bootstrap_meal.py`)
-Because public clients cannot call `/bootstrap` over the reverse proxy, administrators can provision new meal rooms locally on the host/container:
-- Connects directly to `Authority` on disk.
-- Sets up organizer and initial participants.
-- Generates the organizer's session token and prints diner join links securely to standard output.
-
-### 4.7 Deployment Smoke Check Script (`tools/deployment_smoke_check.py`)
-Automated verification tool that executes end-to-end checks against any local or deployed URL:
-1. Healthcheck (`/healthz`).
-2. Static asset delivery & MIME types (`/static/style.css`, `/static/app.js`).
-3. Security headers (CSP, nosniff, Referrer-Policy).
-4. Ingress boundary check (verifies `POST /api/meals/test/bootstrap` is rejected with 403 when proxy headers are present).
-5. CSRF defense check (verifies mutating requests without `X-SettleTable-Action: 1` are rejected with 400).
+3. **Practical Fallback:**
+   - **ngrok Free**: Reserved strictly as a temporary fallback if both Cloudflare and Tailscale are blocked by local ISP/firewall conditions, noting its strict 1 GB/month data transfer cap and interstitial warning page.
 
 ---
 
-## 5. Phase D — GitHub Release Polish & Repository Audit
+## 4. Re-evaluation of Existing Deployment Artifacts (`de45092`)
 
-### 5.1 Repository Description & Topics
-- **Description:** *"Fair, deterministic, and cent-conserving dining bill splitter with local offline OCR, live diner collaboration, and optional Notion export."*
-- **Proposed Topics:** `bill-splitter`, `receipt-ocr`, `python`, `vanilla-js`, `financial-calculator`, `sqlite-wal`, `notion-api`, `offline-first`, `deterministic-apportionment`.
-
-### 5.2 Licensing & Intellectual Property Decision
-- **Status:** **All Rights Reserved / Source Available (Non-Redistributable).**
-- **Decision:** As established in `THIRD_PARTY_NOTICES.md` and research records, no project-wide open-source license (MIT/Apache) has been selected or granted by the product owner.
-- **Rules:** We do **not** invent an open-source license. Third-party components retain their upstream licenses:
-  - Matt Pocock skill collection: MIT (`.agents/skills/MATTPOCOCK-LICENSE.txt`).
-  - PR / HumanLayer show-me: MIT (`docs/third-party/HUMANLAYER-SHOW-ME-LICENSE.txt`).
-  - Impeccable skill: Apache-2.0 notice preserved; payload excluded from Git.
-- **GitHub Guidance:** GitHub's terms of service permit hosting public repositories under default copyright ("All Rights Reserved"), granting visitors the right to view and fork the code on GitHub without granting a license to redistribute or commercialize it.
-
-### 5.3 Pre-Publication Privacy & Security Audit
-The repository was audited using `tools/audit_repository.py` and git history inspection:
-- **Credentials & API Keys:** 0 active credentials, API tokens, or secrets exist in tracked files.
-- **Private Notion Identifiers:** All test Notion IDs use synthetic hashes or `example.invalid` placeholders.
-- **Excluded Payloads:** Real receipt photos, machine-specific paths, virtual environments (`.venv`), local SQLite databases (`.local/*.sqlite`), and model weights remain strictly excluded in `.gitignore`.
-- **Binary Fixtures:** The only tracked image is a synthetic test fixture (`tests/fixtures/ocr/images/synthetic_clear.png`).
-
-### 5.4 Documentation Deliverables
-- Comprehensive, professional `README.md` reflecting the actual implemented state through PR #46.
-- `SECURITY.md` establishing vulnerability disclosure policies, the two-tier ingress boundary, and session security.
-- `CHANGELOG.md` documenting all milestones, architecture decisions, and PRs #1 through #46.
+| Deliverable | Merged State (`de45092`) | Action | Justification & Adaptation Required |
+|---|---|---|---|
+| `settletable/transport.py` (`/healthz`) | Lightweight health check endpoint | **KEEP** | Essential for Docker `HEALTHCHECK`, tunnel health monitoring, and smoke testing. |
+| `settletable/wsgi.py` | Production WSGI entrypoint with env vars | **KEEP** | Cleanly loads `SETTLETABLE_DB_PATH`, `SETTLETABLE_STORAGE_DIR`, `SETTLETABLE_SERVER_ORIGIN`, and `SETTLETABLE_ALLOWED_HOSTS`. |
+| `deploy/env.template` | Environment variable documentation | **ADAPT** | Update default origin to reflect self-hosted tunnel domains (`*.ts.net` or custom domain). Document session TTL. |
+| `Dockerfile` | Multi-stage Python 3.12 image | **CORRECT** | Fix shell redirection syntax (`"gunicorn>=21.2.0"`), remove `|| true` masking on OCR pre-cache, verify non-root cache permissions. |
+| `docker-compose.yml` | Single-instance service with volume | **ADAPT** | Pin to loopback (`127.0.0.1:8000:8000`), configure named volume for Windows Docker Desktop, add tunnel sidecar service definition if applicable. |
+| `deploy/caddy/Caddyfile` | Caddy reverse proxy template | **ADAPT / DEFER** | If using Cloudflare Tunnel or Tailscale Funnel, ingress TLS is terminated by the tunnel agent. Caddy can be retained as an optional local defense-in-depth proxy or omitted to minimize complexity. |
+| `deploy/nginx/nginx.conf` | Linux Nginx reverse proxy template | **DEFER** | Tailored for dedicated Linux VPS deployments; unnecessary for Windows self-hosting with tunneling. |
+| `tools/backup_restore.py` | Hot backup & disaster recovery utility | **CORRECT** | Remove misleading "atomic hot backup" claim; implement a safe quiescence protocol; verify photo hashes against SQLite manifest; prevent restore over running application; add off-host copy support. |
+| `tools/bootstrap_meal.py` | CLI administrative meal bootstrap | **CORRECT** | Currently prints an unusable raw token. Must generate a secure, single-use Organizer Claim Link that establishes the browser `settletable_session` cookie cleanly. |
+| `tools/deployment_smoke_check.py` | Automated 8-point smoke test suite | **KEEP** | Excellent automated validation of healthz, static assets, security headers, and CSRF/Origin enforcement over tunnels. |
+| `README.md` | Comprehensive project documentation | **ADAPT** | Update deployment section to focus on Windows self-hosting and tunneling; clearly state licensing status and operational limitations. |
+| `SECURITY.md` | Threat model & disclosure policy | **KEEP** | Accurately describes the two-tier boundary and application security invariants. |
+| `CHANGELOG.md` | Revision history across PRs | **KEEP** | Accurate record of historical releases and merged pull requests. |
 
 ---
 
-## 6. Phase E — Release Acceptance Gates
+## 5. Deployment-Hardening Backlog (Pre-Pilot Requirements)
 
-Four separate, independent go/no-go gates govern the release lifecycle:
+Before any external deployment or invited-friend pilot is authorized, the following technical defects must be remediated in code and validated with automated tests:
 
-### Gate 1: Reproducible Local Working Release (`v0.9.0-local`)
-- [x] All 294 Python unit and adversarial tests pass (`python -m unittest discover tests`).
-- [x] All 9 automated headless Chrome CDP E2E regression suites pass.
-- [x] Local runner (`tools/run_demo.py`) operates cleanly with mock clients.
-- [x] Real OCR setup and execution verified with local virtual environment.
-- [x] Documentation, architecture specs, and user guides are accurate and complete.
-- **Verdict: PASS (Ready for Local Distribution)**
+### Priority 1: High Pilot Risk (Security & Continuity)
+1. **Organizer Session Continuity & Browser Claim Flow**:
+   - Create an authorized, bounded Organizer Claim mechanism (e.g. `POST /api/meals/{id}/claim-organizer/{token}`) that issues the `settletable_session` HttpOnly cookie directly to the organizer's browser upon first access.
+   - Update `tools/bootstrap_meal.py` to output this secure claim URL.
+   - Add automated adversarial tests: single-use enforcement, expiry enforcement, and replay rejection.
+2. **Session TTL Alignment**:
+   - Align `settletable/authority.py:807` session TTL with product requirements: permit configuring `session_ttl` up to 7 days (604,800 seconds) for dining meals, while keeping sensible defaults.
+   - Ensure organizer sessions do not abruptly expire after 1 hour during an active dinner.
+3. **Quiescent Backup & Verified Restore Protocol**:
+   - Refactor `tools/backup_restore.py`: replace the false "atomic hot backup" claim with a documented, verified quiescence protocol (brief application write pause or read-only lock during photo sync).
+   - Ensure `restore` explicitly checks for active application processes holding the database open and refuses to overwrite live databases.
+   - Ensure `restore` validates every restored photo's SHA-256 hash against the SQLite `receipt_photos` table.
+   - Add CLI options to copy backups to an off-host directory (e.g. secondary disk or cloud drive).
 
-### Gate 2: Restricted Online Deployment Pilot (`v0.9.0-beta.1`)
-- [x] Production WSGI entrypoint (`settletable/wsgi.py`) implemented and tested.
-- [x] `/healthz` endpoint verified under automated tests.
-- [x] Container packaging (`Dockerfile`, `docker-compose.yml`) verified.
-- [x] Reverse proxy ingress templates (Caddy, Nginx) enforcing Tier 1 wire bounds and `/bootstrap` blocking.
-- [x] Hot backup and disaster recovery script (`tools/backup_restore.py`) verified against active WAL database.
-- [x] Administrative bootstrap CLI (`tools/bootstrap_meal.py`) verified.
-- [x] Pre-publication privacy and credentials audit passed.
-- [ ] Product Owner authorization for hosting platform selection (Fly.io vs Hetzner VPS).
-- **Verdict: IMPLEMENTATION READY (Awaiting PO Infrastructure Authorization)**
-
-### Gate 3: Publicly Reachable Application
-- [ ] Account / Login roadmap implemented (per `docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) OR administrative meal provisioning workflow accepted for hosted use.
-- [ ] Domain name, DNS, and TLS certificates provisioned.
-- [ ] Ingress rate limiting and IP reputation filtering configured.
-- [ ] Automated offsite backup pipeline scheduled.
-- [ ] Product Owner explicit authorization for public traffic and ongoing hosting expenditure.
-- **Verdict: BLOCKED (Pending Account Roadmap & PO Authorization)**
-
-### Gate 4: Public GitHub Repository & Official Tagged Release (`v1.0.0`)
-- [ ] Product Owner decision on repository visibility (Private vs Public).
-- [ ] Product Owner decision on software license (keep All Rights Reserved vs select Open Source license).
-- [ ] Official release tag `v1.0.0` approved and signed.
-- **Verdict: BLOCKED (Requires Product Owner Consequential Decision)**
+### Priority 2: Medium Pilot Risk (Packaging & Reliability)
+4. **Dockerfile Corrections & Verified Model Caching**:
+   - Fix `Dockerfile`: quote `"gunicorn>=21.2.0"`.
+   - Remove `|| true` on RapidOCR cache step so failures fail the build loudly.
+   - Ensure `/home/settletable/.cache` or `/app` permissions permit non-root `settletable` user to load ONNX models.
+5. **CI Container Test Harness**:
+   - Add a step to `.github/workflows/python-tests.yml` to build the `Dockerfile` and execute `tools/deployment_smoke_check.py` against the running container on the Ubuntu runner.
+6. **Windows Host Restart & Lifecycle Documentation**:
+   - Document Windows power settings (preventing sleep during scheduled dining events), Docker Desktop startup settings (`Start Docker Desktop when you log in`, `restart: unless-stopped`), and tunnel reconnection behavior.
 
 ---
 
-## 7. Action Items & Boundaries
+## 6. Revised 4-Stage Release Roadmap & Acceptance Gates
 
-### 7.1 Autonomous Preparation Scope (Completed in this Phase)
-1. Created deployment packaging: `settletable/wsgi.py`, `/healthz` endpoint in `settletable/transport.py`.
-2. Created container configuration: `Dockerfile`, `docker-compose.yml`, `.dockerignore`.
-3. Created reverse proxy templates: `deploy/caddy/Caddyfile`, `deploy/nginx/nginx.conf`.
-4. Created operational utilities: `tools/backup_restore.py`, `tools/bootstrap_meal.py`, `tools/deployment_smoke_check.py`.
-5. Created safe environment template: `deploy/env.template`.
-6. Created comprehensive documentation: `README.md`, `SECURITY.md`, `CHANGELOG.md`.
-7. Added unit tests for `/healthz` and WSGI configuration.
-8. Executed full test suite and pre-publication audit.
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│             STAGE A: Local Reliability & Security Hardening            │
+│  - Correct Organizer Claim Flow & Session TTL                          │
+│  - Correct Backup/Restore Quiescence & Photo Hash Verification         │
+│  - Correct Dockerfile Syntax & Pre-cached OCR Verification             │
+│  - Add Container Build & Smoke Tests to CI                             │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Autonomous Orchestrator Merge (No External Access)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│          STAGE B: Mostly-Available, Low-Cost Hosting Preparation       │
+│  - Configure Selected Tunnel (Tailscale Funnel or Cloudflare Tunnel)   │
+│  - Verify Windows Host Docker Desktop & Tunnel Auto-Reconnect          │
+│  - Test Exact-Origin CSRF & Ingress Headers with Stable Hostname       │
+│  - Prepare Operational Runbook for Downtime & Reconnection             │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Product Owner Authorization Required
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   STAGE C: Restricted Online Pilot                     │
+│  - Pilot with Invited Friends using Synthetic Receipts First           │
+│  - End-to-End Multi-Device Journey (Mobile + Desktop Browsers)         │
+│  - Real Receipt OCR, Collaboration, Settlements & Photo Zoom           │
+│  - Off-Host Backup and Disaster Recovery Simulation                    │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Product Owner Authorization Required
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                 STAGE D: Official GitHub Tagged Release                │
+│  - Product Owner Decision on Repository Visibility (Private vs Public) │
+│  - Product Owner Decision on Software License Grant                    │
+│  - Tag and Publish Official Release v1.0.0                             │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
-### 7.2 Consequential Escalations (Requiring Product Owner Approval)
-1. **Hosting Deployment:** Creating cloud hosting accounts, incurring hosting costs, or pointing DNS for a live deployment.
-2. **Repository Visibility:** Changing GitHub repository from Private to Public.
-3. **Licensing Decision:** Selecting or publishing an open-source license grant.
-4. **Official Tagging:** Creating and pushing official release tags (`v0.9.0-beta.1` or `v1.0.0`) to GitHub.
+### Stage A Gate: Local Reliability & Security Hardening
+- **Scope:** Correct P1 and P2 defects in code, packaging, and tests.
+- **Criteria:**
+  - [ ] Organizer can claim authority via browser link; single-use and expiry verified.
+  - [ ] Session TTL configurable up to 7 days; documented accurately.
+  - [ ] Backup creates consistent snapshots under quiescence; restore verifies photo hashes and blocks active DB overwrite.
+  - [ ] `Dockerfile` builds cleanly without `|| true`; container runs RapidOCR inference as non-root user.
+  - [ ] CI builds container and passes `tools/deployment_smoke_check.py`.
+  - [ ] 296+ Python tests pass; independent security review passes.
+- **Authority:** Autonomous under orchestrator governance. Zero external traffic.
+
+### Stage B Gate: Mostly-Available Hosting Preparation
+- **Scope:** Prepare Windows Docker + Tunnel configuration.
+- **Criteria:**
+  - [ ] Selected gateway configured (Tailscale Funnel or Cloudflare Named Tunnel).
+  - [ ] Host power/sleep settings documented.
+  - [ ] Stable HTTPS FQDN verified across computer reboots and tunnel restarts.
+  - [ ] Exact origin matches stable tunnel domain; mutating requests succeed with `X-SettleTable-Action: 1`.
+  - [ ] External calls to `/api/meals/*/bootstrap` return 403 Forbidden.
+- **Authority:** Autonomous configuration dry-run; opening tunnel to external traffic requires Product Owner authorization.
+
+### Stage C Gate: Restricted Online Pilot (`v0.9.0-beta.1`)
+- **Scope:** Live testing with Product Owner and invited friends.
+- **Criteria:**
+  - [ ] Friends access application via ordinary mobile browsers without installing VPN software.
+  - [ ] Real OCR scans Malaysian dining receipts on host CPU with correct SST/service charge detection.
+  - [ ] Collaborative allocations, multi-payer contributions, and peer reimbursements persist across host restarts.
+  - [ ] Off-host backup copy verified by restoring onto a clean secondary directory.
+- **Authority:** Explicit Product Owner authorization required.
+
+### Stage D Gate: Official GitHub Tagged Release (`v1.0.0`)
+- **Scope:** Public presentation, release tagging, and project governance.
+- **Criteria:**
+  - [ ] Product Owner explicit decision on repository visibility (Private vs Public).
+  - [ ] Product Owner explicit decision on open-source licensing grant (or retaining All Rights Reserved).
+  - [ ] Pre-publication audit (`tools/audit_repository.py`) passes with 0 findings.
+  - [ ] Tag `v1.0.0` signed and pushed.
+- **Authority:** Strictly requires Product Owner human escalation.
+
+---
+
+## 7. Product Owner Decisions Currently Required
+
+To finalize Stage B planning, the following decisions are requested from the Product Owner:
+
+1. **Domain Cost & Tunnel Selection**:
+   - **Option 1 (Strict RM0):** Use **Tailscale Funnel**. Provides a permanent stable HTTPS URL (`*.ts.net`), requires zero domain registration or renewal costs, and allows ordinary mobile browser access for friends without installing Tailscale.
+   - **Option 2 (Annual Domain Cost Approved):** Use **Cloudflare Named Tunnel**. Requires purchasing or pointing an owned domain (~RM45–RM70/year). Provides custom branding (e.g. `settle.yourdomain.com`) and optional Cloudflare Access email allowlists.
+   - *Question for PO:* Do you prefer Tailscale Funnel (strict RM0) or Cloudflare Named Tunnel (with an existing or newly registered domain)?
+
+2. **Diner Access Preference**:
+   - Confirm that the zero-software browser requirement remains firm (confirming exclusion of private Tailscale Serve, which requires every diner to install Tailscale).
+
+3. **Restricted Pilot Scope**:
+   - Confirm readiness to execute Stage A hardening locally before scheduling the external pilot.
