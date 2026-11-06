@@ -1,28 +1,23 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 4,
-  "staged_bytes_excluding_report": 280818,
+  "staged_files": 3,
+  "staged_bytes_excluding_report": 81352,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 332,
   "untracked_files": 0,
-  "ignored_files": 27879,
+  "ignored_files": 27887,
   "valid_json_files": 1,
   "findings": [],
   "files": [
     {
-      "path": "PROJECT_STATUS.md",
-      "bytes": 124234,
-      "sha256": "f2d3cfb7617a6deb360b3a39f1a232ebab8595e10a4e63a6e55d102f5d9ceb36"
+      "path": "settletable/transport.py",
+      "bytes": 72734,
+      "sha256": "eecb3434c5fc30c73a028eee32205b7ae61b464c993e5785ad5edbd19808ba6b"
     },
     {
-      "path": "docs/agents/phase-transitions.md",
-      "bytes": 131612,
-      "sha256": "49fe8194a40e5c7781db8d1ca4a6b868856e549bb184de86941765fc98948e4a"
-    },
-    {
-      "path": "docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md",
-      "bytes": 24972,
-      "sha256": "62213c90d97d9d7b402912a4cc2e1905166ad097568a104317a5db1601ae28b2"
+      "path": "tools/deployment_smoke_check.py",
+      "bytes": 8618,
+      "sha256": "4b62d3dd53f21be491bb371aa74fb67737caef2aafb78ff5b1a883169bcdfcf7"
     }
   ]
 }

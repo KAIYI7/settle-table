@@ -135,7 +135,7 @@ MAX_HEADER_LINE_BYTES = 4_096  # 4 KB
 MAX_TOTAL_HEADERS_BYTES = 16_384  # 16 KB
 MAX_JSON_DEPTH = 10
 MAX_INT_DIGITS = 19
-TOKEN_REDACT_REGEX = re.compile(r'(/api/(?:meals/[^/]+/)?invitations/)[A-Za-z0-9_-]{43}')
+TOKEN_REDACT_REGEX = re.compile(r'(/api/(?:meals/[^/]+/)?(?:invitations|organizer-claims)/)[A-Za-z0-9_-]{43}')
 STATIC_DIR = Path(__file__).parent / 'static'
 STATIC_FILES = {
     'style.css': 'text/css; charset=utf-8',
@@ -145,13 +145,22 @@ STATIC_FILES = {
 
 
 def redact_log_string(s: str) -> str:
-    s = TOKEN_REDACT_REGEX.sub(r'\1[REDACTED]', s)
+    # 1. Redact API token paths (invitations and organizer claims)
+    s = re.sub(r'(/api/(?:meals/[^/]+/)?invitations/)[A-Za-z0-9_-]{43}', r'\1[REDACTED]', s)
+    s = re.sub(r'(/api/organizer-claims/)[A-Za-z0-9_-]{43}', r'\1[REDACTED]', s)
+    s = re.sub(r'(/api/meals/[^/]+/organizer-claims/)[A-Za-z0-9_-]{43}(/claim)?', r'\1[REDACTED]\2', s)
+    # 2. Redact HTML landing routes with tokens
+    s = re.sub(r'(/(?:claim-organizer|claim|invite)/)[A-Za-z0-9_-]{43}', r'\1[REDACTED]', s)
+    # 3. HTTP Authorization headers
     s = re.sub(r'(Bearer\s+)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
+    # 4. Cookies
     s = re.sub(r'(settletable_session=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s)
+    # 5. Notion and integration tokens
     s = re.sub(r'(secret_|ntn_)[A-Za-z0-9_-]{10,}', r'\1[REDACTED]', s)
-    s = re.sub(r'"token"\s*:\s*"[^"]+"', r'"token":"[REDACTED]"', s)
-    s = re.sub(r'([?&]claim_token=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s)
-    s = re.sub(r'"claim_token"\s*:\s*"[^"]+"', r'"claim_token":"[REDACTED]"', s)
+    # 6. Query strings: token, claim_token, cred, credential
+    s = re.sub(r'([?&](?:token|claim_token|cred|credential)=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
+    # 7. JSON fields in logged request/response payloads or diagnostic messages
+    s = re.sub(r'"(?:token|claim_token|cred|credential|organizer_credential|settletable_session)"\s*:\s*"[^"]+"', r'"token":"[REDACTED]"', s)
     return s
 
 
@@ -338,6 +347,10 @@ class SettleTableApp:
             raw_path = environ.get('PATH_INFO', '/')
             method = environ.get('REQUEST_METHOD', 'GET').upper()
             safe_path = redact_log_string(raw_path)
+            qs = environ.get('QUERY_STRING')
+            if qs:
+                safe_qs = redact_log_string(qs)
+                safe_path = f"{safe_path}?{safe_qs}"
             self.logger(f"{method} {safe_path} -> {status_code}")
 
         status_line = f"{status_code} {self._status_text(status_code)}"
@@ -433,7 +446,10 @@ class SettleTableApp:
         used_cookie = bool(cookie_cred)
 
         # 3. CSRF & Action check on mutating requests (POST, DELETE)
-        if method in ('POST', 'DELETE'):
+        # Note: POST /api/organizer-claims/inspect is an unauthenticated, read-only query
+        # using POST solely to keep the claim token in the request body rather than the URL line.
+        is_read_only_post = bool(method == 'POST' and path == '/api/organizer-claims/inspect')
+        if method in ('POST', 'DELETE') and not is_read_only_post:
             # Missing or chunked body check
             cl_header = environ.get('CONTENT_LENGTH')
             te_header = environ.get('HTTP_TRANSFER_ENCODING')
@@ -560,7 +576,25 @@ class SettleTableApp:
             }
             return 200, self._default_headers(), serialize_json(out)
 
-        # Unauthenticated organizer claim inspection GET /api/organizer-claims/{token}
+        # Organizer claim inspection:
+        # 1. POST /api/organizer-claims/inspect (token in JSON body to prevent URL logging)
+        if path == '/api/organizer-claims/inspect' and method == 'POST':
+            token = (body_data or {}).get('claim_token') or environ.get('HTTP_X_SETTLETABLE_CLAIM_TOKEN')
+            if not token or not isinstance(token, str):
+                raise TransportError('invalid_organizer_claim', 400)
+            res = authority.inspect_organizer_claim(token)
+            out = {
+                'ok': True,
+                'valid': res.valid,
+                'meal_id': res.meal_id,
+                'organizer_id': res.organizer_id,
+                'organizer_name': res.organizer_name,
+                'expires': res.expires,
+                'reason': res.reason,
+            }
+            return 200, self._default_headers(), serialize_json(out)
+
+        # 2. Legacy/direct GET /api/organizer-claims/{token}
         m_org_claim_inspect = re.fullmatch(r'/api/organizer-claims/([A-Za-z0-9_-]{43})', path)
         if m_org_claim_inspect and method == 'GET':
             token = m_org_claim_inspect.group(1)
@@ -648,10 +682,19 @@ class SettleTableApp:
             }
             return 200, headers, serialize_json(out)
 
-        # Claim Organizer Session POST /api/meals/{meal_id}/organizer-claims/{token}/claim
-        m_org_claim_redeem = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/organizer-claims/([A-Za-z0-9_-]{43})/claim', path)
-        if m_org_claim_redeem and method == 'POST':
-            meal_id, token = m_org_claim_redeem.group(1), m_org_claim_redeem.group(2)
+        # Claim Organizer Session:
+        # POST /api/meals/{meal_id}/organizer-claims/claim (token in JSON body to prevent URL logging) OR
+        # POST /api/meals/{meal_id}/organizer-claims/{token}/claim (legacy URL path)
+        m_org_claim_redeem_path = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/organizer-claims/([A-Za-z0-9_-]{43})/claim', path)
+        m_org_claim_redeem_body = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/organizer-claims/claim', path)
+        if (m_org_claim_redeem_path or m_org_claim_redeem_body) and method == 'POST':
+            if m_org_claim_redeem_path:
+                meal_id, token = m_org_claim_redeem_path.group(1), m_org_claim_redeem_path.group(2)
+            else:
+                meal_id = m_org_claim_redeem_body.group(1)
+                token = (body_data or {}).get('claim_token') or environ.get('HTTP_X_SETTLETABLE_CLAIM_TOKEN')
+                if not token or not isinstance(token, str):
+                    raise TransportError('invalid_organizer_claim', 400)
             session_ttl = self._get_session_ttl()
             session_grant = authority.claim_organizer_session(token, meal_id, session_ttl=session_ttl)
             headers = self._default_headers()

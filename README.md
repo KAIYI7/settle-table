@@ -205,14 +205,14 @@ Because public clients cannot call the bootstrap endpoint, provision meals direc
 ```bash
 python tools/bootstrap_meal.py --meal-id dinner-friday --organizer "Alice" --diners "Bob, Charlie"
 ```
-The CLI outputs a secure, single-use Organizer Browser Setup Link (`/#/claim-organizer/<token>`) that activates the organizer session and issues the `settletable_session` HttpOnly cookie directly to the organizer's browser, along with diner invitation links.
+The CLI outputs a single-use Organizer Browser Setup Link (`/#/claim-organizer/<token>`) embedding an ephemeral claim secret, presented once to the authorized host operator on stdout. Opening this link in a browser redeems the claim and sets the `settletable_session` HttpOnly cookie directly, without exposing the persistent session credential on stdout.
 
 If an organizer loses access (e.g., cleared browser cookies or device change), generate an emergency single-use recovery link on the host:
 ```bash
 python tools/bootstrap_meal.py recover --meal-id dinner-friday
 ```
 
-### Quiescent Backup & Verified Restore
+### Quiescent Backup & Verified Staged Restore
 
 Perform consistent backups while the server is running (using an immediate write-quiescence lock to ensure synchronized database snapshots and verified receipt photo manifests):
 
@@ -220,29 +220,37 @@ Perform consistent backups while the server is running (using an immediate write
 # Quiescent backup of SQLite database and receipt photos with SHA-256 manifest
 python tools/backup_restore.py backup --db /data/settletable.sqlite --out-dir /data/backups
 
-# Verified disaster recovery restore from a backup manifest (enforces stopped instance and validates SHA-256 hashes)
-python tools/backup_restore.py restore --manifest /data/backups/manifest_TIMESTAMP.json --dest-db /data/settletable.sqlite
+# Verified disaster recovery restore from a backup manifest (requires stopped application container, stages files, archives previous data, and verifies SHA-256 hashes)
+python tools/backup_restore.py restore --manifest /data/backups/manifest_TIMESTAMP.json --dest-db /data/settletable.sqlite --confirm-stopped
 ```
+
+> [!IMPORTANT]
+> **Restore Safety Contract**: Because idle SQLite connections in WAL mode do not hold active writer locks, SQLite lock acquisition alone cannot prove process inactivity. Restoration strictly requires the application container to be stopped first (`docker compose down` or `docker stop settletable_app`). The restore tool stages files in an isolated temporary directory, archives the existing destination data, validates post-cutover database integrity, and automatically rolls back if post-cutover validation fails. Any previous destination receipt photos not present in the backup are cleanly archived.
 
 ---
 
 ## Testing & Verification
 
-SettleTable includes extensive automated test coverage across mathematical correctness, state machine transitions, adversarial security, and end-to-end browser journeys:
+SettleTable includes automated test coverage across mathematical correctness, state machine transitions, adversarial security, and end-to-end browser journeys:
 
 ```bash
-# Run all Python unit, calculation, and security tests (303 tests)
+# Run all Python unit, calculation, and security tests (309 tests)
 python -m unittest discover -s tests -v
 
 # Run transport adapter unit tests
 python -m unittest tests.test_transport
 
-# Run live deployment smoke check
+# Run live deployment smoke check (11 checks)
 python tools/deployment_smoke_check.py --url http://127.0.0.1:8000
 
-# Run automated Chrome CDP browser regression suites (requires Chrome & Node.js)
+# Run automated Chrome CDP browser regression suites (requires Chrome & Node.js; run locally/out-of-CI)
 node tools/e2e_browser_test.mjs
 node tools/verify_multi_payer_flow.mjs
+```
+
+### CI vs Local Verification Scope
+- **Hosted GitHub Actions CI (`.github/workflows/python-tests.yml`)**: Executes the full Python unit/integration test suite (apportioning engine, state machine, adversarial auth, quiescent backup/restore roundtrips, and token redaction) and the `docker-smoke` job (building the non-root container and running `tools/deployment_smoke_check.py` against `/healthz` and deployment probes).
+- **Out-of-CI / Dedicated Verification**: Real Chrome CDP browser regression tests (`tools/e2e_browser_test.mjs`), mobile viewport suites (`tools/verify_mobile_ux_remediation.mjs`), and physical Android Chrome testing on POCO F6 require a physical device or Chrome display server and are accepted separately as dedicated UAT evidence. Real RapidOCR ONNX inference runs locally and inside the built Docker image where models are pre-cached.
 node tools/verify_peer_settlement_flow.mjs
 node tools/verify_conflict_recovery.mjs
 node tools/verify_complimentary_items_flow.mjs

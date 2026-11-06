@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-06 — Stage A: Post-Merge Corrective Hardening: PR #48 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head merged autonomously under orchestrator governance policy into `main`. GitHub PR #48 verified on hosted CI before merge.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 309/309 Python unit & integration tests passed; all 12 browser CDP regression test suites passed; containerized WSGI application operational. |
+| Gate 2: Restricted Online Deployment Pilot (`v0.9.0-beta.1`) | **STAGE A PREREQUISITES MET / READY FOR STAGE B**: Independent review findings remediated: (1) Restore safety contract enforces stopped container (`--confirm-stopped` + health probe + Docker check + SQLite exclusive lock); (2) Staged restore with isolated staging, previous data quarantine, controlled cutover, and automated rollback upon post-cutover failure; (3) Comprehensive token redaction in logs/query-strings and clean POST inspection/redemption preventing URL path token exposure in reverse proxy and Gunicorn request lines; (4) Scope accuracy distinguishing CI vs local test coverage; (5) Finalized Product Owner decision recorded (Windows Docker + Cloudflare Named Tunnel without Cloudflare Access). |
+| Gate 3: Publicly Reachable Application | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) and explicit Product Owner authorization for public traffic. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Restore Safety & Staged Cutover | **PASS**: Demonstrates that idle connections cannot bypass restore safety contract; active server blocks restore; failure injection proves automated rollback to previous valid dataset; orphaned destination photos are cleanly pruned into archive. |
+| Bearer Token Redaction & Request Line Privacy | **PASS**: `redact_log_string` redacts all token patterns; POST `/api/organizer-claims/inspect` and POST `/api/meals/{meal_id}/organizer-claims/claim` send tokens in request bodies, ensuring web server access logs remain free of secret tokens. CLI setup link accurately documented as emitting ephemeral secret on stdout. |
+| Pre-Publication Privacy & Rights Audit | **PASS**: `tools/audit_repository.py` passed with 0 findings across all tracked files. |
+| Independent Code & Security Review | **PASS**: Completed independent HIGH-risk review by subagent with 0 BLOCKERS and 0 WARNINGS. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-06 — Stage A: Local Reliability & Security Hardening: PR #47 merge
 
 **Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `e1f16265be34a61e81b299606a0d649cd802125c` merged autonomously under orchestrator governance policy into `main` ([merge commit 02107e2](https://github.com/KAIYI7/settle-table/commit/02107e22cde0924590125b0c37f679d50f593542)). GitHub PR #47 ([#47](https://github.com/KAIYI7/settle-table/pull/47)) verified on hosted CI before merge ([run 42155144910](https://github.com/KAIYI7/settle-table/actions/runs/42155144910)).

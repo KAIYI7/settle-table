@@ -56,7 +56,7 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertIn(self.photo_meta['filename'], manifest['photos'])
 
         # 2. Restore to new destination
-        res = perform_verified_restore(manifest_path, self.restore_db, self.restore_photos)
+        res = perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=True)
         self.assertEqual(res['status'], 'ok')
         self.assertEqual(res['restored_photos_count'], 1)
 
@@ -91,7 +91,7 @@ class BackupRestoreTests(unittest.TestCase):
         backup_db.write_bytes(bytes(data))
 
         with self.assertRaises(ValueError) as ctx:
-            perform_verified_restore(manifest_path, self.restore_db, self.restore_photos)
+            perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=True)
         self.assertIn('checksum mismatch', str(ctx.exception).lower())
 
     def test_restore_rejects_corrupted_photo_asset(self):
@@ -103,7 +103,7 @@ class BackupRestoreTests(unittest.TestCase):
         photo_file.write_bytes(b'corrupted_tampered_bytes')
 
         with self.assertRaises(ValueError) as ctx:
-            perform_verified_restore(manifest_path, self.restore_db, self.restore_photos)
+            perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=True)
         self.assertIn('checksum mismatch', str(ctx.exception).lower())
 
     def test_backup_fails_if_referenced_photo_is_missing_on_disk(self):
@@ -114,6 +114,27 @@ class BackupRestoreTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError) as ctx:
             perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
         self.assertIn('missing from disk', str(ctx.exception).lower())
+
+    def test_restore_requires_confirm_stopped(self):
+        manifest_path = perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
+        with self.assertRaises(RuntimeError) as ctx:
+            perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=False)
+        self.assertIn('must be stopped', str(ctx.exception).lower())
+        self.assertIn('--confirm-stopped', str(ctx.exception))
+
+    def test_restore_detects_active_healthz_endpoint(self):
+        manifest_path = perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
+        from unittest.mock import MagicMock, patch
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__.return_value = mock_resp
+        with patch('urllib.request.urlopen', return_value=mock_resp):
+            with self.assertRaises(RuntimeError) as ctx:
+                perform_verified_restore(
+                    manifest_path, self.restore_db, self.restore_photos,
+                    confirm_stopped=True, check_url='http://127.0.0.1:8000/healthz',
+                )
+            self.assertIn('active application detected', str(ctx.exception).lower())
 
     def test_restore_rejects_active_locked_destination_database(self):
         manifest_path = perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
@@ -127,11 +148,88 @@ class BackupRestoreTests(unittest.TestCase):
 
         try:
             with self.assertRaises(RuntimeError) as ctx:
-                perform_verified_restore(manifest_path, self.restore_db, self.restore_photos)
+                perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=True)
             self.assertIn('locked by a running process', str(ctx.exception).lower())
         finally:
             active_conn.execute("ROLLBACK;")
             active_conn.close()
+
+    def test_restore_prunes_orphaned_destination_photos(self):
+        manifest_path = perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
+        # Create destination with an extra old photo not in backup
+        self.restore_photos.mkdir(parents=True, exist_ok=True)
+        orphaned = self.restore_photos / 'orphaned_extra.jpg'
+        orphaned.write_bytes(b'old_orphaned_data')
+
+        res = perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=True)
+        self.assertEqual(res['status'], 'ok')
+        self.assertFalse((self.restore_photos / 'orphaned_extra.jpg').exists())
+        self.assertTrue((self.restore_photos / self.photo_meta['filename']).exists())
+        self.assertEqual(res['restored_photos_count'], 1)
+        # Check previous dataset archive retained the orphaned file
+        self.assertIsNotNone(res['previous_dataset_archive'])
+        archive_path = Path(res['previous_dataset_archive'])
+        self.assertTrue((archive_path / self.restore_photos.name / 'orphaned_extra.jpg').exists())
+
+    def test_staged_restore_failure_injection_rolls_back_destination(self):
+        manifest_path = perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
+        # Establish existing destination state
+        self.restore_db.parent.mkdir(parents=True, exist_ok=True)
+        self.restore_db.write_text('existing_pre_restore_db')
+        self.restore_photos.mkdir(parents=True, exist_ok=True)
+        pre_photo = self.restore_photos / 'pre_existing.jpg'
+        pre_photo.write_bytes(b'existing_pre_restore_photo')
+
+        from unittest.mock import patch
+        from tools import backup_restore
+        real_compute_sha = backup_restore.compute_sha256
+
+        def faulty_sha(path):
+            p = Path(path).resolve()
+            if p == self.restore_db.resolve():
+                raise RuntimeError("Simulated post-cutover corruption")
+            return real_compute_sha(path)
+
+        with patch('tools.backup_restore.compute_sha256', side_effect=faulty_sha):
+            with self.assertRaises(RuntimeError) as ctx:
+                perform_verified_restore(
+                    manifest_path, self.restore_db, self.restore_photos,
+                    confirm_stopped=True, check_docker=False
+                )
+            self.assertIn('destination rolled back to previous dataset', str(ctx.exception).lower())
+
+        # Verify destination was restored to previous state
+        self.assertTrue(self.restore_db.exists())
+        self.assertEqual(self.restore_db.read_text(), 'existing_pre_restore_db')
+        self.assertTrue(pre_photo.exists())
+        self.assertEqual(pre_photo.read_bytes(), b'existing_pre_restore_photo')
+
+    def test_restore_rejects_extraneous_unmanifested_photos_in_backup(self):
+        manifest_path = perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        photo_dir = manifest_path.parent / manifest['receipt_photos_dir']
+        extra_file = photo_dir / 'untracked_rogue.jpg'
+        extra_file.write_bytes(b'rogue')
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=True)
+            self.assertIn('extraneous receipt photo', str(ctx.exception).lower())
+        finally:
+            if extra_file.exists():
+                extra_file.unlink()
+
+    def test_restore_cleans_stale_wal_and_shm(self):
+        manifest_path = perform_quiescent_backup(self.src_db, self.src_photos, self.backup_dir)
+        self.restore_db.parent.mkdir(parents=True, exist_ok=True)
+        wal_file = self.restore_db.with_suffix('.sqlite-wal')
+        shm_file = self.restore_db.with_suffix('.sqlite-shm')
+        wal_file.write_bytes(b'stale_wal_bytes')
+        shm_file.write_bytes(b'stale_shm_bytes')
+
+        res = perform_verified_restore(manifest_path, self.restore_db, self.restore_photos, confirm_stopped=True)
+        self.assertEqual(res['status'], 'ok')
+        self.assertFalse(wal_file.exists())
+        self.assertFalse(shm_file.exists())
 
 
 if __name__ == '__main__':

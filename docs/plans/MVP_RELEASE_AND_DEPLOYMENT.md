@@ -70,22 +70,24 @@ Each architectural component was re-inspected against the actual implementation 
 | **Cloudflare Quick Tunnel** | **$0 / month** | None | Ordinary browser. | **NO**: Random URL (`*.trycloudflare.com`) generated per connection. Changes on every restart or disconnect. | Intended for temporary debugging only. | **REJECTED for Persistent Pilot** (Fails stable URL requirement). |
 | **Paid Cloud VPS / PaaS (Fly.io, Hetzner, Railway)** | $4.10 – $14.75 / month | Optional or included | Ordinary browser. | YES | Unlimited / standard VPS quotas. | **DEFERRED** (Superseded by PO low-cost preference). |
 
-### 3.3 Gateway Recommendations
+### 3.3 Gateway Decisions & Recommendations
 
-1. **Primary Recommendation A (If Product Owner approves modest annual domain cost or owns an existing domain):**
-   - **Cloudflare Named Tunnel (`cloudflared`) + Cloudflare Access**:
-   - Zero hosting fees ($0/mo), unlimited bandwidth, permanent custom domain, automated TLS termination, and optional email-allowlist pre-authentication (up to 50 users free).
-   - Cost: $0/mo hosting + ~$10–$15/year domain registration.
+1. **Finalized Primary Architecture (Accepted by Product Owner):**
+   - **Windows Docker + Cloudflare Named Tunnel (`cloudflared`)**:
+     - Dedicated SettleTable subdomain under a custom domain (e.g. `settle.yourdomain.com`).
+     - Automated edge TLS termination managed by Cloudflare with zero certificate renewal overhead.
+     - **No Cloudflare Access pre-authentication for diners**: Diners access the app directly via standard mobile/desktop browsers without third-party email OTP friction, preserving seamless dining room collaboration.
+     - **Authoritative Application Security**: SettleTable's built-in defense-in-depth remains authoritative (loopback-only meal bootstrap, exact-origin CSRF validation, unguessable 43-character invitation tokens, and organizer-controlled join requests).
+     - **Cost Target**: RM0/month hosting subscription; modest annual domain registration/renewal fee (~RM45–RM70/year) accepted in principle.
+     - *Note*: No domain purchase, DNS change, or external tunnel activation is authorized until Stage B live cutover.
 
-2. **Primary Recommendation B (Strict RM0/year — Zero Spending Authorized):**
+2. **Documented Fallback Architecture:**
    - **Tailscale Funnel**:
-   - Costs exactly **RM0/month and RM0/year**. Zero domain purchase required.
-   - Generates a permanent stable HTTPS URL (`https://<node-name>.<tailnet>.ts.net`) with automated Let's Encrypt TLS certificates.
-   - Routes public internet traffic directly to the host machine without requiring invited diners to install Tailscale.
-   - Access control relies on SettleTable's built-in application defense: loopback-only bootstrap, unguessable meal IDs, private invitation tokens, and organizer approval for join requests.
+     - Permanent stable FQDN (`*.ts.net`), automated Let's Encrypt TLS, RM0/year total spend (zero domain cost).
+     - Reserved strictly as an immediate fallback if domain provisioning is delayed or local network environments block Cloudflare tunnel traffic.
 
-3. **Practical Fallback:**
-   - **ngrok Free**: Reserved strictly as a temporary fallback if both Cloudflare and Tailscale are blocked by local ISP/firewall conditions, noting its strict 1 GB/month data transfer cap and interstitial warning page.
+3. **Emergency Temporary Fallback:**
+   - **ngrok Free**: Reserved strictly as a temporary diagnostic fallback, noting its 1 GB/month bandwidth cap and anti-phishing interstitial warning page.
 
 ---
 
@@ -181,13 +183,16 @@ Before any external deployment or invited-friend pilot is authorized, the follow
 - **Scope:** Correct P1 and P2 defects in code, packaging, and tests.
 - **Criteria:**
   - [x] Organizer can claim authority via browser link; single-use and expiry verified.
-  - [x] Session TTL configurable up to 7 days; documented accurately.
-  - [x] Backup creates consistent snapshots under quiescence; restore verifies photo hashes and blocks active DB overwrite.
+  - [x] Session TTL configurable up to 30 days (defaulting to 7 days); documented accurately.
+  - [x] Backup creates consistent snapshots under quiescence; restore enforces stopped application contract (`--confirm-stopped` + health probe), stages files in isolation, archives previous dataset, and verifies post-cutover SHA-256 hashes.
+  - [x] Staged restore failure injection proves automated rollback to previous valid dataset without data destruction.
+  - [x] Token redaction verified across application logging, query parameters, authorization headers, and cookie logs. Clean POST `/api/organizer-claims/inspect` and `/api/meals/{id}/organizer-claims/claim` prevent token exposure in web server / reverse proxy request lines.
+  - [x] CLI outputs single-use Organizer Browser Setup Link containing ephemeral claim secret presented once on stdout; persistent session credentials never leaked.
   - [x] `Dockerfile` builds cleanly without `|| true`; container runs RapidOCR inference as non-root user.
-  - [x] CI builds container and passes `tools/deployment_smoke_check.py`.
-  - [x] 303 Python tests pass; independent security review passes.
+  - [x] CI builds container and passes `tools/deployment_smoke_check.py` (11 checks).
+  - [x] 309 Python tests pass; independent security review passes.
 - **Authority:** Autonomous under orchestrator governance. Zero external traffic.
-- **Status:** **PASS / COMPLETED (PR #47, merge commit `02107e2`)**. Stage A local hardening prerequisites are fully met. Ready for Stage B external hosting gateway configuration upon Product Owner decision.
+- **Status:** **PASS / COMPLETED (PR #47 + Corrective Review PR #48)**. Stage A local hardening prerequisites are fully met. Product Owner decision finalized: **Cloudflare Named Tunnel (`cloudflared`)** with custom domain (Tailscale Funnel fallback). Ready for Stage B external hosting gateway preparation.
 
 ### Stage B Gate: Mostly-Available Hosting Preparation
 - **Scope:** Prepare Windows Docker + Tunnel configuration.
@@ -219,17 +224,21 @@ Before any external deployment or invited-friend pilot is authorized, the follow
 
 ---
 
-## 7. Product Owner Decisions Currently Required
+## 7. Finalized Product Owner Decisions & Stage B Readiness
 
-To finalize Stage B planning, the following decisions are requested from the Product Owner:
+Following the post-Stage-A review, the Product Owner has finalized the hosting direction:
 
-1. **Domain Cost & Tunnel Selection**:
-   - **Option 1 (Strict RM0):** Use **Tailscale Funnel**. Provides a permanent stable HTTPS URL (`*.ts.net`), requires zero domain registration or renewal costs, and allows ordinary mobile browser access for friends without installing Tailscale.
-   - **Option 2 (Annual Domain Cost Approved):** Use **Cloudflare Named Tunnel**. Requires purchasing or pointing an owned domain (~RM45–RM70/year). Provides custom branding (e.g. `settle.yourdomain.com`) and optional Cloudflare Access email allowlists.
-   - *Question for PO:* Do you prefer Tailscale Funnel (strict RM0) or Cloudflare Named Tunnel (with an existing or newly registered domain)?
-
-2. **Diner Access Preference**:
-   - Confirm that the zero-software browser requirement remains firm (confirming exclusion of private Tailscale Serve, which requires every diner to install Tailscale).
-
-3. **Restricted Pilot Scope**:
-   - Confirm readiness to execute Stage A hardening locally before scheduling the external pilot.
+1. **Access Gateway Finalized**:
+   - **Primary Selected**: **Cloudflare Named Tunnel (`cloudflared`)** with a dedicated SettleTable subdomain under a custom domain (e.g. `settle.yourdomain.com`).
+   - **Cost Allocation**: RM0/month hosting fees; modest annual domain fee (~RM45–RM70/year) accepted in principle. No spending or domain purchase authorized at this time.
+   - **Fallback Recorded**: **Tailscale Funnel (`*.ts.net`)** remains documented as the immediate zero-cost fallback if domain setup is delayed.
+2. **Diner Access Model Finalized**:
+   - Zero-software, zero-login diner browser experience confirmed.
+   - **No Cloudflare Access pre-authentication for diners**: Diners access meals directly via standard mobile/desktop browsers without third-party email OTP friction.
+   - SettleTable's built-in invitation tokens, organizer authorization, exact-origin CSRF validation, and join-request approvals remain authoritative.
+3. **Availability Target**:
+   - Mostly-available operation on the host Windows computer running Docker Desktop.
+   - Occasional host downtime (sleep, reboots, internet hiccups) explicitly accepted.
+4. **Readiness for Stage B**:
+   - Local Stage A reliability, session lifecycle, token redaction, and quiescent staged backup/restore hardening are fully verified and merged.
+   - Stage B external hosting preparation can proceed autonomously upon signal, stopping strictly before external tunnel exposure, DNS modifications, or domain purchases.
