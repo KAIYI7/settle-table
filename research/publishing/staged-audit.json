@@ -1,88 +1,28 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 16,
-  "staged_bytes_excluding_report": 561267,
+  "staged_files": 4,
+  "staged_bytes_excluding_report": 280818,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 332,
   "untracked_files": 0,
-  "ignored_files": 27876,
+  "ignored_files": 27879,
   "valid_json_files": 1,
   "findings": [],
   "files": [
     {
-      "path": ".github/workflows/python-tests.yml",
-      "bytes": 2807,
-      "sha256": "5b56b8ec95b7b103a81c2fc035a541b58385fd84aa99d673a25291f4614634d5"
+      "path": "PROJECT_STATUS.md",
+      "bytes": 124234,
+      "sha256": "f2d3cfb7617a6deb360b3a39f1a232ebab8595e10a4e63a6e55d102f5d9ceb36"
     },
     {
-      "path": "Dockerfile",
-      "bytes": 2472,
-      "sha256": "f250337522be846433997fe8fd7419ae287d893851ebf94084562121a9a908b1"
+      "path": "docs/agents/phase-transitions.md",
+      "bytes": 131612,
+      "sha256": "49fe8194a40e5c7781db8d1ca4a6b868856e549bb184de86941765fc98948e4a"
     },
     {
-      "path": "README.md",
-      "bytes": 16288,
-      "sha256": "22803260cdddd8609294308afcb13b22ac66b55fe68c1f40a2e1e7d41cf437d9"
-    },
-    {
-      "path": "deploy/env.template",
-      "bytes": 2228,
-      "sha256": "72df3c2cf432f8592ff4cf991dd404ba40373970522c817c8cd6fa8f09004beb"
-    },
-    {
-      "path": "docker-compose.yml",
-      "bytes": 1974,
-      "sha256": "47a66ca1f5b6b4c182629f3e286e213142853b69dbebdf1b361bef9f32ca6697"
-    },
-    {
-      "path": "settletable/authority.py",
-      "bytes": 123445,
-      "sha256": "a8509c40fe57ce960d5c91de121d16b3cf95d689bc596389a9acff00d2b6c39c"
-    },
-    {
-      "path": "settletable/static/app.js",
-      "bytes": 223646,
-      "sha256": "13f0b811437b8bd11c31b83740ee2f80028a1f4d0d2c7d4983190aa6e6d7b791"
-    },
-    {
-      "path": "settletable/transport.py",
-      "bytes": 70019,
-      "sha256": "c185cc6f0a574094599dc8e6ab77181dd2dc6783f5e79b97525cabc8a62ef8c7"
-    },
-    {
-      "path": "settletable/wsgi.py",
-      "bytes": 2474,
-      "sha256": "f4c713c87cce7a19e39aa3cc2169249922ed5acf8fd31f2ebd579aa1becc5ad5"
-    },
-    {
-      "path": "tests/test_authority_security.py",
-      "bytes": 18962,
-      "sha256": "348d8ba491a7bf307d75cd86e2e796a1b037cd89e452fef91a5f03527ff8fd9b"
-    },
-    {
-      "path": "tests/test_backup_restore.py",
-      "bytes": 6299,
-      "sha256": "85de758fe620fe8ce31f2e823fba06b2ddd633c9f246bd41de781c15b25798db"
-    },
-    {
-      "path": "tests/test_transport.py",
-      "bytes": 61311,
-      "sha256": "f8a807ce71a022de27a537bfc1499c4e4a32d078e1946c120b82bdc2f258b163"
-    },
-    {
-      "path": "tools/backup_restore.py",
-      "bytes": 14364,
-      "sha256": "de95c00da556aa83ca8e60ea4487f1cdf3bc51d41b519334ac4949230b52c29a"
-    },
-    {
-      "path": "tools/bootstrap_meal.py",
-      "bytes": 7231,
-      "sha256": "c14b5ab7ae976f25b1a183cebd2571b8f57ebcb997e42ad1f61eb0e8028a86a6"
-    },
-    {
-      "path": "tools/deployment_smoke_check.py",
-      "bytes": 7747,
-      "sha256": "ab4d899c17d84cb7ab2fd90e45b342801061c489ea1c8729cef24c2726883fe3"
+      "path": "docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md",
+      "bytes": 24972,
+      "sha256": "62213c90d97d9d7b402912a4cc2e1905166ad097568a104317a5db1601ae28b2"
     }
   ]
 }

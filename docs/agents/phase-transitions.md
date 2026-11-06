@@ -1,5 +1,23 @@
 # Phase transition decisions
 
+## 2026-11-06 — Stage A: Local Reliability & Security Hardening: PR #47 merge
+
+**Orchestrator decision: PASS / MERGED into main.** Reviewed head SHA `e1f16265be34a61e81b299606a0d649cd802125c` merged autonomously under orchestrator governance policy into `main` ([merge commit 02107e2](https://github.com/KAIYI7/settle-table/commit/02107e22cde0924590125b0c37f679d50f593542)). GitHub PR #47 ([#47](https://github.com/KAIYI7/settle-table/pull/47)) verified on hosted CI before merge ([run 42155144910](https://github.com/KAIYI7/settle-table/actions/runs/42155144910)).
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 303/303 Python unit & integration tests passed; all 12 browser CDP regression test suites passed; containerized WSGI application operational. |
+| Gate 2: Restricted Online Deployment Pilot (`v0.9.0-beta.1`) | **STAGE A PREREQUISITES MET / READY FOR STAGE B**: Local hardening backlog fully implemented: (1) Organizer browser claim token lifecycle & recovery links; (2) Configurable session TTL up to 30 days defaulting to 7 days; (3) Quiescent database backup protocol & verified restore with active lock detection; (4) Dockerfile `"gunicorn>=21.2.0"` redirection fix, non-root user permissions, and loud OCR cache verification; (5) Hosted CI container build and deployment smoke check. External hosting gateway deferred per Product Owner instruction. |
+| Gate 3: Publicly Reachable Application | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) and explicit Product Owner authorization for public traffic. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Organizer Session & Recovery Lifecycle | **PASS**: `organizer_claims` SQLite schema with domain-separated SHA-256 verifier (`settletable-organizer-claim-v1\0`), atomic single-use redemption inside `BEGIN IMMEDIATE` transaction, HttpOnly Strict Max-Age session cookie setting, client claim routing `/#/claim-organizer/:token`, and host CLI recovery. Zero raw credentials leaked to stdout. |
+| Quiescent Backup & Verified Restore | **PASS**: `BEGIN IMMEDIATE` write lock ensures synchronized SQLite WAL database and receipt photos with SHA-256 manifest. Restore checks for active database locks, cleans `.sqlite-wal`/`.sqlite-shm` sidecars, and cross-verifies all photo hashes against the database manifest. |
+| Non-Root Container & Smoke Verification | **PASS**: `Dockerfile` executes as non-root `settletable:settletable` (UID 10001) with dedicated model cache directories. Automated 10-point deployment smoke check passed 10/10. |
+| Pre-Publication Privacy & Rights Audit | **PASS**: `tools/audit_repository.py` passed with 0 findings across 16 staged files and all 332 tracked files. |
+| Independent Code & Security Review | **PASS**: Completed independent HIGH-risk review by subagent with 0 BLOCKERS and 0 WARNINGS. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-06 — Low-Cost Mostly-Available Deployment Strategy Revision Checkpoint
 
 **Orchestrator decision: REVISED / HARDENING REQUIRED.** Following Product Owner directive, deployment strategy is pivoted to low-cost, mostly-available Windows self-hosting (RM0/month target) with tunneling. Commercial cloud hosting (Fly.io, Hetzner, Railway) deferred.

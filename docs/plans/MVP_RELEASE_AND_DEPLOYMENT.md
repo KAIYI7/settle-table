@@ -180,13 +180,14 @@ Before any external deployment or invited-friend pilot is authorized, the follow
 ### Stage A Gate: Local Reliability & Security Hardening
 - **Scope:** Correct P1 and P2 defects in code, packaging, and tests.
 - **Criteria:**
-  - [ ] Organizer can claim authority via browser link; single-use and expiry verified.
-  - [ ] Session TTL configurable up to 7 days; documented accurately.
-  - [ ] Backup creates consistent snapshots under quiescence; restore verifies photo hashes and blocks active DB overwrite.
-  - [ ] `Dockerfile` builds cleanly without `|| true`; container runs RapidOCR inference as non-root user.
-  - [ ] CI builds container and passes `tools/deployment_smoke_check.py`.
-  - [ ] 296+ Python tests pass; independent security review passes.
+  - [x] Organizer can claim authority via browser link; single-use and expiry verified.
+  - [x] Session TTL configurable up to 7 days; documented accurately.
+  - [x] Backup creates consistent snapshots under quiescence; restore verifies photo hashes and blocks active DB overwrite.
+  - [x] `Dockerfile` builds cleanly without `|| true`; container runs RapidOCR inference as non-root user.
+  - [x] CI builds container and passes `tools/deployment_smoke_check.py`.
+  - [x] 303 Python tests pass; independent security review passes.
 - **Authority:** Autonomous under orchestrator governance. Zero external traffic.
+- **Status:** **PASS / COMPLETED (PR #47, merge commit `02107e2`)**. Stage A local hardening prerequisites are fully met. Ready for Stage B external hosting gateway configuration upon Product Owner decision.
 
 ### Stage B Gate: Mostly-Available Hosting Preparation
 - **Scope:** Prepare Windows Docker + Tunnel configuration.
