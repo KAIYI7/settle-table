@@ -1,23 +1,28 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
   "staged_files": 3,
-  "staged_bytes_excluding_report": 6022,
+  "staged_bytes_excluding_report": 306689,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 337,
   "untracked_files": 0,
   "ignored_files": 27889,
-  "valid_json_files": 1,
+  "valid_json_files": 0,
   "findings": [],
   "files": [
     {
-      "path": "deploy/env.template",
-      "bytes": 3028,
-      "sha256": "9df565d1824a2751982000cb1d757ec70a0cb5023eb3ab31670c7e063ad1bdbd"
+      "path": "PROJECT_STATUS.md",
+      "bytes": 144289,
+      "sha256": "8c893606a5e91de1a2e58f14c421b5176e6731a03f0d452f77fa5c432189347e"
     },
     {
-      "path": "docker-compose.yml",
-      "bytes": 2994,
-      "sha256": "6bb913852bd67b25fe1f145bd5eb33174ba79af80b17e2b5c9444fe6be51d7d1"
+      "path": "docs/agents/phase-transitions.md",
+      "bytes": 153271,
+      "sha256": "a4fe97a7f6e2c0f91db801c0403f42a0f9c6256321168605f870d255e6ac6664"
+    },
+    {
+      "path": "tools/deployment_smoke_check.py",
+      "bytes": 9129,
+      "sha256": "e7fdc50327b14d30588625cac67ce486e31088833cfd2ba9950e3875024cccc2"
     }
   ]
 }

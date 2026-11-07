@@ -9,6 +9,18 @@ import sys
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 SettleTableSmokeCheck/1.0"
+)
+
+
+def make_request(url: str, data: bytes = None, headers: dict = None, method: str = None) -> Request:
+    req_headers = {"User-Agent": DEFAULT_USER_AGENT}
+    if headers:
+        req_headers.update(headers)
+    return Request(url, data=data, headers=req_headers, method=method)
+
 
 def check(description, fn):
     print(f"  * {description:<55} ... ", end="", flush=True)
@@ -45,7 +57,7 @@ def run_smoke_checks(base_url: str):
 
     # 1. Healthcheck probe
     def check_health():
-        req = Request(f"{base_url}/healthz")
+        req = make_request(f"{base_url}/healthz")
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200, f"Expected 200, got {resp.status}"
             data = json.loads(resp.read().decode("utf-8"))
@@ -54,7 +66,7 @@ def run_smoke_checks(base_url: str):
 
     # 2. Main HTML shell
     def check_index():
-        req = Request(f"{base_url}/")
+        req = make_request(f"{base_url}/")
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200, f"Expected 200, got {resp.status}"
             content = resp.read().decode("utf-8")
@@ -64,7 +76,7 @@ def run_smoke_checks(base_url: str):
 
     # 3. Static CSS asset
     def check_css():
-        req = Request(f"{base_url}/static/style.css")
+        req = make_request(f"{base_url}/static/style.css")
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200, f"Expected 200, got {resp.status}"
             ct = resp.headers.get("Content-Type", "")
@@ -73,7 +85,7 @@ def run_smoke_checks(base_url: str):
 
     # 4. Static JS asset
     def check_js():
-        req = Request(f"{base_url}/static/app.js")
+        req = make_request(f"{base_url}/static/app.js")
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200, f"Expected 200, got {resp.status}"
             ct = resp.headers.get("Content-Type", "")
@@ -82,7 +94,7 @@ def run_smoke_checks(base_url: str):
 
     # 5. Security headers
     def check_headers():
-        req = Request(f"{base_url}/static/style.css")
+        req = make_request(f"{base_url}/static/style.css")
         with urlopen(req, timeout=5) as resp:
             csp = resp.headers.get("Content-Security-Policy", "")
             nosniff = resp.headers.get("X-Content-Type-Options", "")
@@ -94,7 +106,7 @@ def run_smoke_checks(base_url: str):
 
     # 6. Proxy header rejection on bootstrap
     def check_bootstrap_proxy():
-        req = Request(
+        req = make_request(
             f"{base_url}/api/meals/probe-check/bootstrap",
             data=b'{"participants":[{"id":"O","name":"Org","organizer":true}]}',
             headers={
@@ -113,7 +125,7 @@ def run_smoke_checks(base_url: str):
 
     # 7. Action header enforcement
     def check_missing_action():
-        req = Request(
+        req = make_request(
             f"{base_url}/api/meals/probe-check/apply",
             data=b'{"kind":"ReviewReceipt"}',
             headers={"Content-Type": "application/json"},
@@ -130,7 +142,7 @@ def run_smoke_checks(base_url: str):
 
     # 8. Origin mismatch enforcement
     def check_origin_mismatch():
-        req = Request(
+        req = make_request(
             f"{base_url}/api/meals/probe-check/apply",
             data=b'{"kind":"ReviewReceipt"}',
             headers={
@@ -151,7 +163,7 @@ def run_smoke_checks(base_url: str):
 
     # 9. Organizer claim HTML shell route
     def check_claim_shell():
-        req = Request(f"{base_url}/claim-organizer/abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE")
+        req = make_request(f"{base_url}/claim-organizer/abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE")
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200, f"Expected 200, got {resp.status}"
             content = resp.read().decode("utf-8")
@@ -160,7 +172,7 @@ def run_smoke_checks(base_url: str):
 
     # 10. Organizer claim API inspection
     def check_claim_inspection():
-        req = Request(f"{base_url}/api/organizer-claims/abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE")
+        req = make_request(f"{base_url}/api/organizer-claims/abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE")
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200, f"Expected 200, got {resp.status}"
             data = json.loads(resp.read().decode("utf-8"))
@@ -170,7 +182,7 @@ def run_smoke_checks(base_url: str):
     # 11. Clean POST organizer claim inspection (token in body to avoid URL path logging)
     def check_clean_claim_inspection():
         body = json.dumps({"claim_token": "abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE"}).encode("utf-8")
-        req = Request(
+        req = make_request(
             f"{base_url}/api/organizer-claims/inspect",
             data=body,
             headers={
