@@ -1,7 +1,7 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 8,
-  "staged_bytes_excluding_report": 715054,
+  "staged_files": 4,
+  "staged_bytes_excluding_report": 601771,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 337,
   "untracked_files": 0,
@@ -11,43 +11,23 @@
   "files": [
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 146244,
-      "sha256": "6e5c90ad8aa180eb93cd07cd25bf486d6d8df8e4fa61f13fe77c543683cc88b9"
+      "bytes": 148329,
+      "sha256": "3ba97dc41c5c2fee82858468ab20ae34e30c23d3ad766bd7c4ff2d037e71d4da"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 156872,
-      "sha256": "76aae383a0df855bd3d7c2de6daca086ad96cda5b9b3b69fe341df150160b604"
+      "bytes": 160655,
+      "sha256": "6c3afedc16c3da8cf08eca11251419b8a37628d7dcf4f1be2ece04e0ff417dd7"
     },
     {
       "path": "settletable/static/app.js",
-      "bytes": 225027,
-      "sha256": "646f1f5b0a26b2760828fd140077eeb586e344a81db60f1b8e0096646fe6141a"
-    },
-    {
-      "path": "settletable/transport.py",
-      "bytes": 74791,
-      "sha256": "57205eaa64933fad206a62df4bbab8eabee8d5b73b022ad8f9ee04b2c6cd7931"
-    },
-    {
-      "path": "tests/test_browser_mvp_e2e.py",
-      "bytes": 27147,
-      "sha256": "7a610ef0d2674ecac9bb14cb45de93f3c8298718a6306a9c3db8b3fb0675bbf6"
+      "bytes": 224392,
+      "sha256": "6e2ca0900ff807e8f1b15016678fe6c0080e48fd1de7c3365944abcda3138b95"
     },
     {
       "path": "tests/test_transport.py",
-      "bytes": 67184,
-      "sha256": "30f99c86ebcfdf5730fc8d41b5945e6d79d8cecd03de638ec99bf984c22d2f5f"
-    },
-    {
-      "path": "tools/bootstrap_meal.py",
-      "bytes": 7309,
-      "sha256": "efe61622ee79e6f32d49a694038d0399f022b8162d32a7057894336187fcac29"
-    },
-    {
-      "path": "tools/deployment_smoke_check.py",
-      "bytes": 10480,
-      "sha256": "f256ca85314be082770cc088d923f5748f2fc5f4cec73fb41ee421000bff3d21"
+      "bytes": 68395,
+      "sha256": "fc997ab4c4e59d863488cbfc81254176c4c9aec229adc17f13e9591d4afb3c41"
     }
   ]
 }

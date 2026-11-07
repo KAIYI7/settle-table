@@ -1119,14 +1119,8 @@ async function renderInviteLanding(token) {
   `;
 
   try {
-    // Send token in request body to POST /api/invitations/inspect to prevent token exposure in access logs
-    let inspection;
-    try {
-      inspection = await apiCall('/api/invitations/inspect', 'POST', { invitation_token: token });
-    } catch {
-      // Fallback to legacy GET if inspect POST fails
-      inspection = await apiCall(`/api/invitations/${token}`);
-    }
+    // Send token strictly in request body to POST /api/invitations/inspect to prevent token exposure in access logs
+    const inspection = await apiCall('/api/invitations/inspect', 'POST', { invitation_token: token });
     if (!inspection?.ok || !inspection.valid) {
       const reasonMap = {
         expired: 'This invitation has expired.',
@@ -1181,13 +1175,8 @@ async function renderInviteLanding(token) {
         btn.disabled = true;
         btn.textContent = 'Joining...';
         
-        // Send token in request body to prevent URL logging in reverse proxy / Gunicorn access logs
-        let redeemRes;
-        try {
-          redeemRes = await apiCall(`/api/meals/${inspection.meal_id}/invitations/redeem`, 'POST', { invitation_token: token });
-        } catch {
-          redeemRes = await apiCall(`/api/meals/${inspection.meal_id}/invitations/${token}/redeem`, 'POST', {});
-        }
+        // Send token strictly in request body to prevent URL logging in reverse proxy / Gunicorn access logs
+        const redeemRes = await apiCall(`/api/meals/${inspection.meal_id}/invitations/redeem`, 'POST', { invitation_token: token });
         if (redeemRes?.ok) {
           // Sanitize URL immediately so refreshing doesn't re-trigger consumed token
           window.history.replaceState(null, '', `/#/meal/${inspection.meal_id}`);
@@ -1224,14 +1213,8 @@ async function renderOrganizerClaimLanding(token) {
   `;
 
   try {
-    // Send token in request body to POST /api/organizer-claims/inspect to prevent token exposure in access logs
-    let inspection;
-    try {
-      inspection = await apiCall('/api/organizer-claims/inspect', 'POST', { claim_token: token });
-    } catch {
-      // Fallback to legacy GET if inspect POST fails
-      inspection = await apiCall(`/api/organizer-claims/${token}`);
-    }
+    // Send token strictly in request body to POST /api/organizer-claims/inspect to prevent token exposure in access logs
+    const inspection = await apiCall('/api/organizer-claims/inspect', 'POST', { claim_token: token });
     if (!inspection?.ok || !inspection.valid) {
       const reasonMap = {
         expired: 'This organizer setup / recovery link has expired.',
@@ -1282,13 +1265,8 @@ async function renderOrganizerClaimLanding(token) {
       btn.disabled = true;
       btn.textContent = 'Activating session...';
       try {
-        // Send token in request body to prevent URL logging in reverse proxy / Gunicorn access logs
-        let res;
-        try {
-          res = await apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/claim`, 'POST', { claim_token: token });
-        } catch {
-          res = await apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/${token}/claim`, 'POST', {});
-        }
+        // Send token strictly in request body to prevent URL logging in reverse proxy / Gunicorn access logs
+        const res = await apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/claim`, 'POST', { claim_token: token });
         if (res?.ok) {
           window.history.replaceState(null, '', `/#/meal/${inspection.meal_id}`);
           loadMeal(inspection.meal_id);

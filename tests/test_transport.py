@@ -1291,6 +1291,24 @@ class TransportTests(unittest.TestCase):
         self.assertFalse(inspect_post['json']['valid'])
         self.assertEqual(inspect_post['json']['reason'], 'consumed')
 
+    def test_browser_assets_do_not_contain_url_token_fallbacks(self):
+        """Verify static app.js does not fall back to embedding invitation or claim tokens in API URL paths."""
+        js_res = self.client.get('/static/app.js')
+        self.assertEqual(js_res['status'], 200)
+        js_code = js_res['body'].decode('utf-8')
+
+        # Verify no token interpolation into /api/invitations/ or /api/organizer-claims/
+        self.assertNotIn('/api/invitations/${', js_code)
+        self.assertNotIn('/api/organizer-claims/${', js_code)
+        self.assertNotIn('/organizer-claims/${', js_code)
+        self.assertNotIn('/invitations/${', js_code)
+
+        # Verify clean body-based inspection and redemption calls are present
+        self.assertIn("apiCall('/api/invitations/inspect', 'POST', { invitation_token: token })", js_code)
+        self.assertIn("apiCall(`/api/meals/${inspection.meal_id}/invitations/redeem`, 'POST', { invitation_token: token })", js_code)
+        self.assertIn("apiCall('/api/organizer-claims/inspect', 'POST', { claim_token: token })", js_code)
+        self.assertIn("apiCall(`/api/meals/${inspection.meal_id}/organizer-claims/claim`, 'POST', { claim_token: token })", js_code)
+
 
 
 if __name__ == '__main__':
