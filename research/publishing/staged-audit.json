@@ -1,33 +1,53 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 4,
-  "staged_bytes_excluding_report": 601771,
+  "staged_files": 8,
+  "staged_bytes_excluding_report": 384669,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 337,
+  "tracked_files": 340,
   "untracked_files": 0,
-  "ignored_files": 27890,
+  "ignored_files": 27893,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 148329,
-      "sha256": "3ba97dc41c5c2fee82858468ab20ae34e30c23d3ad766bd7c4ff2d037e71d4da"
+      "bytes": 153722,
+      "sha256": "8286e9d93ff5077c042738c94b0e36b18f818c0101556d9b41a319e92b9dc515"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 160655,
-      "sha256": "6c3afedc16c3da8cf08eca11251419b8a37628d7dcf4f1be2ece04e0ff417dd7"
+      "bytes": 168804,
+      "sha256": "ce70cd4aa2f8c334612a5853d3c46338f83c42cd9bcf724a04581b518ca385da"
     },
     {
-      "path": "settletable/static/app.js",
-      "bytes": 224392,
-      "sha256": "6e2ca0900ff807e8f1b15016678fe6c0080e48fd1de7c3365944abcda3138b95"
+      "path": "docs/runbooks/windows_host_operations.md",
+      "bytes": 23530,
+      "sha256": "b6ff0f51cb833d04b06ea2bf92a0fe8d056bc3bfed4b3d454ce408728f4b180a"
     },
     {
-      "path": "tests/test_transport.py",
-      "bytes": 68395,
-      "sha256": "fc997ab4c4e59d863488cbfc81254176c4c9aec229adc17f13e9591d4afb3c41"
+      "path": "settletable/wsgi.py",
+      "bytes": 5997,
+      "sha256": "8a2d99f3360df50891b7f7ed3e56c1e8e195effdaa664d880c4fca036ba28b2c"
+    },
+    {
+      "path": "tests/test_verify_volume_target.py",
+      "bytes": 6816,
+      "sha256": "953d6a1efd36a60f30a95c1db8656b00d265e2e564c424c0b5dd2728827a732f"
+    },
+    {
+      "path": "tests/test_wsgi_volume_guard.py",
+      "bytes": 5896,
+      "sha256": "139a4186126c9f0bf8c0b00cae67cd1f83df8ec8a761030e3eb1f0ea4798ff42"
+    },
+    {
+      "path": "tools/bootstrap_meal.py",
+      "bytes": 8435,
+      "sha256": "8c3553c98a4aa88c46e28585c730a0596a81b1078e5b128c151308d8d18989f1"
+    },
+    {
+      "path": "tools/verify_volume_target.py",
+      "bytes": 11469,
+      "sha256": "fffba654f745749fafd472554317e7e586cd128915db2633d9fb1d89ea94c300"
     }
   ]
 }

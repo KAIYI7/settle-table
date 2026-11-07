@@ -4,11 +4,12 @@ Loads runtime configuration from environment variables and exposes
 a standard WSGI application callable (`application` / `app`) for
 production servers (Gunicorn, Waitress, uWSGI, etc.).
 """
+from datetime import datetime, timezone
 import json
 import logging
 import os
-from datetime import datetime, timezone
 from pathlib import Path
+import uuid
 
 from settletable.transport import SettleTableApp
 
@@ -22,30 +23,74 @@ def check_volume_identity(db_path: Path, volume_env: str | None) -> None:
     data_dir = db_path.parent
     if not data_dir.exists():
         return
+
     marker_file = data_dir / ".volume_identity"
+
+    # Detect existing dataset (database file or existing receipt photos)
+    photos_dir = data_dir / "receipt_photos"
+    has_existing_dataset = db_path.exists() or (
+        photos_dir.exists() and any(photos_dir.iterdir())
+    )
+
     if marker_file.exists():
         try:
-            data = json.loads(marker_file.read_text(encoding="utf-8"))
-            recorded_volume = data.get("volume_name")
-            if recorded_volume and recorded_volume != volume_env:
-                raise RuntimeError(
-                    f"CRITICAL: Volume identity mismatch! Container configured with "
-                    f"SETTLETABLE_DATA_VOLUME='{volume_env}', but mounted storage directory '{data_dir}' "
-                    f"contains marker for '{recorded_volume}'. "
-                    f"Aborting startup to protect against cross-volume contamination."
-                )
-        except json.JSONDecodeError:
-            pass
+            raw_text = marker_file.read_text(encoding="utf-8")
+        except OSError as e:
+            raise RuntimeError(
+                f"CRITICAL: Volume identity marker at '{marker_file}' is unreadable ({e}). "
+                f"Aborting startup to prevent accidental data corruption."
+            ) from e
+
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"CRITICAL: Volume identity marker at '{marker_file}' is malformed JSON ({e}). "
+                f"Aborting startup to prevent accidental data corruption."
+            ) from e
+
+        if not isinstance(data, dict) or not data.get("volume_name"):
+            raise RuntimeError(
+                f"CRITICAL: Volume identity marker at '{marker_file}' is missing 'volume_name'. "
+                f"Aborting startup to prevent accidental data corruption."
+            )
+
+        recorded_volume = data["volume_name"]
+        if recorded_volume != volume_env:
+            raise RuntimeError(
+                f"CRITICAL: Volume identity mismatch! Container configured with "
+                f"SETTLETABLE_DATA_VOLUME='{volume_env}', but mounted storage directory '{data_dir}' "
+                f"contains marker for '{recorded_volume}'. "
+                f"Aborting startup to protect against cross-volume contamination."
+            )
     else:
+        # Marker does not exist
+        if has_existing_dataset:
+            raise RuntimeError(
+                f"CRITICAL: Unmarked existing dataset detected at '{data_dir}' (database or photos exist, "
+                f"but '.volume_identity' marker is missing). Aborting startup to protect unverified data."
+            )
+
+        # Genuinely fresh volume: initialize marker atomically
+        tmp_marker = data_dir / f".volume_identity.tmp.{uuid.uuid4().hex[:8]}"
         try:
             marker_data = {
                 "volume_name": volume_env,
                 "initialized_at": datetime.now(timezone.utc).isoformat(),
             }
-            marker_file.write_text(json.dumps(marker_data, indent=2), encoding="utf-8")
+            tmp_marker.write_text(json.dumps(marker_data, indent=2), encoding="utf-8")
+            tmp_marker.replace(marker_file)
             logger.info("Initialized volume identity marker for '%s' at %s", volume_env, marker_file)
-        except OSError:
-            pass  # Read-only or ephemeral environment
+        except OSError as e:
+            if tmp_marker.exists():
+                try:
+                    tmp_marker.unlink()
+                except OSError:
+                    pass
+            raise RuntimeError(
+                f"CRITICAL: Failed to initialize volume identity marker on fresh volume '{data_dir}': {e}. "
+                f"Aborting startup."
+            ) from e
 
 
 def create_app() -> SettleTableApp:
