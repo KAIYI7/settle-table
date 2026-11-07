@@ -36,6 +36,7 @@ def main():
     src_volume = f"settletable_drill_src_{drill_id}"
     dest_volume = f"settletable_drill_dest_{drill_id}"
     host_backup_dir = tempfile.mkdtemp(prefix=f"settletable_drill_backups_{drill_id}_")
+    host_offsite_dir = tempfile.mkdtemp(prefix=f"settletable_drill_offsite_{drill_id}_")
 
     image_tag = "settletable:latest"
     meal_id = f"drill-meal-{drill_id}"
@@ -52,6 +53,7 @@ def main():
     print(f" Source Vol:   {src_volume}")
     print(f" Dest Vol:     {dest_volume}")
     print(f" Host Backups: {host_backup_dir}")
+    print(f" Offsite Copy: {host_offsite_dir}")
     print(f"=======================================================\n")
 
     try:
@@ -102,20 +104,22 @@ print("Seeding successful:", meta['filename'])
         org_cred = [line.split(":", 1)[1].strip() for line in seed_out.splitlines() if line.startswith("ORG_CRED:")][0]
         seeded_photo_filename = [line.split(":", 1)[1].strip() for line in seed_out.splitlines() if line.startswith("Seeding successful:")][0]
 
-        # 3. Execute the documented backup command using the source volume
+        # 3. Execute the documented backup command using the source volume with offsite copy
         backup_cmd = [
             "docker", "run", "--rm",
             "-v", f"{src_volume}:/data",
             "-v", f"{host_backup_dir}:/backups",
+            "-v", f"{host_offsite_dir}:/offsite",
             image_tag,
             "python", "tools/backup_restore.py", "backup",
             "--db", "/data/settletable.sqlite",
             "--photos", "/data/receipt_photos",
             "--out-dir", "/backups",
+            "--copy-to", "/offsite",
         ]
-        backup_out = run_cmd(backup_cmd, "Execute documented backup command in Docker")
+        backup_out = run_cmd(backup_cmd, "Execute documented backup command with offsite copy in Docker")
 
-        # 4. Verify backup on host filesystem
+        # 4. Verify backup on host and offsite filesystems
         manifest_files = list(Path(host_backup_dir).glob("manifest_*.json"))
         if not manifest_files:
             raise RuntimeError(f"No manifest file generated in host backup dir: {host_backup_dir}")
@@ -124,22 +128,29 @@ print("Seeding successful:", meta['filename'])
         print(f"  * Backup verified on host: {manifest_file.name} (Photo count: {manifest_data['photo_count']})")
         assert manifest_data["photo_count"] == 1, f"Expected 1 photo, got {manifest_data['photo_count']}"
 
-        # 5. Execute the documented restore command into the isolated destination volume
+        offsite_manifest = Path(host_offsite_dir) / manifest_file.name
+        if not offsite_manifest.exists():
+            raise RuntimeError(f"Offsite manifest missing: {offsite_manifest}")
+        offsite_data = json.loads(offsite_manifest.read_text(encoding="utf-8"))
+        assert offsite_data["database"]["sha256"] == manifest_data["database"]["sha256"]
+        print(f"  * Offsite secondary backup verified on host: {offsite_manifest.name}")
+
+        # 5. Execute the documented restore command directly from the offsite backup into the destination volume
         # (Passes --skip-health-check and --skip-docker-check since this runs inside an ephemeral container)
         restore_cmd = [
             "docker", "run", "--rm",
             "-v", f"{dest_volume}:/data",
-            "-v", f"{host_backup_dir}:/backups",
+            "-v", f"{host_offsite_dir}:/offsite",
             image_tag,
             "python", "tools/backup_restore.py", "restore",
-            "--manifest", f"/backups/{manifest_file.name}",
+            "--manifest", f"/offsite/{manifest_file.name}",
             "--dest-db", "/data/settletable.sqlite",
             "--dest-photos", "/data/receipt_photos",
             "--confirm-stopped",
             "--skip-health-check",
             "--skip-docker-check",
         ]
-        restore_out = run_cmd(restore_cmd, "Execute documented restore command into destination volume")
+        restore_out = run_cmd(restore_cmd, "Execute documented restore command from offsite backup into destination volume")
 
         # 6. Verify restored database, receipt photo, and organizer authentication
         verify_script = f"""
@@ -225,6 +236,11 @@ assert entries == expected_files, f"Unexpected files in restored volume: {{entri
         try:
             shutil.rmtree(host_backup_dir, ignore_errors=True)
             print(f"  - Removed {host_backup_dir}")
+        except Exception:
+            pass
+        try:
+            shutil.rmtree(host_offsite_dir, ignore_errors=True)
+            print(f"  - Removed {host_offsite_dir}")
         except Exception:
             pass
 

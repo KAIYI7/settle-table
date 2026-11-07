@@ -22,6 +22,7 @@ services:
       - settletable_data:/data
     environment:
       - PYTHONUNBUFFERED=1
+      - SETTLETABLE_DATA_VOLUME=${SETTLETABLE_DATA_VOLUME:-settletable_data}
       - SETTLETABLE_DB_PATH=/data/settletable.sqlite
       - SETTLETABLE_STORAGE_DIR=/data/receipt_photos
       - SETTLETABLE_SERVER_ORIGIN=${SETTLETABLE_SERVER_ORIGIN:-http://localhost:8000}

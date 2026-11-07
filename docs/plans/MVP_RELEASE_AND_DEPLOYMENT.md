@@ -213,16 +213,28 @@ Before any external deployment or invited-friend pilot is authorized, the follow
     - [x] Deny-by-default behavior for unmatched ingress hostnames.
   - [ ] Live external activation: Stable HTTPS FQDN verified live across computer reboots and tunnel restarts (Requires Product Owner authorization to purchase domain, configure DNS, and start tunnel).
 - **Authority:** Autonomous configuration dry-run and offline preparation; opening tunnel to external traffic strictly requires Product Owner authorization.
-- **Status:** **PASS (Offline Preparation Complete & Verified)**. Offline templates, Docker Compose tunnel profile, Windows operational runbooks, synthetic ingress test suites, and isolated Docker recovery drill are fully verified. Live external deployment remains stopped pending Product Owner domain purchase and activation authorization.
+- **Status:** **PASS (Offline Preparation & B2 Live Pilot Complete)**. Stage B offline templates, Docker Compose tunnel profile, Windows operational runbooks, synthetic ingress test suites, isolated Docker recovery drills, and Stage B2 controlled live activation (`https://settle.kybuilds.com`) were fully verified and cleanly deactivated (PR #49–#54).
 
-### Stage C Gate: Restricted Online Pilot (`v0.9.0-beta.1`)
-- **Scope:** Live testing with Product Owner and invited friends.
+### Stage C0 Gate: Diner Invitation Security & Supervised Real Browser UAT
+- **Scope:** Harden diner invitation tokens against URL-line logging, implement fragment routing, and conduct physical-device browser UAT on `settletable_synthetic_data`.
 - **Criteria:**
-  - [ ] Friends access application via ordinary mobile browsers without installing VPN software.
-  - [ ] Real OCR scans Malaysian dining receipts on host CPU with correct SST/service charge detection.
-  - [ ] Collaborative allocations, multi-payer contributions, and peer reimbursements persist across host restarts.
-  - [ ] Off-host backup copy verified by restoring onto a clean secondary directory.
-- **Authority:** Explicit Product Owner authorization required.
+  - [x] Fragment-based invitation links (`/#/invite/<token>`) prevent token exposure in Cloudflare edge and proxy access logs (PR #55).
+  - [x] Clean JSON-body inspection (`POST /api/invitations/inspect`) and redemption (`POST /api/meals/{meal_id}/invitations/redeem`) implemented (PR #55).
+  - [x] Client URL token fallback eliminated in `settletable/static/app.js` (PR #56).
+  - [x] Supervised real browser UAT personally executed by Product Owner across Windows desktop browser and physical mobile phone over cellular data (PASS, 0 defects) (PR #56).
+  - [x] Public ingress immediately stopped and verified deactivated (`HTTP 530 / Error 1033`) (PR #56).
+- **Status:** **PASS / ACCEPTED & SAFELY DEACTIVATED (PR #55, PR #56)**.
+
+### Stage C1 Gate: Restricted Online Pilot Preparation (`v0.9.0-beta.1`)
+- **Scope:** Operational readiness, volume isolation, off-host disaster recovery, and executable checklist for the first real dining event.
+- **Criteria:**
+  - [x] Two-phase deployment lifecycle defined: supervised on-demand first session, followed by mostly-available background daemon.
+  - [x] Volume isolation & accidental selection defense: container `.volume_identity` marker and pre-flight `tools/verify_volume_target.py` utility.
+  - [x] Off-host backup copy support and verification (`tools/backup_restore.py --copy-to`) integrated and tested.
+  - [x] Isolated Docker recovery drill verified with offsite secondary backup and restore (`tools/verify_isolated_docker_drill.py`).
+  - [x] Stage C1 real-meal pilot executable checklist documented (`docs/runbooks/windows_host_operations.md`).
+  - [ ] Product Owner authorization for volume cutover (`SETTLETABLE_DATA_VOLUME=settletable_data`), first real receipt upload, and invited-friends dining session.
+- **Authority:** Explicit Product Owner authorization strictly required for volume cutover and real dining session.
 
 ### Stage D Gate: Official GitHub Tagged Release (`v1.0.0`)
 - **Scope:** Public presentation, release tagging, and project governance.

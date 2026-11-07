@@ -4,15 +4,57 @@ Loads runtime configuration from environment variables and exposes
 a standard WSGI application callable (`application` / `app`) for
 production servers (Gunicorn, Waitress, uWSGI, etc.).
 """
+import json
+import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from settletable.transport import SettleTableApp
+
+logger = logging.getLogger("settletable.wsgi")
+
+
+def check_volume_identity(db_path: Path, volume_env: str | None) -> None:
+    """Verify or initialize volume identity marker to prevent cross-volume contamination."""
+    if not volume_env:
+        return
+    data_dir = db_path.parent
+    if not data_dir.exists():
+        return
+    marker_file = data_dir / ".volume_identity"
+    if marker_file.exists():
+        try:
+            data = json.loads(marker_file.read_text(encoding="utf-8"))
+            recorded_volume = data.get("volume_name")
+            if recorded_volume and recorded_volume != volume_env:
+                raise RuntimeError(
+                    f"CRITICAL: Volume identity mismatch! Container configured with "
+                    f"SETTLETABLE_DATA_VOLUME='{volume_env}', but mounted storage directory '{data_dir}' "
+                    f"contains marker for '{recorded_volume}'. "
+                    f"Aborting startup to protect against cross-volume contamination."
+                )
+        except json.JSONDecodeError:
+            pass
+    else:
+        try:
+            marker_data = {
+                "volume_name": volume_env,
+                "initialized_at": datetime.now(timezone.utc).isoformat(),
+            }
+            marker_file.write_text(json.dumps(marker_data, indent=2), encoding="utf-8")
+            logger.info("Initialized volume identity marker for '%s' at %s", volume_env, marker_file)
+        except OSError:
+            pass  # Read-only or ephemeral environment
 
 
 def create_app() -> SettleTableApp:
     """Create and configure a SettleTableApp instance from environment variables."""
     db_path = os.environ.get("SETTLETABLE_DB_PATH", ".local/settletable.sqlite")
+    volume_env = os.environ.get("SETTLETABLE_DATA_VOLUME")
+    if volume_env:
+        check_volume_identity(Path(db_path), volume_env)
+
     storage_dir = os.environ.get("SETTLETABLE_STORAGE_DIR")
     server_origin = os.environ.get("SETTLETABLE_SERVER_ORIGIN", "http://localhost:8000").rstrip("/")
 

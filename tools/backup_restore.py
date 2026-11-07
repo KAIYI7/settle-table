@@ -124,7 +124,13 @@ def check_restore_safety(
 check_database_unlocked = check_restore_safety
 
 
-def perform_quiescent_backup(src_db: Path, src_photos: Path, out_dir: Path) -> Path:
+def perform_quiescent_backup(
+    src_db: Path,
+    src_photos: Path,
+    out_dir: Path,
+    *,
+    offsite_dir: Path | None = None,
+) -> Path:
     """Perform a quiescent snapshot while holding an immediate write transaction lock.
 
     Holding BEGIN IMMEDIATE ensures no concurrent transactions commit or insert/delete
@@ -231,6 +237,35 @@ def perform_quiescent_backup(src_db: Path, src_photos: Path, out_dir: Path) -> P
         }
         manifest_path = out_dir / f"manifest_{timestamp}.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        if offsite_dir is not None:
+            offsite_dir = Path(offsite_dir).resolve()
+            offsite_dir.mkdir(parents=True, exist_ok=True)
+            offsite_db = offsite_dir / backup_db_file.name
+            offsite_photos = offsite_dir / backup_photos_dir.name
+            offsite_manifest = offsite_dir / manifest_path.name
+
+            # Copy DB, photos directory, and manifest
+            shutil.copy2(backup_db_file, offsite_db)
+            if offsite_photos.exists():
+                shutil.rmtree(offsite_photos)
+            shutil.copytree(backup_photos_dir, offsite_photos)
+            shutil.copy2(manifest_path, offsite_manifest)
+
+            # Verify offsite copy integrity
+            offsite_db_sha = compute_sha256(offsite_db)
+            if offsite_db_sha != db_sha:
+                raise RuntimeError(
+                    f"Offsite backup database checksum mismatch: expected {db_sha}, got {offsite_db_sha}"
+                )
+            for fn, meta in photo_manifest.items():
+                p_file = offsite_photos / fn
+                if not p_file.exists():
+                    raise FileNotFoundError(f"Offsite photo missing: {fn}")
+                p_sha = compute_sha256(p_file)
+                if p_sha != meta["sha256"]:
+                    raise RuntimeError(f"Offsite photo '{fn}' checksum mismatch!")
+
         return manifest_path
 
     except Exception:
@@ -501,19 +536,24 @@ def backup_command(args):
     src_db = Path(args.db).resolve()
     src_photos = Path(args.photos).resolve() if args.photos else src_db.parent / "receipt_photos"
     out_dir = Path(args.out_dir).resolve()
+    offsite_dir = Path(args.offsite_dir).resolve() if args.offsite_dir else None
 
     print("=== Starting SettleTable Quiescent Backup ===")
     print(f"Source DB:      {src_db}")
     print(f"Source Photos:  {src_photos}")
     print(f"Destination:    {out_dir}")
+    if offsite_dir:
+        print(f"Offsite Copy:   {offsite_dir}")
 
     try:
-        manifest_path = perform_quiescent_backup(src_db, src_photos, out_dir)
+        manifest_path = perform_quiescent_backup(src_db, src_photos, out_dir, offsite_dir=offsite_dir)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         print("\n[OK] Quiescent database and photo snapshot completed.")
         print(f"  Manifest:     {manifest_path.name}")
         print(f"  DB SHA-256:   {manifest['database']['sha256'][:16]}...")
         print(f"  Photo Count:  {manifest['photo_count']}")
+        if offsite_dir:
+            print(f"  Offsite Copy: {offsite_dir} (Verified)")
         print(f"\n[SUCCESS] Backup completed successfully at {manifest['created_at']}")
     except Exception as e:
         print(f"\n[ERROR] Backup failed: {e}", file=sys.stderr)
@@ -570,6 +610,8 @@ def main():
                                help="Path to receipt photos directory (default: <db_dir>/receipt_photos)")
     backup_parser.add_argument("--out-dir", "--backup-dir", dest="out_dir", default=".local/backups",
                                help="Directory where backup will be stored")
+    backup_parser.add_argument("--offsite-dir", "--copy-to", dest="offsite_dir", default=None,
+                               help="Optional secondary off-host or cloud-synced directory where a verified copy of the backup will be stored")
 
     # Restore subcommand
     restore_parser = subparsers.add_parser("restore", help="Restore database and receipt photos from backup manifest")

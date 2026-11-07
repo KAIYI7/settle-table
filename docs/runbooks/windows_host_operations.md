@@ -36,6 +36,25 @@ SettleTable is deployed as a single-instance containerized service on a self-hos
 └────────────────────────────────────────────────────────┘
 ```
 
+### 1.1 Practical Deployment Lifecycle
+
+To balance security, operational control, and low-maintenance availability, SettleTable follows a two-phase deployment lifecycle:
+
+1. **Phase 1: First Real Dining Session (Supervised, On-Demand Activation)**:
+   - For the inaugural meal with real invited friends and actual restaurant receipts, launch the stack explicitly before the dining event:
+     ```powershell
+     docker compose --profile with-cloudflared up -d
+     ```
+   - Supervise the session: monitor container logs (`docker compose logs -f`), observe RapidOCR processing on real physical receipts, and verify that invited diners join without issues.
+   - At the conclusion of the meal, execute an explicit stopped backup to both local and off-host storage before shutting down or keeping the service active.
+2. **Phase 2: Post-First-Meal Transition (Mostly-Available Operation with Auto-Restart)**:
+   - Following successful initial validation, leave the stack running continuously with `restart: unless-stopped`.
+   - Configure Docker Desktop to auto-start upon Windows login.
+   - Host downtime (e.g., occasional computer reboots, sleep mode when laptop is unplugged, home router reconnects) is fully acceptable:
+     - The SQLite WAL database guarantees zero transaction corruption across sudden power-off or reboots.
+     - Session TTLs (7 days / 604,800 seconds) ensure active sessions remain valid across host downtime.
+     - The Cloudflare connector automatically reconnects to Cloudflare edge nodes upon internet restoration without manual intervention.
+
 ---
 
 ## 2. Windows Power & Sleep Management
@@ -148,6 +167,21 @@ docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools
 ```
 *(Note: `--storage-dir` and `--backup-dir` are accepted as aliases).*
 
+#### 6.1.1 Offsite / Cloud-Synced Secondary Backup
+
+To guarantee resilience against local SSD or workstation failure, pass `--copy-to` (or `--offsite-dir`) pointing to a secondary drive (e.g. secondary external drive, USB disk, or network share) or a cloud-synced folder (e.g. OneDrive, Google Drive, Dropbox):
+
+```powershell
+# Backup with automatic offsite mirror and hash verification:
+docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" -v "<HOST_OFFSITE_DIR>:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
+```
+The utility automatically:
+1. Snapshots the database under a write quiescence lock (`BEGIN IMMEDIATE`).
+2. Verifies and copies all referenced receipt photo assets.
+3. Generates the checksummed `manifest_<timestamp>.json`.
+4. Copies the database, photos, and manifest to the offsite directory.
+5. Verifies that the offsite database and photos match the manifest SHA-256 hashes.
+
 ### 6.2 Explicit Stopped-Container Backup (Recommended Gold Standard)
 
 To guarantee 100% quiescence with zero in-flight uploads:
@@ -200,6 +234,36 @@ To guarantee 100% quiescence with zero in-flight uploads:
    python tools/deployment_smoke_check.py --url http://127.0.0.1:8000
    ```
 
+### 6.4 Storage Volume Isolation & Cross-Contamination Guard
+
+SettleTable maintains strict physical volume isolation between synthetic test runs and real dining sessions:
+
+- **`settletable_synthetic_data`**: Isolated volume used for automated test suites, CI drills, and synthetic rehearsals.
+- **`settletable_data`**: Authoritative persistent volume reserved exclusively for real dining sessions and real receipts.
+
+#### 6.4.1 In-Container Volume Identity Marker (`.volume_identity`)
+To eliminate the risk of accidental volume selection (e.g. accidentally running a real dinner against the synthetic volume or running tests against the production volume):
+- SettleTable writes a persistent marker `/data/.volume_identity` on initial startup recording the intended volume name.
+- On subsequent startups, `settletable_app` compares `SETTLETABLE_DATA_VOLUME` against the on-disk marker.
+- If a mismatch is detected, the container immediately aborts startup with a `RuntimeError` to prevent cross-volume contamination.
+
+#### 6.4.2 Pre-Flight Volume Target Verification
+Before starting containers or performing cutovers, always execute the volume verification tool:
+```powershell
+# Check current configuration in auto mode:
+python tools/verify_volume_target.py
+
+# Verify readiness for real-data production pilot:
+python tools/verify_volume_target.py --mode real
+
+# Verify readiness for synthetic rehearsal:
+python tools/verify_volume_target.py --mode synthetic
+```
+
+#### 6.4.3 Protection Against Accidental Volume Deletion
+- **NEVER** run `docker compose down -v` or `docker volume prune -f` in production. The `-v` flag instructs Docker to permanently delete persistent volumes.
+- To safely stop the application without touching volumes, use `docker compose stop` or `docker compose down` (without `-v`).
+
 ---
 
 ## 7. Emergency Troubleshooting & Operational Cheatsheet
@@ -211,7 +275,7 @@ To guarantee 100% quiescence with zero in-flight uploads:
 | **Inspect tunnel logs** | `docker compose logs -f cloudflared` | Cloudflare connection registration logs |
 | **Test local health** | `curl -i http://127.0.0.1:8000/healthz` | HTTP 200 `{"ok":true,"status":"healthy"}` |
 | **Test public tunnel ingress** | `curl -i https://settle.kybuilds.com/healthz` | HTTP 200 `{"ok":true,"status":"healthy"}` |
-| **Run deployment smoke check** | `python tools/deployment_smoke_check.py` | 11/11 smoke checks pass |
+| **Run deployment smoke check** | `python tools/deployment_smoke_check.py` | 13/13 smoke checks pass |
 | **Administrative bootstrap meal** | `docker compose exec settletable python tools/bootstrap_meal.py bootstrap --meal-id <id>` | Prints single-use organizer setup link |
 | **Emergency organizer recovery** | `docker compose exec settletable python tools/bootstrap_meal.py recover --meal-id <id>` | Prints fresh organizer recovery link |
 | **Restart application service** | `docker compose restart settletable` | Service restarts cleanly |
@@ -233,3 +297,44 @@ The `CLOUDFLARE_TUNNEL_TOKEN` stored in `.env` grants authoritative ingress rout
   ```powershell
   python tools/deployment_smoke_check.py --url https://settle.kybuilds.com
   ```
+
+---
+
+## 9. Stage C1 Real-Meal Pilot Executable Checklist
+
+Use this checklist during the first authorized invited-friends dining session:
+
+### Pre-Flight (1–2 Days Before Gathering)
+- [ ] 1. **Volume Pre-Flight Check**: Verify `.env` has `SETTLETABLE_DATA_VOLUME=settletable_data` and run `python tools/verify_volume_target.py --mode real`.
+- [ ] 2. **Pre-Pilot Clean Backup**: Run `docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups` to verify baseline backup execution.
+- [ ] 3. **Public Ingress Smoke Check**: Start the stack (`docker compose --profile with-cloudflared up -d`) and run `python tools/deployment_smoke_check.py --url https://settle.kybuilds.com` (13/13 passing). Stop the stack if not yet dining.
+
+### Event Kickoff (At the Restaurant / Gathering)
+- [ ] 4. **Activate Public Ingress**: On the Windows host, execute `docker compose --profile with-cloudflared up -d`. Confirm `docker compose ps` shows `settletable_app: Up (healthy)` and `settletable_tunnel: Up`.
+- [ ] 5. **Provision Meal via Host CLI**:
+  ```powershell
+  docker compose exec settletable python tools/bootstrap_meal.py bootstrap --meal-id dinner-YYYYMMDD --organizer "HostName" --diners "Alice,Bob,Charlie"
+  ```
+- [ ] 6. **Organizer Browser Activation**:
+  - Open the generated single-use Organizer Setup Link (`https://settle.kybuilds.com/#/claim-organizer/<token>`) in your mobile or desktop browser.
+  - Confirm the organizer session cookie is acquired (`is_organizer: true`).
+- [ ] 7. **Capture & Verify Real Receipt**:
+  - Take a well-lit photo of the paper receipt and upload via the browser interface.
+  - Verify RapidOCR extracted candidate items, amounts, Malaysian SST (6%/8%), and service charge.
+  - Edit or confirm items in the receipt editor and tap **Confirm & Save**.
+- [ ] 8. **Distribute Diner Invitation Links**:
+  - Copy the generated fragment links (`https://settle.kybuilds.com/#/invite/<token>`) from the UI or bootstrap output.
+  - Send individually to Alice, Bob, and Charlie via private WhatsApp / Telegram / Signal chat.
+- [ ] 9. **Collaborative Allocation & Settlement**:
+  - Friends open links on their mobile phones in Safari / Chrome (zero app download or Cloudflare Access login).
+  - Diners select their consumed items or shares.
+  - Review the real-time financial breakdown, multi-payer contributions, and suggested peer settlements.
+
+### Post-Event Closure (End of Evening)
+- [ ] 10. **Quiescent Backup with Offsite Mirror**:
+  ```powershell
+  docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" -v "<HOST_OFFSITE_DIR>:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
+  ```
+- [ ] 11. **Lifecycle Decision**:
+  - Either leave running for mostly-available post-dinner review (`restart: unless-stopped`), OR
+  - Cleanly deactivate public ingress (`docker compose stop cloudflared`).
