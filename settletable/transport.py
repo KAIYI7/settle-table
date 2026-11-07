@@ -146,7 +146,7 @@ STATIC_FILES = {
 
 def redact_log_string(s: str) -> str:
     # 1. Redact API token paths (invitations and organizer claims)
-    s = re.sub(r'(/api/(?:meals/[^/]+/)?invitations/)[A-Za-z0-9_-]{43}', r'\1[REDACTED]', s)
+    s = re.sub(r'(/api/(?:meals/[^/]+/)?invitations/)[A-Za-z0-9_-]{43}(/redeem)?', r'\1[REDACTED]\2', s)
     s = re.sub(r'(/api/organizer-claims/)[A-Za-z0-9_-]{43}', r'\1[REDACTED]', s)
     s = re.sub(r'(/api/meals/[^/]+/organizer-claims/)[A-Za-z0-9_-]{43}(/claim)?', r'\1[REDACTED]\2', s)
     # 2. Redact HTML landing routes with tokens
@@ -158,9 +158,9 @@ def redact_log_string(s: str) -> str:
     # 5. Notion and integration tokens
     s = re.sub(r'(secret_|ntn_)[A-Za-z0-9_-]{10,}', r'\1[REDACTED]', s)
     # 6. Query strings: token, claim_token, cred, credential (matches start of query string or after ? / &)
-    s = re.sub(r'((?:^|[?&])(?:token|claim_token|cred|credential)=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
+    s = re.sub(r'((?:^|[?&])(?:token|claim_token|invitation_token|cred|credential)=)[A-Za-z0-9_-]+', r'\1[REDACTED]', s, flags=re.IGNORECASE)
     # 7. JSON fields in logged request/response payloads or diagnostic messages
-    s = re.sub(r'"(?:token|claim_token|cred|credential|organizer_credential|settletable_session)"\s*:\s*"[^"]+"', r'"token":"[REDACTED]"', s)
+    s = re.sub(r'"(?:token|claim_token|invitation_token|cred|credential|organizer_credential|settletable_session)"\s*:\s*"[^"]+"', r'"token":"[REDACTED]"', s)
     return s
 
 
@@ -448,9 +448,9 @@ class SettleTableApp:
         used_cookie = bool(cookie_cred)
 
         # 3. CSRF & Action check on mutating requests (POST, DELETE)
-        # Note: POST /api/organizer-claims/inspect is an unauthenticated, read-only query
-        # using POST solely to keep the claim token in the request body rather than the URL line.
-        is_read_only_post = bool(method == 'POST' and path == '/api/organizer-claims/inspect')
+        # Note: POST /api/organizer-claims/inspect and POST /api/invitations/inspect are unauthenticated, read-only queries
+        # using POST solely to keep sensitive tokens in the request body rather than the URL line.
+        is_read_only_post = bool(method == 'POST' and path in ('/api/organizer-claims/inspect', '/api/invitations/inspect'))
         if method in ('POST', 'DELETE') and not is_read_only_post:
             # Missing or chunked body check
             cl_header = environ.get('CONTENT_LENGTH')
@@ -563,7 +563,24 @@ class SettleTableApp:
                     return 200, self._static_headers('image/svg+xml', 'no-cache'), fav.read_bytes()
                 return 204, self._default_headers(), b''
 
-        # Unauthenticated landing GET /api/invitations/{token}
+        # Unauthenticated invitation inspection:
+        # 1. POST /api/invitations/inspect (token in JSON body to prevent URL logging)
+        if path == '/api/invitations/inspect' and method == 'POST':
+            token = (body_data or {}).get('invitation_token') or (body_data or {}).get('token') or environ.get('HTTP_X_SETTLETABLE_INVITATION_TOKEN')
+            if not token or not isinstance(token, str):
+                raise TransportError('invalid_invitation', 400)
+            res = authority.inspect_invitation(token)
+            out = {
+                'ok': True,
+                'valid': res.valid,
+                'meal_id': res.meal_id,
+                'participant_name': res.participant_name,
+                'expires': res.expires,
+                'reason': res.reason,
+            }
+            return 200, self._default_headers(), serialize_json(out)
+
+        # 2. Legacy/direct GET /api/invitations/{token}
         m = re.fullmatch(r'/api/invitations/([A-Za-z0-9_-]{43})', path)
         if m and method == 'GET':
             token = m.group(1)
@@ -618,10 +635,19 @@ class SettleTableApp:
             headers.append(('Set-Cookie', 'settletable_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT'))
             return 200, headers, serialize_json({'ok': True, 'cleared': True})
 
-        # Redeem invitation POST /api/meals/{meal_id}/invitations/{token}/redeem
-        m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/invitations/([A-Za-z0-9_-]{43})/redeem', path)
-        if m and method == 'POST':
-            meal_id, token = m.group(1), m.group(2)
+        # Redeem invitation:
+        # POST /api/meals/{meal_id}/invitations/redeem (token in JSON body to prevent URL logging) OR
+        # POST /api/meals/{meal_id}/invitations/{token}/redeem (legacy URL path)
+        m_inv_redeem_path = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/invitations/([A-Za-z0-9_-]{43})/redeem', path)
+        m_inv_redeem_body = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/invitations/redeem', path)
+        if (m_inv_redeem_path or m_inv_redeem_body) and method == 'POST':
+            if m_inv_redeem_path:
+                meal_id, token = m_inv_redeem_path.group(1), m_inv_redeem_path.group(2)
+            else:
+                meal_id = m_inv_redeem_body.group(1)
+                token = (body_data or {}).get('invitation_token') or (body_data or {}).get('token') or environ.get('HTTP_X_SETTLETABLE_INVITATION_TOKEN')
+                if not token or not isinstance(token, str):
+                    raise TransportError('invalid_invitation', 400)
             session_ttl = self._get_session_ttl()
             session_grant = authority.redeem_invitation(token, meal_id, session_ttl=session_ttl)
             headers = self._default_headers()
@@ -849,6 +875,7 @@ class SettleTableApp:
                 'participant_id': grant.participant_id,
                 'token': grant.token,
                 'expires': grant.expires,
+                'invite_url': f"{self.server_origin}/#/invite/{grant.token}",
             }
             return 201, self._default_headers(), serialize_json(out)
 

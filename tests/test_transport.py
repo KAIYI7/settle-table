@@ -555,6 +555,12 @@ class TransportTests(unittest.TestCase):
             '/invite/[REDACTED]'
         )
         self.assertEqual(
+            redact_log_string(f'/api/meals/dinner-1/invitations/{token}/redeem'),
+            '/api/meals/dinner-1/invitations/[REDACTED]/redeem'
+        )
+        inv_payload_raw = f'{{"invitation_token": "{token}"}}'
+        self.assertIn('"token":"[REDACTED]"', redact_log_string(inv_payload_raw))
+        self.assertEqual(
             redact_log_string(f'/api/meals/m1/snapshot?token={token}'),
             '/api/meals/m1/snapshot?token=[REDACTED]'
         )
@@ -1216,6 +1222,74 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(rec_claim_res['status'], 200)
         self.assertEqual(rec_claim_res['json']['participant_id'], 'O')
         self.assertEqual(rec_claim_res['json']['status'], 'claimed')
+
+    def test_invitation_clean_body_inspection_and_redemption_endpoints(self):
+        # 1. Bootstrap meal
+        boot_res = self.client.post('/api/meals/m_inv_clean/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Host', 'organizer': True},
+                             {'id': 'D', 'name': 'Diner', 'organizer': False}]
+        })
+        self.assertEqual(boot_res['status'], 201)
+        org_cred = boot_res['json']['sessions'][0]['credential']
+
+        # 2. Issue invitation - returns token and invite_url with fragment format
+        inv_res = self.client.post('/api/meals/m_inv_clean/invitations',
+                                   body={'participant_id': 'D', 'invite_ttl': 3600},
+                                   headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(inv_res['status'], 201)
+        token = inv_res['json']['token']
+        self.assertIn('/#/invite/', inv_res['json']['invite_url'])
+
+        # 3. Legacy GET /invite/{token} serves HTML shell
+        html_res = self.client.get(f'/invite/{token}')
+        self.assertEqual(html_res['status'], 200)
+        self.assertIn(b'<title>SettleTable', html_res['body'])
+
+        # 4. Clean POST /api/invitations/inspect with token in JSON body
+        inspect_clean = self.client.post('/api/invitations/inspect', body={'invitation_token': token})
+        self.assertEqual(inspect_clean['status'], 200)
+        self.assertTrue(inspect_clean['json']['valid'])
+        self.assertEqual(inspect_clean['json']['meal_id'], 'm_inv_clean')
+        self.assertEqual(inspect_clean['json']['participant_name'], 'Diner')
+
+        # 4b. Invalid / non-existent token in POST /api/invitations/inspect returns valid=False
+        bad_inspect = self.client.post('/api/invitations/inspect', body={'invitation_token': 'Z' * 43})
+        self.assertEqual(bad_inspect['status'], 200)
+        self.assertFalse(bad_inspect['json']['valid'])
+        self.assertEqual(bad_inspect['json']['reason'], 'not_found')
+
+        # 4c. Missing token in body returns 400
+        missing_token = self.client.post('/api/invitations/inspect', body={})
+        self.assertEqual(missing_token['status'], 400)
+        self.assertEqual(missing_token['json']['error'], 'invalid_invitation')
+
+        # 5. Clean POST /api/meals/{meal_id}/invitations/redeem with token in JSON body
+        # 5a. Action header required on mutating redemption
+        no_action = self.client.request('POST', '/api/meals/m_inv_clean/invitations/redeem',
+                                        body={'invitation_token': token}, headers={'HTTP_X_SETTLETABLE_ACTION': ''})
+        self.assertEqual(no_action['status'], 400)
+        self.assertEqual(no_action['json']['error'], 'missing_action_header')
+
+        # 5b. Successful clean redemption
+        redeem_clean = self.client.post('/api/meals/m_inv_clean/invitations/redeem',
+                                        body={'invitation_token': token})
+        self.assertEqual(redeem_clean['status'], 200)
+        self.assertEqual(redeem_clean['json']['participant_id'], 'D')
+        self.assertIn('Set-Cookie', redeem_clean['headers'])
+        self.assertIn('settletable_session=', redeem_clean['headers']['Set-Cookie'])
+        self.assertIn('HttpOnly', redeem_clean['headers']['Set-Cookie'])
+
+        # 6. Replay attack fails with 400 invalid_invitation
+        replay_clean = self.client.post('/api/meals/m_inv_clean/invitations/redeem',
+                                        body={'invitation_token': token})
+        self.assertEqual(replay_clean['status'], 400)
+        self.assertEqual(replay_clean['json']['error'], 'invalid_invitation')
+
+        # 7. Post-redemption inspection reflects consumed state
+        inspect_post = self.client.post('/api/invitations/inspect', body={'invitation_token': token})
+        self.assertEqual(inspect_post['status'], 200)
+        self.assertFalse(inspect_post['json']['valid'])
+        self.assertEqual(inspect_post['json']['reason'], 'consumed')
 
 
 
