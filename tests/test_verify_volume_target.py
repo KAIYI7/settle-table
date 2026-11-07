@@ -155,7 +155,16 @@ class VerifyVolumeTargetTests(unittest.TestCase):
                 "marker": None,
                 "db_exists": True,
             })
-        self.assertIn("Unmarked existing database detected", str(ctx.exception))
+        self.assertIn("Unmarked existing dataset detected", str(ctx.exception))
+
+        # Unmarked existing photos raises
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_marker_integrity("settletable_data", {
+                "marker": None,
+                "db_exists": False,
+                "photo_count": 3,
+            })
+        self.assertIn("Unmarked existing dataset detected", str(ctx.exception))
 
 
 if __name__ == "__main__":

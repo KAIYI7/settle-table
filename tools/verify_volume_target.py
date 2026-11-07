@@ -201,9 +201,9 @@ def validate_marker_integrity(resolved_vol: str, info: dict) -> None:
             raise RuntimeError(
                 f"CRITICAL: Volume marker mismatch! Volume '{resolved_vol}' contains marker for '{marker_name}'!"
             )
-    elif info.get("db_exists"):
+    elif info.get("db_exists") or info.get("photo_count", 0) > 0:
         raise RuntimeError(
-            f"CRITICAL: Unmarked existing database detected on volume '{resolved_vol}' without .volume_identity marker!"
+            f"CRITICAL: Unmarked existing dataset detected on volume '{resolved_vol}' (database or photos exist without .volume_identity marker)!"
         )
 
 
