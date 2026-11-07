@@ -784,6 +784,14 @@ function route() {
   }
 
   // 2. Hash routing
+  if (hash.startsWith('#/invite/')) {
+    const token = hash.replace('#/invite/', '').trim();
+    if (token) {
+      renderInviteLanding(token);
+      return;
+    }
+  }
+
   if (hash.startsWith('#/claim-organizer/')) {
     const token = hash.replace('#/claim-organizer/', '').trim();
     if (token) {
@@ -1111,7 +1119,14 @@ async function renderInviteLanding(token) {
   `;
 
   try {
-    const inspection = await apiCall(`/api/invitations/${token}`);
+    // Send token in request body to POST /api/invitations/inspect to prevent token exposure in access logs
+    let inspection;
+    try {
+      inspection = await apiCall('/api/invitations/inspect', 'POST', { invitation_token: token });
+    } catch {
+      // Fallback to legacy GET if inspect POST fails
+      inspection = await apiCall(`/api/invitations/${token}`);
+    }
     if (!inspection?.ok || !inspection.valid) {
       const reasonMap = {
         expired: 'This invitation has expired.',
@@ -1166,7 +1181,13 @@ async function renderInviteLanding(token) {
         btn.disabled = true;
         btn.textContent = 'Joining...';
         
-        const redeemRes = await apiCall(`/api/meals/${inspection.meal_id}/invitations/${token}/redeem`, 'POST', {});
+        // Send token in request body to prevent URL logging in reverse proxy / Gunicorn access logs
+        let redeemRes;
+        try {
+          redeemRes = await apiCall(`/api/meals/${inspection.meal_id}/invitations/redeem`, 'POST', { invitation_token: token });
+        } catch {
+          redeemRes = await apiCall(`/api/meals/${inspection.meal_id}/invitations/${token}/redeem`, 'POST', {});
+        }
         if (redeemRes?.ok) {
           // Sanitize URL immediately so refreshing doesn't re-trigger consumed token
           window.history.replaceState(null, '', `/#/meal/${inspection.meal_id}`);
@@ -4242,7 +4263,7 @@ function bindEvents(snap) {
           invite_ttl: 86400,
         });
         if (invRes?.token) {
-          const inviteUrl = `${window.location.origin}/invite/${invRes.token}`;
+          const inviteUrl = invRes.invite_url || `${window.location.origin}/#/invite/${invRes.token}`;
           state.issuedTokens[partId] = inviteUrl;
           navigator.clipboard.writeText(inviteUrl).catch(() => {});
           showAlert(`Invite link created & copied for ${partId}!`, 'success');

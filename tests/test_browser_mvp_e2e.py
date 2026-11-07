@@ -567,6 +567,55 @@ class BrowserMvpE2ETests(unittest.TestCase):
         self.assertEqual(snap['funding']['total_contributed_sen'], 3000)
         self.assertEqual(snap['funding']['unfunded_sen'], 2000)
 
+    def test_diner_invitation_clean_body_flow_and_hash_url(self):
+        """Verify invitation issuance returns fragment URL and clean inspection/redemption work without URL path tokens."""
+        alice = IsolatedBrowserSession(self.app)
+        bob = IsolatedBrowserSession(self.app)
+
+        # 1. Alice creates meal
+        boot = alice.post('/api/meals/m-clean-invite/bootstrap', body={
+            'participants': [
+                {'id': 'A', 'name': 'Alice', 'organizer': True},
+                {'id': 'B', 'name': 'Bob', 'organizer': False},
+            ]
+        })
+        self.assertEqual(boot['status'], 201)
+        alice_cred = boot['json']['sessions'][0]['credential']
+        alice.cookies['settletable_session'] = alice_cred
+
+        # 2. Alice generates invitation for Bob
+        inv = alice.post('/api/meals/m-clean-invite/invitations', body={'participant_id': 'B'})
+        self.assertEqual(inv['status'], 201)
+        token = inv['json']['token']
+        # Assert fragment-based URL format is returned
+        self.assertIn('/#/invite/', inv['json']['invite_url'])
+        self.assertEqual(inv['json']['invite_url'], f"http://localhost:8000/#/invite/{token}")
+
+        # 3. Bob inspects invitation via clean POST body (zero tokens in request line)
+        inspect = bob.post('/api/invitations/inspect', body={'invitation_token': token})
+        self.assertEqual(inspect['status'], 200)
+        self.assertTrue(inspect['json']['valid'])
+        self.assertEqual(inspect['json']['meal_id'], 'm-clean-invite')
+        self.assertEqual(inspect['json']['participant_name'], 'Bob')
+
+        # 4. Bob redeems invitation via clean POST body (zero tokens in request line)
+        redeem = bob.post('/api/meals/m-clean-invite/invitations/redeem', body={'invitation_token': token})
+        self.assertEqual(redeem['status'], 200)
+        self.assertEqual(redeem['json']['participant_id'], 'B')
+        self.assertIn('settletable_session', bob.cookies)
+        self.assertNotEqual(bob.cookies['settletable_session'], alice.cookies['settletable_session'])
+
+        # 5. Bob can fetch snapshot with diner role
+        snap = bob.get('/api/meals/m-clean-invite/snapshot')
+        self.assertEqual(snap['status'], 200)
+        self.assertFalse(snap['json']['is_organizer'])
+        self.assertEqual(snap['json']['current_participant_id'], 'B')
+
+        # 6. Replay via clean POST body is rejected (single-use)
+        replay = bob.post('/api/meals/m-clean-invite/invitations/redeem', body={'invitation_token': token})
+        self.assertEqual(replay['status'], 400)
+        self.assertEqual(replay['json']['error'], 'invalid_invitation')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -196,6 +196,32 @@ def run_smoke_checks(base_url: str):
             assert data.get("ok") is True and data.get("valid") is False, f"Unexpected response: {data}"
     t("11. POST /api/organizer-claims/inspect returns valid=false with token in JSON body", check_clean_claim_inspection)
 
+    # 12. Invitation HTML shell route
+    def check_invite_shell():
+        req = make_request(f"{base_url}/invite/abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE")
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200, f"Expected 200, got {resp.status}"
+            content = resp.read().decode("utf-8")
+            assert "<title>SettleTable" in content, "Missing SettleTable title"
+    t("12. GET /invite/{token} serves HTML shell", check_invite_shell)
+
+    # 13. Clean POST invitation inspection (token in body to avoid URL path logging)
+    def check_clean_invite_inspection():
+        body = json.dumps({"invitation_token": "abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE"}).encode("utf-8")
+        req = make_request(
+            f"{base_url}/api/invitations/inspect",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=5) as resp:
+            assert resp.status == 200, f"Expected 200, got {resp.status}"
+            data = json.loads(resp.read().decode("utf-8"))
+            assert data.get("ok") is True and data.get("valid") is False, f"Unexpected response: {data}"
+    t("13. POST /api/invitations/inspect returns valid=false with token in JSON body", check_clean_invite_inspection)
+
     print(f"\nResults: {passed}/{total} smoke checks passed.")
     if passed == total:
         print("[SUCCESS] All deployment smoke checks verified successfully!\n")

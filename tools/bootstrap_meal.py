@@ -53,7 +53,7 @@ def run_bootstrap(meal_id: str, organizer_name: str, diners_str: str, db_path: P
             for p in participants:
                 if not p.organizer:
                     inv = authority.issue_invitation(org_session.credential, res.meal_id, p.id, invite_ttl=session_ttl)
-                    print(f"   - {p.name:<12} (ID: {p.id}): {origin}/invite/{inv.token}")
+                    print(f"   - {p.name:<12} (ID: {p.id}): {origin}/#/invite/{inv.token}")
 
         print(f"\n General Join Link (Requires Organizer Approval):")
         print(f"   {origin}/join/{res.meal_id}")

@@ -1,28 +1,53 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 3,
-  "staged_bytes_excluding_report": 306689,
+  "staged_files": 8,
+  "staged_bytes_excluding_report": 715054,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 337,
   "untracked_files": 0,
-  "ignored_files": 27889,
+  "ignored_files": 27890,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 144289,
-      "sha256": "8c893606a5e91de1a2e58f14c421b5176e6731a03f0d452f77fa5c432189347e"
+      "bytes": 146244,
+      "sha256": "6e5c90ad8aa180eb93cd07cd25bf486d6d8df8e4fa61f13fe77c543683cc88b9"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 153271,
-      "sha256": "a4fe97a7f6e2c0f91db801c0403f42a0f9c6256321168605f870d255e6ac6664"
+      "bytes": 156872,
+      "sha256": "76aae383a0df855bd3d7c2de6daca086ad96cda5b9b3b69fe341df150160b604"
+    },
+    {
+      "path": "settletable/static/app.js",
+      "bytes": 225027,
+      "sha256": "646f1f5b0a26b2760828fd140077eeb586e344a81db60f1b8e0096646fe6141a"
+    },
+    {
+      "path": "settletable/transport.py",
+      "bytes": 74791,
+      "sha256": "57205eaa64933fad206a62df4bbab8eabee8d5b73b022ad8f9ee04b2c6cd7931"
+    },
+    {
+      "path": "tests/test_browser_mvp_e2e.py",
+      "bytes": 27147,
+      "sha256": "7a610ef0d2674ecac9bb14cb45de93f3c8298718a6306a9c3db8b3fb0675bbf6"
+    },
+    {
+      "path": "tests/test_transport.py",
+      "bytes": 67184,
+      "sha256": "30f99c86ebcfdf5730fc8d41b5945e6d79d8cecd03de638ec99bf984c22d2f5f"
+    },
+    {
+      "path": "tools/bootstrap_meal.py",
+      "bytes": 7309,
+      "sha256": "efe61622ee79e6f32d49a694038d0399f022b8162d32a7057894336187fcac29"
     },
     {
       "path": "tools/deployment_smoke_check.py",
-      "bytes": 9129,
-      "sha256": "e7fdc50327b14d30588625cac67ce486e31088833cfd2ba9950e3875024cccc2"
+      "bytes": 10480,
+      "sha256": "f256ca85314be082770cc088d923f5748f2fc5f4cec73fb41ee421000bff3d21"
     }
   ]
 }
