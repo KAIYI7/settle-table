@@ -24,8 +24,8 @@ credentials-file: /etc/cloudflared/credentials.json
 # Rules are evaluated top-down; the first matching rule applies.
 # A final catch-all rule (without hostname) is mandatory.
 ingress:
-  # Route traffic for SettleTable public hostname
-  - hostname: settle.example.com
+  # Route traffic for SettleTable public hostname (confirmed: settle.kybuilds.com)
+  - hostname: settle.kybuilds.com
     # Topology A (Recommended - Docker Compose bridge network):
     service: http://settletable:8000
     # Topology B (Alternative - Windows host service or loopback):

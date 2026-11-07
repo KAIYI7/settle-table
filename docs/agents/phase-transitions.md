@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-07 — Stage B: Domain Purchase Confirmation & Hostname Alignment
+
+**Orchestrator decision: PASS / READY FOR PRODUCT OWNER ACTIVATION AUTHORIZATION.** Product Owner confirmed purchase and registration of `kybuilds.com` through Cloudflare Registrar. Confirmed target public hostname: `https://settle.kybuilds.com`. Illustrative placeholders updated across deployment templates (`deploy/env.template`, `deploy/cloudflare/README.md`, `deploy/cloudflare/config.template.yml`), operations runbooks (`docs/runbooks/windows_host_operations.md`), deployment roadmap (`docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md`), and synthetic ingress tests (`tests/test_reverse_proxy_ingress.py`). Stage B offline preparation at `9a463c1` remains accepted and preserved. Zero public tunnels activated; zero DNS records modified; live external activation strictly held pending explicit Product Owner authorization.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 319/319 Python unit, calculation, security, restore, and ingress tests passed; all 12 browser CDP regression test suites passed; containerized WSGI application operational. |
+| Gate 2: Publicly Reachable Restricted Online Pilot (`v0.9.0-beta.1`) | **CONFIRMED DOMAIN RECORDED / OFFLINE CONFIGURATION ALIGNED / ACTIVATION HELD**: Target hostname `https://settle.kybuilds.com` and domain `kybuilds.com` aligned across configuration templates and tests. Architecture confirmed: Windows Docker self-hosting, remotely-managed Cloudflare Named Tunnel without Cloudflare Access, native organizer claims & guest invitations, and synthetic-data multi-device pilot. Zero live external tunnels created or active. |
+| Gate 3: Unrestricted Public Product Access & Multi-Tenant Identity | **BLOCKED / DEFERRED**: Dependent on Account Identity roadmap (`docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md`) where arbitrary public visitors can create persistent accounts, access multi-meal dashboards, and manage self-serve meal discovery. |
+| Gate 4: Public GitHub Repository & Tagged Release (`v1.0.0`) | **BLOCKED / ESCALATED**: Preserved for Product Owner consequential authority regarding repository visibility and intellectual property licensing. |
+| Confirmed Domain Decision | **PASS**: Product Owner registered `kybuilds.com` via Cloudflare Registrar. Domain DNS managed natively by Cloudflare. Step 1 of pre-activation checklist marked CONFIRMED / COMPLETED. |
+| Exact Host & Origin Alignment | **PASS**: Ingress suite (`tests/test_reverse_proxy_ingress.py`) updated to target `https://settle.kybuilds.com` and `settle.kybuilds.com`; 9/9 synthetic reverse-proxy ingress tests pass, including exact-origin CSRF validation and deny-by-default on unmatched hostnames (`kybuilds.com`, subdomains, external IPs). |
+| Pre-Publication Privacy & Rights Audit | **PASS**: `tools/audit_repository.py` passed with 0 findings across all tracked files. |
+| Authorization Boundary Strict Enforcement | **PASS**: Zero external network connections opened, zero tunnel tokens created, zero DNS records modified, and zero public tests initiated. Live external activation requires explicit Product Owner authorization. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-06 — Stage B: Final Pre-Activation Reconciliation
 
 **Orchestrator decision: PASS / READY FOR PRODUCT OWNER AUTHORIZATION.** Bounded pre-activation reconciliation completed: (1) Production volume isolation proven without mounting or referencing `settletable_data`; (2) `cloudflare/cloudflared` pinned by immutable multi-arch digest `2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba`; (3) Request limits reconciled with actual transport constants (1MB JSON / 5MB image); (4) Gate definitions updated to distinguish public network reachability from unrestricted public product access; (5) Canonical storage path `/data/receipt_photos` aligned; (6) Comprehensive 12-item pre-activation checklist prepared. Zero external tunnels opened; zero spending incurred.

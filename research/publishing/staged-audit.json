@@ -1,7 +1,7 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 7,
-  "staged_bytes_excluding_report": 342535,
+  "staged_files": 9,
+  "staged_bytes_excluding_report": 372590,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 337,
   "untracked_files": 0,
@@ -11,33 +11,43 @@
   "files": [
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 138849,
-      "sha256": "984ba6b1f6265ea8a63bb1c7e6eb980790b8cd81cacc1fa662355c1d9a810f5a"
+      "bytes": 140627,
+      "sha256": "f1de62b5b60972d4c329f767480731953157ede591cb23aa4d2a425bf8fb2367"
     },
     {
       "path": "deploy/cloudflare/README.md",
-      "bytes": 7378,
-      "sha256": "2a7aae4dd4b10e22c798e4debd678dd1773a6572fb881d52e3488dff65069bd6"
+      "bytes": 7371,
+      "sha256": "aeb9a761c97ed8dd46e703f510b2948d71b69fdc4860c21589651fc838229b71"
     },
     {
-      "path": "docker-compose.yml",
-      "bytes": 2966,
-      "sha256": "eff8b0ca99a99abb54c97df74fe848b068819314c5de71bb5a4defd744868dad"
+      "path": "deploy/cloudflare/config.template.yml",
+      "bytes": 1954,
+      "sha256": "7b1404b2f5f7700fc7c607ad338fbfbcceb5ea5e2ece512180944779618a95dc"
+    },
+    {
+      "path": "deploy/env.template",
+      "bytes": 2824,
+      "sha256": "fe633f306623e3d67f81537f0bc8887f37f7aee38697faf4d36fd90d30e75799"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 145978,
-      "sha256": "e3db016b54487b975c7d830d8896104c798ad56740232d5b4573a5364723f5be"
+      "bytes": 149342,
+      "sha256": "3d5ad98a1c166ed128dcc71d7d526f0625c442437ff984cb5782385aad026df1"
     },
     {
       "path": "docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md",
-      "bytes": 37308,
-      "sha256": "c29d2ddf6df7649c4979285dd6805c62cda024359225dac5e8e9867f79e6f133"
+      "bytes": 37199,
+      "sha256": "394200e85e2e3f9df4fd2f478b3d5abcb5d646b0f210872c00c2cf248e0eb383"
     },
     {
-      "path": "tools/verify_isolated_docker_drill.py",
-      "bytes": 10056,
-      "sha256": "5cc69b4aa4c8ab3462dd548f53999b39fdf98e73180abd7ec9a36a7e7e9ebcee"
+      "path": "docs/runbooks/windows_host_operations.md",
+      "bytes": 12975,
+      "sha256": "4da44cd7b6e10452d4703d17a3055217932f6b41c800ed24258ef03413fb7fea"
+    },
+    {
+      "path": "tests/test_reverse_proxy_ingress.py",
+      "bytes": 20298,
+      "sha256": "0e8292f26dfd5cdb04f61431c3c7ac039e975faad0f555bc349af399f84b21f4"
     }
   ]
 }

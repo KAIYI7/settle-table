@@ -21,9 +21,9 @@ class TestReverseProxyIngress(unittest.TestCase):
         self.storage_dir = Path(self.tmp_dir.name) / "receipt_photos"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-        self.custom_origin = "https://settle.example.com"
+        self.custom_origin = "https://settle.kybuilds.com"
         self.allowed_hosts = [
-            "settle.example.com",
+            "settle.kybuilds.com",
             "localhost:8000",
             "127.0.0.1:8000",
             "settletable:8000",
@@ -61,7 +61,7 @@ class TestReverseProxyIngress(unittest.TestCase):
         if "Content-Type" in headers:
             environ["CONTENT_TYPE"] = headers["Content-Type"]
         if "HTTP_HOST" not in headers:
-            environ["HTTP_HOST"] = "settle.example.com"
+            environ["HTTP_HOST"] = "settle.kybuilds.com"
 
         for k, v in headers.items():
             if k.lower() == "content-type":
@@ -92,7 +92,7 @@ class TestReverseProxyIngress(unittest.TestCase):
     # --------------------------------------------------------------------------
     def test_public_custom_domain_host_validation(self):
         # 1a. Public custom hostname accepted on application routes
-        code, _, _ = self._call("GET", "/", headers={"Host": "settle.example.com"})
+        code, _, _ = self._call("GET", "/", headers={"Host": "settle.kybuilds.com"})
         self.assertEqual(code, 200)
 
         # Container-to-container internal hostname accepted
@@ -125,7 +125,7 @@ class TestReverseProxyIngress(unittest.TestCase):
             "/api/organizer-claims/inspect",
             headers={
                 "Content-Type": "application/json",
-                "Origin": "https://settle.example.com",
+                "Origin": "https://settle.kybuilds.com",
             },
             body=body,
         )
@@ -137,7 +137,7 @@ class TestReverseProxyIngress(unittest.TestCase):
             "/api/meals/test-meal/apply",
             headers={
                 "Content-Type": "application/json",
-                "Origin": "https://settle.example.com",
+                "Origin": "https://settle.kybuilds.com",
             },
             body=b'{"kind":"ReviewReceipt"}',
         )
@@ -151,7 +151,7 @@ class TestReverseProxyIngress(unittest.TestCase):
             headers={
                 "Content-Type": "application/json",
                 "X-SettleTable-Action": "1",
-                "Origin": "http://settle.example.com",
+                "Origin": "http://settle.kybuilds.com",
             },
             body=b'{"kind":"ReviewReceipt"}',
         )
@@ -193,7 +193,7 @@ class TestReverseProxyIngress(unittest.TestCase):
             headers={
                 "Content-Type": "application/json",
                 "X-SettleTable-Action": "1",
-                "Referer": "https://settle.example.com/meal/test-meal",
+                "Referer": "https://settle.kybuilds.com/meal/test-meal",
             },
             body=b'{"kind":"ReviewReceipt"}',
         )
@@ -247,7 +247,7 @@ class TestReverseProxyIngress(unittest.TestCase):
         # 4a. Each proxy header individually blocks bootstrap with 403 forbidden
         tested_proxy_headers = [
             ("X-Forwarded-For", "203.0.113.195"),
-            ("X-Forwarded-Host", "settle.example.com"),
+            ("X-Forwarded-Host", "settle.kybuilds.com"),
             ("X-Forwarded-Proto", "https"),
             ("Forwarded", "for=203.0.113.195"),
             ("X-Real-IP", "203.0.113.195"),
@@ -263,7 +263,7 @@ class TestReverseProxyIngress(unittest.TestCase):
                 headers={
                     "Content-Type": "application/json",
                     "X-SettleTable-Action": "1",
-                    "Origin": "https://settle.example.com",
+                    "Origin": "https://settle.kybuilds.com",
                     hdr_name: hdr_val,
                 },
                 body=bootstrap_body,
@@ -284,7 +284,7 @@ class TestReverseProxyIngress(unittest.TestCase):
             headers={
                 "Content-Type": "application/json",
                 "X-SettleTable-Action": "1",
-                "Origin": "https://settle.example.com",
+                "Origin": "https://settle.kybuilds.com",
             },
             body=bootstrap_body,
             remote_addr="198.51.100.22",
@@ -299,7 +299,7 @@ class TestReverseProxyIngress(unittest.TestCase):
             headers={
                 "Content-Type": "application/json",
                 "X-SettleTable-Action": "1",
-                "Origin": "https://settle.example.com",
+                "Origin": "https://settle.kybuilds.com",
             },
             body=bootstrap_body,
             remote_addr="127.0.0.1",
@@ -336,7 +336,7 @@ class TestReverseProxyIngress(unittest.TestCase):
             f"/api/meals/{meal_id}/receipt/photo",
             headers={
                 "X-SettleTable-Action": "1",
-                "Origin": "https://settle.example.com",
+                "Origin": "https://settle.kybuilds.com",
             },
         )
         self.assertEqual(code, 401)
@@ -468,9 +468,9 @@ class TestReverseProxyIngress(unittest.TestCase):
     # --------------------------------------------------------------------------
     def test_deny_by_default_unmatched_hostnames(self):
         unmatched_hosts = [
-            "sub.settle.example.com",
-            "example.com",
-            "tunnel.example.com",
+            "sub.settle.kybuilds.com",
+            "kybuilds.com",
+            "tunnel.kybuilds.com",
             "192.168.1.50",
             "random-domain.net",
             "settletable.internal",

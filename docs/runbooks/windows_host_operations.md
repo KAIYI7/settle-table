@@ -9,7 +9,7 @@
 
 ## 1. System Overview & Architecture
 
-SettleTable is deployed as a single-instance containerized service on a self-hosted Windows machine. Ingress is routed through an outbound Cloudflare Named Tunnel, providing an enduring HTTPS endpoint (`https://settle.example.com`) without opening inbound router ports or configuring dynamic DNS.
+SettleTable is deployed as a single-instance containerized service on a self-hosted Windows machine. Ingress is routed through an outbound Cloudflare Named Tunnel, providing an enduring HTTPS endpoint (`https://settle.kybuilds.com`) without opening inbound router ports or configuring dynamic DNS.
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -124,7 +124,7 @@ After Windows restarts and you log in:
 
 - If WAN connectivity drops, `settletable_app` continues running locally without disruption.
 - The `cloudflared` tunnel connector detects the connection drop and attempts reconnection with exponential backoff (starting at 1s, doubling up to 300s).
-- External diners accessing `https://settle.example.com` during an outage receive a standard Cloudflare error page (Error 502 Bad Gateway or Error 530 Origin DNS error).
+- External diners accessing `https://settle.kybuilds.com` during an outage receive a standard Cloudflare error page (Error 502 Bad Gateway or Error 530 Origin DNS error).
 - Once residential internet restores:
   - `cloudflared` automatically reconnects to the nearest Cloudflare edge point.
   - Diners refreshing their browsers immediately resume dining collaboration.
@@ -210,7 +210,7 @@ To guarantee 100% quiescence with zero in-flight uploads:
 | **Inspect application logs** | `docker compose logs -f settletable` | Gunicorn access & error logs (tokens redacted) |
 | **Inspect tunnel logs** | `docker compose logs -f cloudflared` | Cloudflare connection registration logs |
 | **Test local health** | `curl -i http://127.0.0.1:8000/healthz` | HTTP 200 `{"ok":true,"status":"healthy"}` |
-| **Test public tunnel ingress** | `curl -i https://settle.example.com/healthz` | HTTP 200 `{"ok":true,"status":"healthy"}` |
+| **Test public tunnel ingress** | `curl -i https://settle.kybuilds.com/healthz` | HTTP 200 `{"ok":true,"status":"healthy"}` |
 | **Run deployment smoke check** | `python tools/deployment_smoke_check.py` | 11/11 smoke checks pass |
 | **Administrative bootstrap meal** | `docker compose exec settletable python tools/bootstrap_meal.py bootstrap --meal-id <id>` | Prints single-use organizer setup link |
 | **Emergency organizer recovery** | `docker compose exec settletable python tools/bootstrap_meal.py recover --meal-id <id>` | Prints fresh organizer recovery link |
@@ -231,5 +231,5 @@ The `CLOUDFLARE_TUNNEL_TOKEN` stored in `.env` grants authoritative ingress rout
 - **Application Host Header Filtering**: SettleTable enforces `SETTLETABLE_ALLOWED_HOSTS` inside Python WSGI as defense-in-depth. In live deployment, Cloudflare's edge catch-all 404 rule provides additional boundary protection.
 - Before inviting diners to a live dining event, always execute the deployment smoke test against the live public domain:
   ```powershell
-  python tools/deployment_smoke_check.py --url https://settle.example.com
+  python tools/deployment_smoke_check.py --url https://settle.kybuilds.com
   ```
