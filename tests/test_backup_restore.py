@@ -264,6 +264,51 @@ class BackupRestoreTests(unittest.TestCase):
         conn.close()
         self.assertEqual(integrity[0], "ok")
 
+    def test_quiescent_backup_with_offsite_copy_and_verification(self):
+        offsite_dir = self.base / 'offsite_backups'
+        manifest_path = perform_quiescent_backup(
+            self.src_db, self.src_photos, self.backup_dir, offsite_dir=offsite_dir
+        )
+        self.assertTrue(manifest_path.exists())
+
+        # Verify offsite files exist and match
+        offsite_manifest = offsite_dir / manifest_path.name
+        self.assertTrue(offsite_manifest.exists())
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        offsite_db = offsite_dir / manifest['database']['filename']
+        self.assertTrue(offsite_db.exists())
+        self.assertEqual(compute_sha256(offsite_db), manifest['database']['sha256'])
+
+        photo_fn = self.photo_meta['filename']
+        offsite_photo = offsite_dir / manifest['receipt_photos_dir'] / photo_fn
+        self.assertTrue(offsite_photo.exists())
+        self.assertEqual(compute_sha256(offsite_photo), manifest['photos'][photo_fn]['sha256'])
+
+        # Verify disaster restore directly from the offsite copy
+        offsite_restore_db = self.base / 'offsite_restored.sqlite'
+        offsite_restore_photos = self.base / 'offsite_restored_photos'
+        res = perform_verified_restore(
+            offsite_manifest, offsite_restore_db, offsite_restore_photos, confirm_stopped=True
+        )
+        self.assertEqual(res['status'], 'ok')
+        self.assertEqual(res['restored_photos_count'], 1)
+
+    def test_backup_cli_with_offsite_dir_flag(self):
+        import subprocess, sys
+        offsite_dir = self.base / 'cli_offsite_backups'
+        cmd_backup = [
+            sys.executable, "tools/backup_restore.py", "backup",
+            "--db", str(self.src_db),
+            "--photos", str(self.src_photos),
+            "--out-dir", str(self.backup_dir),
+            "--copy-to", str(offsite_dir),
+        ]
+        res = subprocess.run(cmd_backup, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Backup with offsite copy failed: {res.stderr}")
+        self.assertIn("Offsite Copy:", res.stdout)
+        self.assertIn("Verified", res.stdout)
+        self.assertTrue(any(offsite_dir.glob("manifest_*.json")))
+
 
 if __name__ == '__main__':
     unittest.main()
