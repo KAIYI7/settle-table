@@ -120,6 +120,8 @@ photos_dir = data_dir / 'receipt_photos'
 if photos_dir.exists():
     res['photos_writable'] = os.access(photos_dir, os.W_OK)
     res['photo_count'] = sum(1 for p in photos_dir.iterdir() if p.is_file())
+else:
+    res['photos_writable'] = res['data_writable']
 
 print(json.dumps(res))
 """
@@ -136,6 +138,73 @@ print(json.dumps(res))
         if line.startswith("{") and line.endswith("}"):
             return json.loads(line)
     raise RuntimeError(f"Failed to parse volume probe output: {res.stdout}")
+
+
+def validate_configuration(env_vol: str | None, resolved_vol: str, mode: str) -> None:
+    """Validate environment consistency and operational mode assertions."""
+    # 1. Check configuration consistency if .env specifies a volume
+    if env_vol and env_vol != resolved_vol:
+        raise ValueError(
+            f"Configuration conflict: .env specifies SETTLETABLE_DATA_VOLUME='{env_vol}', "
+            f"but Docker Compose resolved '{resolved_vol}'!"
+        )
+
+    # 2. Enforce mode assertions strictly (fail closed)
+    if mode == "real":
+        if resolved_vol != "settletable_data":
+            raise ValueError(
+                f"Mode mismatch: mode 'real' strictly requires volume 'settletable_data', "
+                f"but resolved volume is '{resolved_vol}'!"
+            )
+    elif mode == "synthetic":
+        if resolved_vol != "settletable_synthetic_data":
+            raise ValueError(
+                f"Mode mismatch: mode 'synthetic' strictly requires volume 'settletable_synthetic_data', "
+                f"but resolved volume is '{resolved_vol}'!"
+            )
+    elif mode == "auto":
+        if resolved_vol not in ("settletable_data", "settletable_synthetic_data"):
+            raise ValueError(
+                f"Unexpected volume '{resolved_vol}'. SettleTable strictly requires "
+                f"'settletable_data' or 'settletable_synthetic_data'!"
+            )
+
+
+def validate_storage_permissions(info: dict) -> None:
+    """Enforce non-root ownership and storage writability invariants."""
+    if info.get("uid") != 10001 or info.get("gid") != 10001:
+        raise PermissionError(
+            f"Container user mismatch: expected UID=10001 GID=10001 (settletable), "
+            f"got UID={info.get('uid')} GID={info.get('gid')}!"
+        )
+    if info.get("stat_uid") != 10001 or info.get("stat_gid") != 10001:
+        raise PermissionError(
+            f"Storage directory ownership mismatch: volume '/data' is owned by "
+            f"UID={info.get('stat_uid')} GID={info.get('stat_gid')}, but must be owned by UID=10001 GID=10001!"
+        )
+    if not info.get("data_writable"):
+        raise PermissionError("Storage directory '/data' is not writable by non-root user (UID 10001)!")
+    if not info.get("photos_writable"):
+        raise PermissionError("Receipt photos directory '/data/receipt_photos' is not writable by non-root user (UID 10001)!")
+
+
+def validate_marker_integrity(resolved_vol: str, info: dict) -> None:
+    """Validate volume identity marker integrity against resolved volume."""
+    marker = info.get("marker")
+    if marker:
+        if isinstance(marker, dict) and "error" in marker:
+            raise RuntimeError(f"Corrupt or unreadable volume marker on '{resolved_vol}': {marker['error']}")
+        marker_name = marker.get("volume_name") if isinstance(marker, dict) else None
+        if not marker_name:
+            raise RuntimeError(f"Invalid volume marker on '{resolved_vol}': missing 'volume_name'")
+        if marker_name != resolved_vol:
+            raise RuntimeError(
+                f"CRITICAL: Volume marker mismatch! Volume '{resolved_vol}' contains marker for '{marker_name}'!"
+            )
+    elif info.get("db_exists") or info.get("photo_count", 0) > 0:
+        raise RuntimeError(
+            f"CRITICAL: Unmarked existing dataset detected on volume '{resolved_vol}' (database or photos exist without .volume_identity marker)!"
+        )
 
 
 def main():
@@ -160,7 +229,14 @@ def main():
     resolved_vol = resolve_compose_volume(env_path)
     print(f"  * Resolved Compose Volume:   {resolved_vol}")
 
-    # Check volume existence
+    # 1. Enforce mode and configuration consistency
+    try:
+        validate_configuration(env_vol, resolved_vol, args.mode)
+    except ValueError as e:
+        print(f"\n  [FAIL] {e}")
+        sys.exit(1)
+
+    # 2. Check volume existence in Docker daemon
     vol_check = subprocess.run(["docker", "volume", "inspect", resolved_vol], capture_output=True, text=True)
     if vol_check.returncode != 0:
         print(f"  [FAIL] Docker volume '{resolved_vol}' does not exist!")
@@ -168,41 +244,42 @@ def main():
 
     print(f"  * Docker Volume Status:      Found ({resolved_vol})")
 
-    # Probe volume internals
+    # 3. Probe volume internals (read-only, non-mutating)
     info = inspect_volume_contents(resolved_vol)
     print(f"  * Container User / Group:    UID={info['uid']} GID={info['gid']} (Non-root settletable)")
     print(f"  * Storage Owner / Group:     UID={info['stat_uid']} GID={info['stat_gid']}")
     print(f"  * Storage Writable:          {info['data_writable']} (photos: {info['photos_writable']})")
 
-    # Volume Identity Marker
+    # 4. Enforce non-root ownership and writability invariants
+    try:
+        validate_storage_permissions(info)
+    except PermissionError as e:
+        print(f"\n  [FAIL] {e}")
+        sys.exit(1)
+
+    # 5. Enforce volume marker integrity
     marker = info.get("marker")
-    if marker:
-        marker_name = marker.get("volume_name")
-        print(f"  * Volume Identity Marker:    {marker_name} (Initialized: {marker.get('initialized_at', 'unknown')})")
-        if marker_name != resolved_vol:
-            print(f"\n[CRITICAL ERROR] Volume marker mismatch! Volume '{resolved_vol}' contains marker for '{marker_name}'!")
-            sys.exit(1)
+    if marker and isinstance(marker, dict) and marker.get("volume_name"):
+        print(f"  * Volume Identity Marker:    {marker['volume_name']} (Initialized: {marker.get('initialized_at', 'unknown')})")
     else:
         print("  * Volume Identity Marker:    Not yet initialized (fresh volume)")
 
-    # Data Status
+    try:
+        validate_marker_integrity(resolved_vol, info)
+    except RuntimeError as e:
+        print(f"\n  [FAIL] {e}")
+        sys.exit(1)
+
+    # 6. Report Data Status
     print(f"  * Database File:             {'Present (' + str(info['db_size']) + ' bytes, ' + str(info['meal_count']) + ' meals)' if info['db_exists'] else 'Empty / Uninitialized'}")
     print(f"  * Receipt Photos:            {info['photo_count']} files")
 
-    # Mode Assertions
+    # Mode Assessment Display
     print("\nOperational Mode Assessment:")
     if resolved_vol == "settletable_data":
         print("  -> MODE: PRODUCTION / REAL-DATA PILOT (settletable_data)")
-        if args.mode == "synthetic":
-            print("  [FAIL] Mode mismatch: requested synthetic mode but active volume is 'settletable_data'!")
-            sys.exit(1)
     elif resolved_vol == "settletable_synthetic_data":
         print("  -> MODE: SYNTHETIC TESTING / REHEARSAL (settletable_synthetic_data)")
-        if args.mode == "real":
-            print("  [FAIL] Mode mismatch: requested real mode but active volume is 'settletable_synthetic_data'!")
-            sys.exit(1)
-    else:
-        print(f"  -> MODE: CUSTOM ({resolved_vol})")
 
     print("\n[VERDICT: PASS] Storage configuration, non-root permissions, and volume isolation verified.")
     return 0

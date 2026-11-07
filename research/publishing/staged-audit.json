@@ -1,33 +1,33 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
   "staged_files": 4,
-  "staged_bytes_excluding_report": 601771,
+  "staged_bytes_excluding_report": 341223,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 337,
+  "tracked_files": 340,
   "untracked_files": 0,
-  "ignored_files": 27890,
+  "ignored_files": 27894,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 148329,
-      "sha256": "3ba97dc41c5c2fee82858468ab20ae34e30c23d3ad766bd7c4ff2d037e71d4da"
+      "bytes": 153722,
+      "sha256": "03c66a44d5202b34056cbdace5559d05ec064b0cda624bfcd6dea4c7c2fee94a"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 160655,
-      "sha256": "6c3afedc16c3da8cf08eca11251419b8a37628d7dcf4f1be2ece04e0ff417dd7"
+      "bytes": 168804,
+      "sha256": "049cade1569f35b3003d7a6d8b32e7edcb05a3fcdcec7d47c65b00587ab1495f"
     },
     {
-      "path": "settletable/static/app.js",
-      "bytes": 224392,
-      "sha256": "6e2ca0900ff807e8f1b15016678fe6c0080e48fd1de7c3365944abcda3138b95"
+      "path": "tests/test_verify_volume_target.py",
+      "bytes": 7168,
+      "sha256": "64f00cfcde319f9646165aaaf6795caf02c53bc09f67d5ca66cca12f1e87f5b1"
     },
     {
-      "path": "tests/test_transport.py",
-      "bytes": 68395,
-      "sha256": "fc997ab4c4e59d863488cbfc81254176c4c9aec229adc17f13e9591d4afb3c41"
+      "path": "tools/verify_volume_target.py",
+      "bytes": 11529,
+      "sha256": "66f7d5e620ac672ae285768cc3bf8c9f5a9bea7a4ed89764560b5f63035004dc"
     }
   ]
 }

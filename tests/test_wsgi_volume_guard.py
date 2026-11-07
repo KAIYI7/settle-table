@@ -74,6 +74,62 @@ class WsgiVolumeGuardTests(unittest.TestCase):
                 create_app()
             self.assertIn("Volume identity mismatch", str(ctx.exception))
 
+    def test_volume_identity_raises_on_unmarked_existing_database(self):
+        self.db_path.write_text("existing_db_bytes", encoding="utf-8")
+        marker_file = self.data_dir / ".volume_identity"
+        self.assertFalse(marker_file.exists())
+
+        with self.assertRaises(RuntimeError) as ctx:
+            check_volume_identity(self.db_path, "settletable_data")
+        self.assertIn("Unmarked existing dataset detected", str(ctx.exception))
+
+    def test_volume_identity_raises_on_unmarked_existing_photos(self):
+        photos_dir = self.data_dir / "receipt_photos"
+        photos_dir.mkdir(parents=True, exist_ok=True)
+        (photos_dir / "existing_photo.jpg").write_bytes(b"photo_bytes")
+        marker_file = self.data_dir / ".volume_identity"
+        self.assertFalse(marker_file.exists())
+
+        with self.assertRaises(RuntimeError) as ctx:
+            check_volume_identity(self.db_path, "settletable_data")
+        self.assertIn("Unmarked existing dataset detected", str(ctx.exception))
+
+    def test_volume_identity_raises_on_malformed_json_marker(self):
+        marker_file = self.data_dir / ".volume_identity"
+        marker_file.write_text("{malformed_json_invalid", encoding="utf-8")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            check_volume_identity(self.db_path, "settletable_data")
+        self.assertIn("malformed JSON", str(ctx.exception))
+
+    def test_volume_identity_raises_on_unreadable_marker(self):
+        from unittest.mock import patch
+        marker_file = self.data_dir / ".volume_identity"
+        marker_file.write_text(json.dumps({"volume_name": "settletable_data"}), encoding="utf-8")
+
+        with patch.object(Path, "read_text", side_effect=PermissionError("Permission denied")):
+            with self.assertRaises(RuntimeError) as ctx:
+                check_volume_identity(self.db_path, "settletable_data")
+            self.assertIn("unreadable", str(ctx.exception))
+
+    def test_volume_identity_raises_on_missing_volume_name_key(self):
+        marker_file = self.data_dir / ".volume_identity"
+        marker_file.write_text(json.dumps({"other_key": 123}), encoding="utf-8")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            check_volume_identity(self.db_path, "settletable_data")
+        self.assertIn("missing 'volume_name'", str(ctx.exception))
+
+    def test_volume_identity_raises_on_unwritable_fresh_volume(self):
+        from unittest.mock import patch
+        marker_file = self.data_dir / ".volume_identity"
+        self.assertFalse(marker_file.exists())
+
+        with patch.object(Path, "write_text", side_effect=PermissionError("Read-only volume")):
+            with self.assertRaises(RuntimeError) as ctx:
+                check_volume_identity(self.db_path, "settletable_data")
+            self.assertIn("Failed to initialize volume identity marker", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

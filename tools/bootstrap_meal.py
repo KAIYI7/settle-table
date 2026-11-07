@@ -87,6 +87,23 @@ def run_recover(meal_id: str, db_path: Path, origin: str, claim_ttl: int = 60480
         authority.close()
 
 
+def run_init_db(db_path: Path):
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    volume_env = os.environ.get("SETTLETABLE_DATA_VOLUME")
+    if volume_env:
+        from settletable.wsgi import check_volume_identity
+        check_volume_identity(db_path, volume_env)
+
+    authority = Authority(db_path)
+    authority.close()
+    print("\n" + "=" * 65)
+    print(" SettleTable -- Database Initialization Successful")
+    print("=" * 65)
+    print(f" Database:      {db_path}")
+    print(" Status:        Pristine database and SQLite WAL schema created")
+    print("=" * 65 + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Provision a new SettleTable meal room or recover organizer access administratively")
     subparsers = parser.add_subparsers(dest="command")
@@ -111,6 +128,11 @@ def main():
     rec_parser.add_argument("--origin", default=os.environ.get("SETTLETABLE_SERVER_ORIGIN", "http://localhost:8000"),
                             help="Public base URL of the SettleTable application")
 
+    # Init-db subcommand: initializes clean SQLite database on fresh volume without public ingress
+    init_parser = subparsers.add_parser("init-db", help="Initialize clean SQLite database and WAL schema on pristine volume")
+    init_parser.add_argument("--db", default=os.environ.get("SETTLETABLE_DB_PATH", ".local/settletable.sqlite"),
+                             help="Path to the SQLite database to initialize")
+
     # Root fallback arguments for backwards compatibility when no subcommand is specified
     parser.add_argument("--meal-id", help="Unique identifier for the meal room (fallback for direct bootstrap)")
     parser.add_argument("--organizer", default="Organizer", help="Display name of the meal organizer")
@@ -127,6 +149,9 @@ def main():
         if args.command == "recover":
             db_path = Path(args.db).resolve()
             run_recover(args.meal_id, db_path, args.origin, claim_ttl=args.claim_ttl)
+        elif args.command == "init-db":
+            db_path = Path(args.db).resolve()
+            run_init_db(db_path)
         elif args.command == "bootstrap" or args.meal_id:
             db_path = Path(args.db).resolve()
             run_bootstrap(args.meal_id, args.organizer, args.diners, db_path, args.origin, session_ttl=args.session_ttl)

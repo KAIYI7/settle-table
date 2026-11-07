@@ -182,6 +182,30 @@ The utility automatically:
 4. Copies the database, photos, and manifest to the offsite directory.
 5. Verifies that the offsite database and photos match the manifest SHA-256 hashes.
 
+#### 6.1.2 Local Copy Completion vs Remote Cloud Synchronization
+
+When using a cloud-synced directory (e.g. `<HOST_OFFSITE_DIR>` mapped to a Windows OneDrive or Google Drive folder):
+- **Local write and verification**: The `backup_restore.py` CLI copies the snapshot files to the designated folder and verifies SHA-256 hashes against the local filesystem.
+- **Asynchronous cloud sync**: Docker and Python complete their operations as soon as the files are written locally. However, actual durability against workstation loss depends on the host cloud sync client uploading the files to remote storage.
+- **Verification action**: Always check the cloud sync client icon in the Windows notification area (system tray) to confirm synchronization is finished (e.g. status displays "Up to date" or green checkmark) before powering off or disconnecting the host machine.
+
+#### 6.1.3 Data Confidentiality & Storage Protection
+
+Real dining receipts, itemized participant selections, and financial settlements contain personal and financial information:
+- **Host filesystem permissions**: Restrict NTFS permissions on `<HOST_BACKUP_DIR>` and `<HOST_OFFSITE_DIR>` so that only the operator's Windows account and Docker daemon service account have read/write access.
+- **Drive encryption**: Enable Windows BitLocker Drive Encryption on the primary OS volume and any external backup drives to guard against physical device theft or loss.
+- **Cloud storage security**: Ensure the destination cloud storage account (OneDrive, Google Drive, etc.) enforces multi-factor authentication (MFA/2FA) and that backup directories are never configured with public or anonymous sharing links.
+
+#### 6.1.4 Pristine Database Initialization Before Baseline Backup
+
+On a completely fresh persistent volume (such as `settletable_data` prior to the first dining event), the SQLite database file does not yet exist. Attempting to run `backup_restore.py backup` on an uninitialized volume will fail with `FileNotFoundError: Source database does not exist: /data/settletable.sqlite`.
+
+To safely establish the initial schema and `.volume_identity` marker without opening public ingress or starting the web service:
+```powershell
+docker compose run --rm settletable python tools/bootstrap_meal.py init-db --db /data/settletable.sqlite
+```
+This initializes the database schema, enables WAL mode, and stamps the volume identity marker in isolation, allowing the baseline quiescent backup to succeed.
+
 ### 6.2 Explicit Stopped-Container Backup (Recommended Gold Standard)
 
 To guarantee 100% quiescence with zero in-flight uploads:
@@ -306,35 +330,44 @@ Use this checklist during the first authorized invited-friends dining session:
 
 ### Pre-Flight (1–2 Days Before Gathering)
 - [ ] 1. **Volume Pre-Flight Check**: Verify `.env` has `SETTLETABLE_DATA_VOLUME=settletable_data` and run `python tools/verify_volume_target.py --mode real`.
-- [ ] 2. **Pre-Pilot Clean Backup**: Run `docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups` to verify baseline backup execution.
-- [ ] 3. **Public Ingress Smoke Check**: Start the stack (`docker compose --profile with-cloudflared up -d`) and run `python tools/deployment_smoke_check.py --url https://settle.kybuilds.com` (13/13 passing). Stop the stack if not yet dining.
+- [ ] 2. **Pristine Database Initialization (Fresh Volumes Only)**: On a brand-new volume prior to first meal creation, safely initialize the SQLite database schema and `.volume_identity` marker without opening public ingress:
+  ```powershell
+  docker compose run --rm settletable python tools/bootstrap_meal.py init-db --db /data/settletable.sqlite
+  ```
+- [ ] 3. **Pre-Pilot Clean Backup**: Run baseline quiescent backup to local and offsite storage:
+  ```powershell
+  docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" -v "<HOST_OFFSITE_DIR>:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
+  ```
+  *Confirm host cloud sync client (e.g. OneDrive / Google Drive system tray icon) reports sync status "Up to date" before proceeding.*
+- [ ] 4. **Public Ingress Smoke Check**: Start the stack (`docker compose --profile with-cloudflared up -d`) and run `python tools/deployment_smoke_check.py --url https://settle.kybuilds.com` (13/13 passing). Stop the stack if not yet dining.
 
 ### Event Kickoff (At the Restaurant / Gathering)
-- [ ] 4. **Activate Public Ingress**: On the Windows host, execute `docker compose --profile with-cloudflared up -d`. Confirm `docker compose ps` shows `settletable_app: Up (healthy)` and `settletable_tunnel: Up`.
-- [ ] 5. **Provision Meal via Host CLI**:
+- [ ] 5. **Activate Public Ingress**: On the Windows host, execute `docker compose --profile with-cloudflared up -d`. Confirm `docker compose ps` shows `settletable_app: Up (healthy)` and `settletable_tunnel: Up`.
+- [ ] 6. **Provision Meal via Host CLI**:
   ```powershell
   docker compose exec settletable python tools/bootstrap_meal.py bootstrap --meal-id dinner-YYYYMMDD --organizer "HostName" --diners "Alice,Bob,Charlie"
   ```
-- [ ] 6. **Organizer Browser Activation**:
+- [ ] 7. **Organizer Browser Activation**:
   - Open the generated single-use Organizer Setup Link (`https://settle.kybuilds.com/#/claim-organizer/<token>`) in your mobile or desktop browser.
   - Confirm the organizer session cookie is acquired (`is_organizer: true`).
-- [ ] 7. **Capture & Verify Real Receipt**:
+- [ ] 8. **Capture & Verify Real Receipt**:
   - Take a well-lit photo of the paper receipt and upload via the browser interface.
   - Verify RapidOCR extracted candidate items, amounts, Malaysian SST (6%/8%), and service charge.
   - Edit or confirm items in the receipt editor and tap **Confirm & Save**.
-- [ ] 8. **Distribute Diner Invitation Links**:
+- [ ] 9. **Distribute Diner Invitation Links**:
   - Copy the generated fragment links (`https://settle.kybuilds.com/#/invite/<token>`) from the UI or bootstrap output.
   - Send individually to Alice, Bob, and Charlie via private WhatsApp / Telegram / Signal chat.
-- [ ] 9. **Collaborative Allocation & Settlement**:
+- [ ] 10. **Collaborative Allocation & Settlement**:
   - Friends open links on their mobile phones in Safari / Chrome (zero app download or Cloudflare Access login).
   - Diners select their consumed items or shares.
   - Review the real-time financial breakdown, multi-payer contributions, and suggested peer settlements.
 
 ### Post-Event Closure (End of Evening)
-- [ ] 10. **Quiescent Backup with Offsite Mirror**:
+- [ ] 11. **Quiescent Backup with Offsite Mirror**:
   ```powershell
   docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" -v "<HOST_OFFSITE_DIR>:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
   ```
-- [ ] 11. **Lifecycle Decision**:
+  *Verify host cloud sync client shows synchronized status for offsite files.*
+- [ ] 12. **Lifecycle Decision**:
   - Either leave running for mostly-available post-dinner review (`restart: unless-stopped`), OR
   - Cleanly deactivate public ingress (`docker compose stop cloudflared`).
