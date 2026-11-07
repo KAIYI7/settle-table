@@ -73,6 +73,6 @@ services:
 
 volumes:
   settletable_data:
-    name: settletable_data
+    name: ${SETTLETABLE_DATA_VOLUME:-settletable_data}
   caddy_data:
   caddy_config:
