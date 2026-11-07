@@ -21,7 +21,7 @@ cloudflared tunnel --no-autoupdate run --token <TUNNEL_TOKEN>
 
 **Why this is recommended for SettleTable:**
 - **Zero local secrets in repo**: No credentials JSON file (`<UUID>.json`) or local certificate files to mount into containers or risk committing to Git. (Note: the `CLOUDFLARE_TUNNEL_TOKEN` stored in `.env` remains sensitive and must be protected on the local host with restricted file permissions).
-- **Single source of truth**: Public hostnames (e.g. `settle.example.com`) and ingress targets are defined centrally on Cloudflare's edge.
+- **Single source of truth**: Public hostnames (e.g. `settle.kybuilds.com`) and ingress targets are defined centrally on Cloudflare's edge.
 - **Dynamic reconfiguration**: DNS routing and ingress targets can be updated in the dashboard without editing local files or restarting Docker containers.
 - **Reproducible Docker Compose integration**: Pinned by version tag and multi-arch manifest list digest `cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba` covering both `linux/amd64` and `linux/arm64`. Pass `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and start the connector container using `docker compose --profile with-cloudflared up -d`.
 
@@ -95,7 +95,7 @@ When SettleTable is published via a Cloudflare Named Tunnel:
    - `POST /api/meals/{meal_id}/bootstrap` enforces loopback access.
    - If ANY reverse proxy forwarding headers are detected (`CF-Connecting-IP`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `True-Client-IP`), the endpoint immediately aborts with `403 Forbidden`. External callers cannot create or bootstrap meals.
 4. **Exact-Origin CSRF Protection & Host Enforcement**:
-   - Mutating requests (`POST`, `DELETE`) require `X-SettleTable-Action: 1` and exact origin matching against `SETTLETABLE_SERVER_ORIGIN` (`https://settle.example.com`).
+   - Mutating requests (`POST`, `DELETE`) require `X-SettleTable-Action: 1` and exact origin matching against `SETTLETABLE_SERVER_ORIGIN` (`https://settle.kybuilds.com`).
    - SettleTable enforces `SETTLETABLE_ALLOWED_HOSTS` inside Python WSGI as application defense-in-depth, rejecting foreign Host headers with HTTP 400 `invalid_host`. In live deployment, Cloudflare's edge catch-all 404 rule provides additional boundary defense.
 5. **No Intermediate Caching**:
    - Dynamic API responses return `Cache-Control: no-store`.
@@ -106,24 +106,24 @@ When SettleTable is published via a Cloudflare Named Tunnel:
 
 ## 4. Configuration Steps (For Future Authorized Live Deployment)
 
-When the Product Owner authorizes purchasing a domain and activating the pilot:
+When the Product Owner authorizes activating the pilot on the confirmed domain:
 
-1. **Domain Setup**:
-   - Purchase or assign a domain (e.g. `example.com`) and delegate nameservers to Cloudflare.
+1. **Domain Setup (CONFIRMED)**:
+   - Domain `kybuilds.com` registered through Cloudflare Registrar.
 2. **Create Named Tunnel**:
    - In Cloudflare Zero Trust dashboard: **Networks > Tunnels > Add a tunnel**.
    - Select **Cloudflared**. Name the tunnel (e.g. `settletable-prod`).
 3. **Configure Public Hostname**:
    - Subdomain: `settle`
-   - Domain: `example.com` (FQDN: `settle.example.com`)
+   - Domain: `kybuilds.com` (FQDN: `settle.kybuilds.com`)
    - Service Type: `HTTP`
    - URL: `settletable:8000` (for Docker Compose Topology A)
 4. **Set Environment Variables**:
    - Copy `deploy/env.template` to `.env`.
    - Set:
      ```env
-     SETTLETABLE_SERVER_ORIGIN=https://settle.example.com
-     SETTLETABLE_ALLOWED_HOSTS=settle.example.com,localhost:8000,127.0.0.1:8000,settletable:8000
+     SETTLETABLE_SERVER_ORIGIN=https://settle.kybuilds.com
+     SETTLETABLE_ALLOWED_HOSTS=settle.kybuilds.com,localhost:8000,127.0.0.1:8000,settletable:8000
      CLOUDFLARE_TUNNEL_TOKEN=<token_from_cloudflare_dashboard>
      ```
 5. **Start Services**:
@@ -133,5 +133,5 @@ When the Product Owner authorizes purchasing a domain and activating the pilot:
 6. **Verify Ingress**:
    - Run deployment smoke checks:
      ```sh
-     python tools/deployment_smoke_check.py --url https://settle.example.com
+     python tools/deployment_smoke_check.py --url https://settle.kybuilds.com
      ```
