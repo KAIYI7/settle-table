@@ -1,18 +1,23 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 1,
-  "staged_bytes_excluding_report": 27769,
+  "staged_files": 3,
+  "staged_bytes_excluding_report": 186038,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 340,
   "untracked_files": 0,
   "ignored_files": 27898,
-  "valid_json_files": 0,
+  "valid_json_files": 1,
   "findings": [],
   "files": [
     {
+      "path": "PROJECT_STATUS.md",
+      "bytes": 155722,
+      "sha256": "9e5da8e79359dc0563b692f9c58bbd37738ef7a454a3624d1a183e9dd917efe2"
+    },
+    {
       "path": "docs/runbooks/windows_host_operations.md",
-      "bytes": 27769,
-      "sha256": "2f997371a843667cb072453f0e264048e3bfec245b719ff20b0365c11d4cd785"
+      "bytes": 30316,
+      "sha256": "76abbb4e3363230984d2e7b1711996ba08ad36c7f2232de72ef3f7027c9844bd"
     }
   ]
 }

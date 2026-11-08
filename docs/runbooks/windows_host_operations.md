@@ -163,7 +163,9 @@ SettleTable's backup tool acquires an internal write lock (`BEGIN IMMEDIATE`), s
 Run from the repository root:
 ```powershell
 # Using a disposable container mounting the persistent volume and host backup directory:
-docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+# Note: In PowerShell, wrap variable names in braces before a colon (e.g. "${hostBackupDir}:/backups")
+docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+if ($LASTEXITCODE -ne 0) { throw "Quiescent backup generation failed!" }
 ```
 *(Note: `--storage-dir` and `--backup-dir` are accepted as aliases).*
 
@@ -173,7 +175,8 @@ To guarantee resilience against local SSD or workstation failure, pass `--copy-t
 
 ```powershell
 # Backup with automatic offsite mirror and hash verification:
-docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" -v "<HOST_OFFSITE_DIR>:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
+docker compose run --rm -v "${hostBackupDir}:/backups" -v "${hostOffsiteDir}:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
+if ($LASTEXITCODE -ne 0) { throw "Offsite backup failed!" }
 ```
 The utility automatically:
 1. Snapshots the database under a write quiescence lock (`BEGIN IMMEDIATE`).
@@ -210,7 +213,11 @@ This initializes the database schema, enables WAL mode, and stamps the volume id
 
 For real dining events, backups contain sensitive receipts, participant names, and settlement figures. To protect data privacy when mirroring to third-party cloud storage (such as Google Drive streamed virtual drive):
 
-1. **Local Quiescence First**: SettleTable generates the snapshot and manifest on local NTFS storage first (`<HOST_BACKUP_DIR>`). Live SQLite WAL files are never synchronized directly to the cloud.
+1. **Local Quiescence First**: SettleTable generates the snapshot and manifest on local NTFS storage first (`${hostBackupDir}`). Live SQLite WAL files are never synchronized directly to the cloud. Always verify the exit code:
+   ```powershell
+   docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+   if ($LASTEXITCODE -ne 0) { throw "Quiescent backup generation failed!" }
+   ```
 2. **Strict Single-Snapshot Scoping**: Identify the exact timestamp `<timestamp>` from `manifest_<timestamp>.json`. The backup archive must contain only the files corresponding to that specific snapshot:
    - `manifest_<timestamp>.json`
    - `settletable_<timestamp>.sqlite`
@@ -219,23 +226,30 @@ For real dining events, backups contain sensitive receipts, participant names, a
 3. **AES-256 Header Encryption (`-mhe=on`)**: Using 7-Zip (`7z.exe`), create a uniquely named `.7z` archive placed outside the source directory:
    ```powershell
    # Move into the local backup directory containing the snapshot:
-   cd "<HOST_BACKUP_DIR>"
+   cd "$hostBackupDir"
 
    # Create the encrypted archive with header encryption (file names, sizes, and structure encrypted):
    # Note: The archive path MUST precede the input files in 7-Zip command syntax:
    # 7z a [switches] <archive_name> <file_names...>
-   & "<7Z_PATH>" a -t7z -mhe=on -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" "manifest_<timestamp>.json" "settletable_<timestamp>.sqlite" "receipt_photos_<timestamp>"
+   & "<7Z_PATH>" a -t7z -mhe=on -p "${archiveDir}\settletable_backup_${timestamp}.7z" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
+   if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed!" }
    ```
    *Security Note on Passphrase*: Passing `-p` without an inline password instructs 7-Zip to securely prompt for the passphrase interactively on console (`Enter password (will not be echoed)`). The passphrase is never exposed in process arguments, logs, scripts, `.env`, or git history.
 4. **Archive Integrity Test**:
    ```powershell
-   & "<7Z_PATH>" t -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z"
+   & "<7Z_PATH>" t -p "${archiveDir}\settletable_backup_${timestamp}.7z"
+   if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed!" }
    ```
 5. **Copy to Google Drive**:
    ```powershell
-   Copy-Item "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" -Destination "<GDRIVE_BACKUPS_DIR>\"
+   Copy-Item "${archiveDir}\settletable_backup_${timestamp}.7z" -Destination "$gdriveBackupsDir\"
    ```
-6. **Confirm Cloud Sync**: Confirm that the Google Drive for desktop taskbar notification area displays "Everything is up to date" (or inspect DriveFS queue) before shutting down the host machine.
+6. **Distinguish Local Filesystem Copying from Verified Remote Cloud Upload**:
+   - **Local Cache Copy (Virtual Mount Drive)**: `Copy-Item` copies the archive into the local DriveFS cache on Windows. Local readback or SHA-256 calculation confirms only that the file was written to the local cache. While in transit, DriveFS assigns a transient identifier (`local-*`), which is **not** evidence of cloud durability.
+   - **Verified Remote Cloud Upload**: Durability in Google's cloud is confirmed only when:
+     1. Google Drive for desktop finishes the upload and the taskbar notification area displays "Everything is up to date" (or DriveFS operations queue has 0 pending tasks).
+     2. Google Drive replaces the transient `local-*` identifier with a permanent cloud resource ID in DriveFS metadata.
+     3. The file is visible in the Google Drive web interface at `https://drive.google.com`.
 
 ### 6.2 Explicit Stopped-Container Backup (Recommended Gold Standard)
 
@@ -247,7 +261,8 @@ To guarantee 100% quiescence with zero in-flight uploads:
    ```
 2. **Execute Backup**:
    ```powershell
-   docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+   docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+   if ($LASTEXITCODE -ne 0) { throw "Stopped-container backup failed!" }
    ```
 3. **Restart the Application**:
    ```powershell
@@ -270,7 +285,8 @@ To guarantee 100% quiescence with zero in-flight uploads:
    Ensure `settletable_app` is `Exited`.
 3. **Execute Verified Staged Restore**:
    ```powershell
-   docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py restore --manifest /backups/<MANIFEST_FILE_OR_DIR> --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
+   docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py restore --manifest /backups/<MANIFEST_FILE_OR_DIR> --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
+   if ($LASTEXITCODE -ne 0) { throw "Restore verification failed!" }
    ```
    *(Note: `--manifest` accepts either the direct manifest JSON file path e.g. `/backups/manifest_20261106_070457Z.json` or the backup directory containing it).*
 
@@ -292,15 +308,19 @@ To guarantee 100% quiescence with zero in-flight uploads:
 #### 6.3.1 Restoring from an Encrypted Cloud Archive
 
 If restoring from Google Drive or offsite encrypted cloud storage:
-1. **Retrieve Cloud Archive**: Copy `settletable_backup_<timestamp>.7z` from `<GDRIVE_BACKUPS_DIR>` to a clean local staging directory: `<STAGING_DIR>`.
+1. **Retrieve Cloud Archive**: Copy `settletable_backup_${timestamp}.7z` from `<GDRIVE_BACKUPS_DIR>` to a clean local staging directory: `$stagingDir`.
 2. **Decrypt with 7-Zip**:
    ```powershell
-   & "<7Z_PATH>" x -p "<STAGING_DIR>\settletable_backup_<timestamp>.7z" -o"<STAGING_DIR>\decrypted\" -y
+   & "<7Z_PATH>" x -p "${stagingDir}\settletable_backup_${timestamp}.7z" -o"${decryptedDir}" -y
+   if ($LASTEXITCODE -ne 0) { throw "7-Zip archive decryption failed!" }
    ```
-   *(Enter your master passphrase when prompted; files are decrypted into `<STAGING_DIR>\decrypted\` with original directory structure).*
-3. **Execute Verified Restore**:
+   *(Enter your master passphrase when prompted; files are decrypted into `${decryptedDir}` with original directory structure).*
+3. **Execute Verified Restore (with Proper PowerShell Bind-Mount Interpolation)**:
+   > [!IMPORTANT]
+   > In PowerShell, always wrap variable names in braces when immediately followed by a colon (e.g. `"${decryptedDir}:/backups"` rather than `"$decryptedDir:/backups"`) to prevent PowerShell from misinterpreting the colon as a drive-scope qualifier.
    ```powershell
-   docker compose run --rm -v "<STAGING_DIR>\decrypted:/backups" settletable python tools/backup_restore.py restore --manifest /backups/manifest_<timestamp>.json --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
+   docker compose run --rm -v "${decryptedDir}:/backups" settletable python tools/backup_restore.py restore --manifest /backups/manifest_${timestamp}.json --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
+   if ($LASTEXITCODE -ne 0) { throw "Disaster recovery restore verification failed!" }
    ```
 4. **Restart & Smoke Check**:
    ```powershell
@@ -386,7 +406,8 @@ Use this checklist during the first authorized invited-friends dining session:
   ```
 - [ ] 3. **Pre-Pilot Clean Backup**: Run baseline quiescent backup to local and offsite storage:
   ```powershell
-  docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" -v "<HOST_OFFSITE_DIR>:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
+  docker compose run --rm -v "${hostBackupDir}:/backups" -v "${hostOffsiteDir}:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
+  if ($LASTEXITCODE -ne 0) { throw "Baseline backup failed!" }
   ```
   *Confirm host cloud sync client (e.g. OneDrive / Google Drive system tray icon) reports sync status "Up to date" before proceeding.*
 - [ ] 4. **Public Ingress Smoke Check**: Start the stack (`docker compose --profile with-cloudflared up -d`) and run `python tools/deployment_smoke_check.py --url https://settle.kybuilds.com` (13/13 passing). Stop the stack if not yet dining.
@@ -416,24 +437,27 @@ Use this checklist during the first authorized invited-friends dining session:
 - [ ] 11. **Quiescent Backup & Encrypted Google Drive Cloud Mirror**:
   - *11a. Local Quiescent Snapshot*:
     ```powershell
-    docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+    docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+    if ($LASTEXITCODE -ne 0) { throw "Quiescent backup generation failed!" }
     ```
   - *11b. Create Encrypted Archive (Single-Snapshot Scoped)*:
-    Identify the snapshot timestamp `<timestamp>` from `manifest_<timestamp>.json` and archive strictly its corresponding files:
+    Identify the snapshot timestamp `${timestamp}` from `manifest_${timestamp}.json` and archive strictly its corresponding files:
     ```powershell
-    cd "<HOST_BACKUP_DIR>"
-    & "<7Z_PATH>" a -t7z -mhe=on -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" "manifest_<timestamp>.json" "settletable_<timestamp>.sqlite" "receipt_photos_<timestamp>"
+    cd "$hostBackupDir"
+    & "<7Z_PATH>" a -t7z -mhe=on -p "${archiveDir}\settletable_backup_${timestamp}.7z" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
+    if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed!" }
     ```
     *(Type your strong master encryption passphrase when prompted; never write it to scripts or `.env`).*
   - *11c. Archive Integrity Verification*:
     ```powershell
-    & "<7Z_PATH>" t -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z"
+    & "<7Z_PATH>" t -p "${archiveDir}\settletable_backup_${timestamp}.7z"
+    if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed!" }
     ```
-  - *11d. Copy to Google Drive*:
+  - *11d. Copy to Google Drive & Verify Cloud Durability*:
     ```powershell
-    Copy-Item "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" -Destination "<GDRIVE_BACKUPS_DIR>\"
+    Copy-Item "${archiveDir}\settletable_backup_${timestamp}.7z" -Destination "$gdriveBackupsDir\"
     ```
-    *Verify Google Drive for desktop taskbar notification area displays "Everything is up to date".*
+    *Important: Local copying to Google Drive writes to the local DriveFS cache (and receives a transient `local-*` identifier). Confirm verified remote cloud upload before powering off: the system tray icon displays "Everything is up to date" (queue count 0), and a permanent cloud ID replaces the local ID.*
 - [ ] 12. **Lifecycle Decision**:
   - Either leave running for mostly-available post-dinner review (`restart: unless-stopped`), OR
   - Cleanly deactivate public ingress (`docker compose stop cloudflared`).
