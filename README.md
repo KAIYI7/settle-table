@@ -20,7 +20,7 @@ Splitting restaurant dining bills among friends is notoriously frustrating: tax,
 - **100% Offline Local OCR**: Optical character recognition runs on the host CPU using RapidOCR via ONNX Runtime. Zero images or dining receipts are ever transmitted to third-party vision APIs.
 - **Zero-Install Diner Collaboration**: Diners participate from mobile browsers using single-use fragment links (`/#/invite/<token>`) that keep tokens out of HTTP request lines and CDN access logs.
 - **Multi-Payer Cashier Reconciliation**: Records who contributed toward the cashier bill (cash, card, e-wallet, bank transfer) and computes exact net balances ($\text{Contributed} - \text{Consumed}$).
-- **Greedy Peer Settlement Optimization**: Calculates the minimal sequence of reimbursement transfers required to settle all debts and tracks partial repayments until all balances reach RM0.00.
+- **Greedy Peer Settlement Suggestions**: Heuristically computes suggested reimbursement transfers to reduce transaction overhead and tracks partial repayments until all net balances reach RM0.00.
 - **Disaster Recovery & Encrypted Cloud Mirroring**: Quiescent SQLite write-lock snapshots, SHA-256 manifests, AES-256 header encryption (`7z -mhe=on`), and verified Google Drive cloud mirroring.
 - **On-Demand Public Ingress**: Publicly accessible via Cloudflare Named Tunnel at **`https://settle.kybuilds.com`** during active sessions, with immediate local host deactivation.
 
@@ -50,7 +50,7 @@ Splitting restaurant dining bills among friends is notoriously frustrating: tax,
   - Rational fractions (`Fraction`) support granular portion shares (e.g. sharing $\frac{1}{2}$ or $\frac{1}{3}$ of an item).
   - Largest-remainder apportionment guarantees $\sum \text{diners' shares} = \text{receipt total}$ to the exact cent.
   - Supports RM0.00 complimentary items (e.g. ice water) without mandatory claim requirements.
-- **Air-Gapped Receipt OCR & Malaysian Restaurant Parser** (`settletable/ocr/`):
+- **Server-Side Offline Receipt OCR & Malaysian Restaurant Parser** (`settletable/ocr/`):
   - Local CPU inference via RapidOCR (`PP-OCRv6`) with ONNX Runtime.
   - Specialized heuristic parser for Malaysian dining receipts: identifies 6%/8% Service Tax (SST), 10% Service Charge, discounts, item lines, and rounding adjustments.
   - Staged Candidate Editor: organizers inspect and refine recognized candidate items before applying them to the room.
@@ -289,4 +289,4 @@ node tools/verify_mobile_ux_remediation.mjs
 
 SettleTable is **Copyright © 2026 Kai Yi. All Rights Reserved.**
 
-This repository is currently private and source-available for inspection, self-hosting, and technical portfolio evaluation. No open-source license grant or public redistribution right is granted. Third-party components retain their respective upstream licenses as documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+This repository is private and accessible only to authorized collaborators for inspection, self-hosting, and technical portfolio evaluation. It is not publicly accessible, and no open-source license grant or redistribution right is granted. Third-party components retain their respective upstream licenses as documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
