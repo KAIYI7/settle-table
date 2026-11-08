@@ -1,28 +1,23 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 4,
-  "staged_bytes_excluding_report": 40686,
+  "staged_files": 2,
+  "staged_bytes_excluding_report": 338001,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 342,
   "untracked_files": 0,
   "ignored_files": 27901,
-  "valid_json_files": 1,
+  "valid_json_files": 0,
   "findings": [],
   "files": [
     {
-      "path": "README.md",
-      "bytes": 20354,
-      "sha256": "3f733de156ccd4e5c8310f4c5ca7e3a110c5bf9fd62cb7b3d8cc03f85d680dd9"
+      "path": "PROJECT_STATUS.md",
+      "bytes": 161590,
+      "sha256": "382aeba9b07f5b24ce0f1352ef55ace8f005132932fa20566f7a841c14dd0838"
     },
     {
-      "path": "tests/test_settletable_control.py",
-      "bytes": 3033,
-      "sha256": "0bb4069a4f22f9f08a70c14eedb86018e162334d72a1428c25a7eb0f366c2343"
-    },
-    {
-      "path": "tools/SettleTable-Control.ps1",
-      "bytes": 17299,
-      "sha256": "6dd377683c5ff51af6154e856d454fc6e09e72c3d5300014315d9aa51033f84b"
+      "path": "docs/agents/phase-transitions.md",
+      "bytes": 176411,
+      "sha256": "347dea32f2b697f0bb6c5e519c2a016c3f90afd719463ad61107de561ef933f0"
     }
   ]
 }
