@@ -1,29 +1,37 @@
 # SettleTable
 
-> **Deterministic, cent-conserving dining bill apportionment with local offline receipt OCR, real-time multi-diner collaboration, and optional Notion reporting.**
+> **Deterministic, cent-conserving dining bill apportionment with local offline receipt OCR, real-time multi-diner collaboration, and verified encrypted disaster recovery.**
 
 [![Python Tests](https://github.com/KAIYI7/settle-table/actions/workflows/python-tests.yml/badge.svg)](https://github.com/KAIYI7/settle-table/actions/workflows/python-tests.yml)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![License: All Rights Reserved](https://img.shields.io/badge/license-All%20Rights%20Reserved-lightgrey.svg)](THIRD_PARTY_NOTICES.md)
-[![Zero Dependencies](https://img.shields.io/badge/frontend-zero%20dependencies-brightgreen.svg)](settletable/static/)
+[![Frontend](https://img.shields.io/badge/frontend-zero%20dependencies%20(vanilla%20ES2022)-brightgreen.svg)](settletable/static/)
+[![Ingress](https://img.shields.io/badge/ingress-Cloudflare%20Named%20Tunnel-orange.svg)](deploy/cloudflare/)
 
 ---
 
 ## Overview
 
-Splitting restaurant dining bills among friends is notoriously frustrating: tax, service charges, discounts, and rounding adjustments make manual math prone to errors and fractional penny drift. Existing apps often take shortcuts (equal tax division, floating-point roundoff errors, or mandatory cloud AI uploads that expose private dining receipts).
+Splitting restaurant dining bills among friends is notoriously frustrating: tax, service charges, discounts, and rounding adjustments make manual calculations error-prone and vulnerable to fractional-penny drift. Existing consumer applications often take shortcuts—such as equal tax division, floating-point rounding errors, or mandatory cloud AI uploads that expose private dining receipts to third-party providers.
 
-**SettleTable** solves this with absolute mathematical precision and strict data privacy:
-1. **Mathematical Cent Conservation**: Every single cent (`sen`) of subtotal, tax, service charges, discounts, and rounding is conserved and accounted for using largest-remainder apportionment (`tabwise-apportion-v1`).
-2. **Air-Gapped Local OCR**: RapidOCR runs entirely on the host CPU via ONNX Runtime. Zero images or private receipt data are ever transmitted to third-party hosted vision APIs.
-3. **Multi-Diner Real-Time Collaboration**: Diners join via private pre-minted invitation links or general meal join requests with organizer authorization.
-4. **Multi-Payer Contributions & Net Balance Reconciliation**: Tracks who paid what at the cashier (cash, card, e-wallet, bank transfer) and computes exact net balances ($\text{Contributed} - \text{Consumed}$).
-5. **Greedy Peer Settlement Suggestions**: Minimizes the number of reimbursement transfers needed to settle all debts and tracks partial repayments until zero balances are achieved.
-6. **Optional Downstream Notion Export**: Finalized meals can be exported into rich Notion database tables along with the original receipt photo.
+**SettleTable** is a self-hosted, single-instance dining expense management system engineered for mathematical precision, privacy, and zero-friction guest participation:
+
+- **Mathematical Cent Conservation**: Every cent (`sen`) of subtotal, tax, service charges, discounts, and rounding adjustments is conserved and accounted for using largest-remainder apportionment (`tabwise-apportion-v1`).
+- **100% Offline Local OCR**: Optical character recognition runs on the host CPU using RapidOCR via ONNX Runtime. Zero images or dining receipts are ever transmitted to third-party vision APIs.
+- **Zero-Install Diner Collaboration**: Diners participate from mobile browsers using single-use fragment links (`/#/invite/<token>`) that keep tokens out of HTTP request lines and CDN access logs.
+- **Multi-Payer Cashier Reconciliation**: Records who contributed toward the cashier bill (cash, card, e-wallet, bank transfer) and computes exact net balances ($\text{Contributed} - \text{Consumed}$).
+- **Greedy Peer Settlement Optimization**: Calculates the minimal sequence of reimbursement transfers required to settle all debts and tracks partial repayments until all balances reach RM0.00.
+- **Disaster Recovery & Encrypted Cloud Mirroring**: Quiescent SQLite write-lock snapshots, SHA-256 manifests, AES-256 header encryption (`7z -mhe=on`), and verified Google Drive cloud mirroring.
+- **On-Demand Public Ingress**: Publicly accessible via Cloudflare Named Tunnel at **`https://settle.kybuilds.com`** during active sessions, with immediate local host deactivation.
+
+> [!NOTE]
+> **Live Deployment Availability**: Public access (`https://settle.kybuilds.com`) operates on-demand during supervised dining sessions and testing events. When the Windows host or Cloudflare connector is inactive, the public endpoint returns `HTTP 530 / Cloudflare Error 1033` (Tunnel Disconnected), preserving host resources and privacy.
 
 ---
 
 ## Screenshots & User Experience
+
+*All screenshots display sanitized synthetic test fixtures to protect dining privacy.*
 
 | Desktop Allocation & Review | Mobile Responsive Diner View |
 |:---:|:---:|
@@ -35,37 +43,30 @@ Splitting restaurant dining bills among friends is notoriously frustrating: tax,
 
 ---
 
-## Key Verified Features
+## Key Technical Achievements & Verifications
 
-- **Integer Minor-Unit Financial Engine**:
-  - Implemented in standard-library Python (`settletable/calculation.py`).
-  - Strict integer `sen` representations prevent floating-point inaccuracies.
-  - Rational fractions (`Fraction`) for fractional item quantities (e.g. sharing $\frac{1}{2}$ or $\frac{1}{3}$ of a pizza).
+- **Integer Minor-Unit Financial Engine** (`settletable/calculation.py`):
+  - Standard-library Python implementation using exact integer arithmetic (no floating-point types).
+  - Rational fractions (`Fraction`) support granular portion shares (e.g. sharing $\frac{1}{2}$ or $\frac{1}{3}$ of an item).
   - Largest-remainder apportionment guarantees $\sum \text{diners' shares} = \text{receipt total}$ to the exact cent.
-  - Supports RM0.00 complimentary items (e.g. warm water) without mandatory portion claiming.
-
-- **Local Receipt OCR & Malaysian Restaurant Parser**:
-  - Offline CPU inference with RapidOCR (`PP-OCRv6`).
-  - Specialized heuristic parser for Malaysian dining receipts: detects Service Tax (SST 6%/8%), Service Charge (10%), discounts, item lines, and rounding.
-  - Staged Candidate Editor: organizers can review and adjust recognized item names, quantities, and prices before applying them.
-
-- **Receipt Photo Retention & Modal Zoom**:
-  - Original receipt photos are stored with crash-consistent atomic filesystem guarantees and recorded in SQLite.
-  - Interactive pan-and-zoom viewer modal with mouse wheel and drag gesture support.
-
-- **Multi-Payer & Peer Reimbursement Tracking**:
-  - Multiple diners can contribute toward the restaurant cashier bill.
-  - Automated calculation of optimal peer-to-peer transfers.
-  - Records confirmed reimbursements, tracks partial balances, and supports reversing invalid entries.
-
-- **Strict Two-Tier Ingress Security**:
-  - Ingress reverse proxy enforces raw wire stream protection and blocks remote meal bootstrap calls.
-  - WSGI transport adapter enforces exact-origin CSRF checks (`X-SettleTable-Action: 1`), host-only `HttpOnly; SameSite=Strict` session cookies, and path/token redaction in all logs.
-
-- **Zero-Dependency Vanilla Frontend**:
-  - Written in modern vanilla ES2022, HTML5, and CSS3 (`settletable/static/`).
-  - Zero external CDN dependencies, zero npm build steps, zero tracking scripts.
-  - Fully responsive from 320px mobile screens to large desktop monitors.
+  - Supports RM0.00 complimentary items (e.g. ice water) without mandatory claim requirements.
+- **Air-Gapped Receipt OCR & Malaysian Restaurant Parser** (`settletable/ocr/`):
+  - Local CPU inference via RapidOCR (`PP-OCRv6`) with ONNX Runtime.
+  - Specialized heuristic parser for Malaysian dining receipts: identifies 6%/8% Service Tax (SST), 10% Service Charge, discounts, item lines, and rounding adjustments.
+  - Staged Candidate Editor: organizers inspect and refine recognized candidate items before applying them to the room.
+- **Privacy-First Ingress & Token Security**:
+  - Fragment-based diner invitation links (`/#/invite/<token>`) confine credentials to the client browser hash, preventing token transmission across HTTP request lines or CDN access logs.
+  - Browser requests use clean JSON-body inspection and redemption (`POST /api/invitations/inspect` and `POST /api/meals/{id}/invitations/redeem`).
+  - Two-tier CSRF defenses (`X-SettleTable-Action: 1` and exact-origin validation) guard mutating endpoints.
+- **Crash-Consistent Photo Retention**:
+  - Uploaded receipts are validated and written atomically via temporary files before committing metadata to SQLite.
+  - Interactive pan-and-zoom modal viewer with wheel and touch-drag support for verification.
+- **Volume Isolation & In-Container Contamination Defense**:
+  - In-container `.volume_identity` guard automatically aborts startup if the mounted volume marker mismatches the configured environment, preventing cross-contamination between synthetic test volumes and real dining data.
+  - Pre-flight volume verification utility (`tools/verify_volume_target.py`) actively validates non-root ownership (`UID=10001, GID=10001`) and directory writability.
+- **Verified Real-World Pilot (Stage C1-B)**:
+  - Validated across desktop browsers and mobile devices over mobile data during live dining sessions.
+  - Full lifecycle executed: meal bootstrap, receipt OCR extraction, item assignment, multi-payer contributions, peer settlement calculation, and 7-Zip AES-256 encrypted Google Drive backup.
 
 ---
 
@@ -77,40 +78,91 @@ Splitting restaurant dining bills among friends is notoriously frustrating: tax,
 │        (Desktop Chrome/Edge, Mobile Android/iOS Safari Chrome)         │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Public HTTPS (TLS Termination)
+                                    │ https://settle.kybuilds.com
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│               TIER 1: Ingress Reverse Proxy (Caddy / Nginx)            │
-│  - Raw wire buffer bounds (Slowloris stream defense)                   │
-│  - Block external access to: POST /api/meals/*/bootstrap               │
-│  - Static asset caching and HTTP/2 compression                         │
+│                    Cloudflare Global Edge Network                      │
+│  - Edge TLS handshake & health probes                                  │
+│  - Cloudflare Named Tunnel router (settletable-pilot)                  │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Local loopback / Unix socket
+                                    │ QUIC / HTTP/2 outbound tunnel
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│             TIER 2: SettleTable WSGI App (Gunicorn / Waitress)         │
-│  - settletable.transport: Host checks, exact-origin CSRF validation    │
-│  - settletable.authority: Deterministic state machine & SQLite WAL     │
-│  - settletable.calculation: Cent-conserving apportionment core         │
-│  - settletable.funding & settlement: Multi-payer & peer transfers     │
-│  - settletable.ocr: Local CPU ONNX inference (RapidOCR)                │
-│  - settletable.notion: Asynchronous background Notion exporter         │
+│         Windows Host Docker Stack (settletable_tunnel: cloudflared)    │
+│  - cloudflare/cloudflared:2026.10.7 container                          │
+│  - Connects to internal bridge network (http://settletable:8000)       │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Internal Docker bridge network
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│             SettleTable Production WSGI (settletable_app)              │
+│  - Gunicorn / Python 3.14 WSGI Application (settletable.wsgi)         │
+│  - Ingress Guard: Blocks external /bootstrap; validates Host & Origin  │
+│  - Transport: CSRF validation, HttpOnly session cookies, token logging │
+│  - Authority: Deterministic state transitions, role separation         │
+│  - Financial Core: Cent-conserving apportionment (tabwise-apportion-v1)│
+│  - Local OCR: RapidOCR ONNX CPU inference (zero third-party API calls) │
 └───────────────────┬────────────────────────────────┬───────────────────┘
                     │                                │
                     ▼                                ▼
-       ┌────────────────────────┐       ┌────────────────────────┐
-       │   SQLite WAL Database   │       │ Receipt Photo Storage  │
-       │ (/data/settletable.db) │       │ (/data/receipt_photos) │
-       └────────────────────────┘       └────────────────────────┘
+        ┌────────────────────────┐       ┌────────────────────────┐
+        │   SQLite WAL Database   │       │ Receipt Photo Storage  │
+        │ (/data/settletable.sqlite) │   │ (/data/receipt_photos) │
+        └────────────────────────┘       └────────────────────────┘
 ```
 
-| Layer | Technologies | Key Design Invariants |
+| Component | Technology | Responsibilities & Design Invariants |
 |---|---|---|
-| **Frontend** | Vanilla ES2022, HTML5, CSS3 | Zero CDNs, host-only cookies, container queries, 44px mobile touch targets, `prefers-reduced-motion` compliance. |
-| **Transport** | Python WSGI (`SettleTableApp`) | Two-tier ingress security, loopback bootstrap protection, strict JSON grammar, integer digits bounds ($\le 19$), token log redaction. |
-| **State & Authority** | Python standard library, SQLite | Single-instance SQLite in WAL mode (`PRAGMA busy_timeout=1000`), crash-consistent photo retention, optimistic revision locking. |
-| **Financial Core** | Pure Python (`settletable.calculation`) | Integer minor units (`sen`), rational fractions, largest-remainder cent conservation (`tabwise-apportion-v1`). |
-| **OCR Pipeline** | RapidOCR, ONNX Runtime (CPU) | 100% offline local inference, Malaysian SST/service charge parser, pre-cached models, zero cloud vision calls. |
-| **Export** | Decoupled REST (`settletable.notion`) | Optional asynchronous background worker, token scrubbing, redirect protection against credential leakage. |
+| **Frontend** | Vanilla ES2022, HTML5, CSS3 | Zero CDNs, zero npm build dependencies, responsive mobile touch targets (44px), container queries, `prefers-reduced-motion` compliance. |
+| **Transport** | Python WSGI (`SettleTableApp`) | CSRF exact-origin validation, `X-SettleTable-Action: 1` verification, loopback-only meal bootstrap, integer bounds ($\le 19$ digits), token redaction in logs. |
+| **State & Authority** | Python standard library, SQLite | Single-instance SQLite in WAL mode (`PRAGMA busy_timeout=5000`), crash-consistent photo retention, optimistic revision locking, role separation (organizer vs diner). |
+| **Financial Engine** | Pure Python (`settletable.calculation`) | Integer minor units (`sen`), rational fractions (`Fraction`), largest-remainder cent conservation (`tabwise-apportion-v1`). |
+| **Local OCR** | RapidOCR, ONNX Runtime (CPU) | 100% offline local inference, Malaysian SST/service charge heuristic parser, pre-cached ONNX models, zero cloud vision calls. |
+| **Ingress & Hosting** | Cloudflare Named Tunnel, Docker Compose | Non-root containers (`UID=10001, GID=10001`), no inbound open firewall ports, edge TLS termination at `settle.kybuilds.com`. |
+| **Disaster Recovery** | Python CLI, 7-Zip, Google DriveFS | Quiescent write-lock snapshotting, SHA-256 manifests, AES-256 header encryption (`-mhe=on`), verified remote Google Drive cloud durability. |
+
+---
+
+## Windows Host Lifecycle Controller
+
+To manage local development and public on-demand hosting on Windows hosts, SettleTable includes a dedicated PowerShell controller:
+
+```powershell
+# Interactive Menu Mode:
+.\tools\SettleTable-Control.ps1
+```
+
+```text
+=======================================================
+ SettleTable Windows Host Lifecycle Controller
+=======================================================
+ [1] Start Local   - Start app on 127.0.0.1:8000 (tunnel stopped)
+ [2] Start Public  - Start app + Cloudflare tunnel (https://settle.kybuilds.com)
+ [3] Stop Public   - Stop tunnel only (app remains accessible locally)
+ [4] Stop All      - Stop both app and tunnel (preserve data)
+ [5] Status        - Check container states and health probes
+ [Q] Quit
+=======================================================
+```
+
+### Non-Interactive Automation Commands
+
+```powershell
+# Start local-only container (tunnel stopped, port 8000 bound to loopback)
+.\tools\SettleTable-Control.ps1 start-local
+
+# Verify real volume, start app, and activate Cloudflare Named Tunnel
+.\tools\SettleTable-Control.ps1 start-public
+
+# Deactivate public ingress while keeping local app accessible
+.\tools\SettleTable-Control.ps1 stop-public
+
+# Cleanly stop both application and tunnel (preserves all data volumes)
+.\tools\SettleTable-Control.ps1 stop-all
+
+# Inspect container status, local health probe, and public edge status
+.\tools\SettleTable-Control.ps1 status
+```
 
 ---
 
@@ -119,138 +171,87 @@ Splitting restaurant dining bills among friends is notoriously frustrating: tax,
 ### Prerequisites
 - Python 3.10, 3.11, 3.12, 3.13, or 3.14
 - Modern web browser (Chrome, Edge, Firefox, Safari)
+- Docker Desktop (for containerized hosting)
 
-### Quick Start (Demo Mode with Mock Clients)
+### Quick Start (Demo Mode)
 
-Clone the repository and launch the local demo server:
+Clone the repository and launch the local demo server with deterministic mock services:
 
 ```bash
 # Clone the repository
 git clone https://github.com/KAIYI7/settle-table.git
 cd settle-table
 
-# Launch the demo server with deterministic mock OCR and Notion
+# Launch demo server with deterministic mock OCR and Notion
 python tools/run_demo.py --host 127.0.0.1 --port 8000 --mock-ocr --mock-notion
 ```
-
 Open `http://127.0.0.1:8000` in your web browser.
 
 ---
 
-## Setting Up Real Local OCR
-
-To run actual optical character recognition on your local machine using RapidOCR on CPU:
-
-1. Create and activate a virtual environment:
-   ```bash
-   python -m venv .venv-ocr
-
-   # On Windows PowerShell:
-   .\.venv-ocr\Scripts\Activate.ps1
-
-   # On Linux / macOS:
-   source .venv-ocr/bin/activate
-   ```
-
-2. Install pinned OCR dependencies:
-   ```bash
-   pip install -r requirements-ocr.txt
-   ```
-
-3. Launch the server with real OCR enabled:
-   ```bash
-   python tools/run_demo.py --host 127.0.0.1 --port 8000 --mock-notion
-   ```
-   *(RapidOCR will cache its lightweight ~15–20 MB ONNX models locally upon first receipt scan).*
-
-For detailed OCR architecture and troubleshooting, see [Local OCR Setup Guide](docs/ocr-setup.md).
-
----
-
-## Production Deployment Preparation
-
-SettleTable is packaged as a reproducible, single-instance container application.
+## Production Deployment & Administrative Operations
 
 ### Important Production Invariants
-1. **Single-Instance Requirement**: Because SettleTable uses SQLite in WAL mode, the application **must run as exactly one instance**. Horizontal autoscaling across multiple containers is prohibited.
+1. **Single-Instance Invariant**: Because SettleTable uses SQLite in WAL mode, the application **must run as exactly one instance**. Horizontal autoscaling across multiple containers is prohibited.
 2. **Loopback Bootstrap Protection**: `POST /api/meals/{id}/bootstrap` is blocked from external calls. Meals in hosted environments are provisioned via administrative CLI (`tools/bootstrap_meal.py`).
-3. **Exact Origin Configuration**: You must set `SETTLETABLE_SERVER_ORIGIN` to your public HTTPS domain; otherwise, client mutations will fail CSRF origin validation.
-
-### Deployment Options
-
-- **Option A: Container Deployment (Docker Compose + Caddy)**
-  ```bash
-  # Copy and configure environment variables
-  cp deploy/env.template .env
-  # Edit .env with your domain (e.g. SETTLETABLE_SERVER_ORIGIN=https://settletable.example.com)
-
-  # Launch with Caddy automatic TLS
-  docker compose --profile with-caddy up -d
-  ```
-
-- **Option B: Managed PaaS (Fly.io)**
-  - Use `shared-cpu-1x` (1 GB RAM) or `shared-cpu-2x` (2 GB RAM).
-  - Attach a persistent NVMe volume (`fly volumes create settletable_data --size 3`).
-  - Pin to 1 machine (`min_machines_running = 1`, `auto_stop_machines = false`).
-
-- **Option C: Small VPS (Hetzner Cloud CX22 / DigitalOcean Droplet)**
-  - 2 vCPU, 2–4 GB RAM, NVMe SSD.
-  - Deploy via Docker Compose with Caddy reverse proxy.
-  - Estimated cost: **~$4.10 / month**.
+3. **Exact Origin Configuration**: `SETTLETABLE_SERVER_ORIGIN` must match your public HTTPS domain (`https://settle.kybuilds.com`); otherwise, client mutations will fail CSRF origin validation.
 
 ### Administrative Meal Provisioning & Organizer Recovery
 
 Because public clients cannot call the bootstrap endpoint, provision meals directly on the host:
 
 ```bash
-python tools/bootstrap_meal.py --meal-id dinner-friday --organizer "Alice" --diners "Bob, Charlie"
+docker compose exec settletable python tools/bootstrap_meal.py bootstrap \
+  --meal-id "dinner-20261108" \
+  --organizer "Alice" \
+  --diners "Bob,Charlie"
 ```
-The CLI outputs a single-use Organizer Browser Setup Link (`/#/claim-organizer/<token>`) embedding an ephemeral claim secret, presented once to the authorized host operator on stdout. Opening this link in a browser redeems the claim and sets the `settletable_session` HttpOnly cookie directly, without exposing the persistent session credential on stdout.
+The CLI generates a single-use **Organizer Setup Link** (`/#/claim-organizer/<token>`) containing an ephemeral claim secret, presented once to the operator. Opening this link in a browser redeems the claim and sets the `settletable_session` HttpOnly cookie directly, without exposing the session credential in process arguments or logs.
 
-If an organizer loses access (e.g., cleared browser cookies or device change), generate an emergency single-use recovery link on the host:
+If an organizer loses access (e.g. cleared browser storage or changed devices), generate an emergency single-use recovery link:
 ```bash
-python tools/bootstrap_meal.py recover --meal-id dinner-friday
+docker compose exec settletable python tools/bootstrap_meal.py recover --meal-id "dinner-20261108"
 ```
 
-### Quiescent Backup & Verified Staged Restore
+### Quiescent Backup & Verified Disaster Recovery
 
-Perform consistent backups while the server is running (using an immediate write-quiescence lock to ensure synchronized database snapshots and verified receipt photo manifests):
+To capture a consistent snapshot with zero in-flight modifications:
 
-```bash
-# Quiescent backup of SQLite database and receipt photos with SHA-256 manifest
-python tools/backup_restore.py backup --db /data/settletable.sqlite --out-dir /data/backups
+```powershell
+# 1. Stop application container
+docker compose stop settletable
 
-# Verified disaster recovery restore from a backup manifest (requires stopped application container, stages files, archives previous data, and verifies SHA-256 hashes)
-python tools/backup_restore.py restore --manifest /data/backups/manifest_TIMESTAMP.json --dest-db /data/settletable.sqlite --confirm-stopped
+# 2. Capture quiescent snapshot of SQLite database and receipt photos
+docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+
+# 3. Create AES-256 header-encrypted archive with 7-Zip
+& "<7Z_PATH>" a -t7z -mhe=on -p "${archiveDir}\settletable_backup_${timestamp}.7z" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
+
+# 4. Verified staged restore (requires stopped container, pre-validates hashes, archives existing data, and supports automatic rollback)
+docker compose run --rm -v "${decryptedDir}:/backups" settletable python tools/backup_restore.py restore --manifest /backups/manifest_${timestamp}.json --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
 ```
 
-> [!IMPORTANT]
-> **Restore Safety Contract**: Because idle SQLite connections in WAL mode do not hold active writer locks, SQLite lock acquisition alone cannot prove process inactivity. Restoration strictly requires the application container to be stopped first (`docker compose down` or `docker stop settletable_app`). The restore tool stages files in an isolated temporary directory, archives the existing destination data, validates post-cutover database integrity, and automatically rolls back if post-cutover validation fails. Any previous destination receipt photos not present in the backup are cleanly archived.
+For complete operational steps, see the [Windows Host Operations Runbook](docs/runbooks/windows_host_operations.md).
 
 ---
 
 ## Testing & Verification
 
-SettleTable includes automated test coverage across mathematical correctness, state machine transitions, adversarial security, and end-to-end browser journeys:
+SettleTable maintains automated test suites spanning mathematical invariants, state machine transitions, adversarial security, and browser user journeys:
 
 ```bash
-# Run all Python unit, calculation, and security tests (309 tests)
+# Run all Python unit, calculation, and security tests (349 tests)
 python -m unittest discover -s tests -v
 
-# Run transport adapter unit tests
-python -m unittest tests.test_transport
+# Run lifecycle controller test suite
+python -m unittest tests.test_settletable_control
 
-# Run live deployment smoke check (11 checks)
+# Run deployment smoke checks (13/13 passing)
 python tools/deployment_smoke_check.py --url http://127.0.0.1:8000
 
-# Run automated Chrome CDP browser regression suites (requires Chrome & Node.js; run locally/out-of-CI)
+# Run automated Chrome CDP browser regression suites
 node tools/e2e_browser_test.mjs
 node tools/verify_multi_payer_flow.mjs
-```
-
-### CI vs Local Verification Scope
-- **Hosted GitHub Actions CI (`.github/workflows/python-tests.yml`)**: Executes the full Python unit/integration test suite (apportioning engine, state machine, adversarial auth, quiescent backup/restore roundtrips, and token redaction) and the `docker-smoke` job (building the non-root container and running `tools/deployment_smoke_check.py` against `/healthz` and deployment probes).
-- **Out-of-CI / Dedicated Verification**: Real Chrome CDP browser regression tests (`tools/e2e_browser_test.mjs`), mobile viewport suites (`tools/verify_mobile_ux_remediation.mjs`), and physical Android Chrome testing on POCO F6 require a physical device or Chrome display server and are accepted separately as dedicated UAT evidence. Real RapidOCR ONNX inference runs locally and inside the built Docker image where models are pre-cached.
 node tools/verify_peer_settlement_flow.mjs
 node tools/verify_conflict_recovery.mjs
 node tools/verify_complimentary_items_flow.mjs
@@ -258,30 +259,34 @@ node tools/verify_context_aware_navigation.mjs
 node tools/verify_mobile_ux_remediation.mjs
 ```
 
+### CI vs Dedicated Verification Scope
+- **Hosted GitHub Actions CI (`.github/workflows/python-tests.yml`)**: Executes the full Python unit/integration test suite, browser regression suites via Chrome CDP, and the `docker-smoke` job (building the non-root container and running `tools/deployment_smoke_check.py` against `/healthz` and deployment probes).
+- **Physical Device & Operational Verification**: Real RapidOCR ONNX inference and physical mobile browser validation (Android Chrome on cellular data) are verified during dedicated operational milestones and recorded in the [Phase Transition Ledger](docs/agents/phase-transitions.md).
+
 ---
 
-## Deep Technical Documentation
+## Technical Documentation & References
 
-- [Release & Deployment Plan](docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md) — Comprehensive release readiness audit, hosting evaluation, and acceptance gates.
-- [Account Identity & "My Meals" Roadmap](docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md) — Future architecture for persistent accounts and meal discovery.
+- [Windows Host Operations Runbook](docs/runbooks/windows_host_operations.md) — Step-by-step procedures for Docker Compose, Cloudflare Named Tunnel, volume pre-flights, and encrypted backups.
+- [Release & Deployment Plan](docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md) — MVP release gates, architectural boundaries, and hosting evaluation.
+- [Account Identity & Roadmap](docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md) — Future architecture for multi-meal user accounts and authentication.
 - [Deployment Boundary & Threat Model](docs/deployment-boundary.md) — Ingress specifications and two-tier security boundaries.
 - [Security Policy](SECURITY.md) — Vulnerability reporting and defense-in-depth guarantees.
-- [Changelog](CHANGELOG.md) — Complete revision history across all pull requests.
 - [Domain Glossary](GLOSSARY.md) — Canonical terminology, invariants, and rounding contracts.
-- [User Acceptance Testing Guide](docs/uat-handover.md) — Step-by-step UAT verification scenarios.
+- [Phase Transition Ledger](docs/agents/phase-transitions.md) — Authoritative audit ledger of all completed verification gates.
 
 ---
 
-## Known Limitations & Roadmap
+## Known Architecture Trade-offs & Constraints
 
-- **Organizer Recovery**: Currently, an organizer session is tied to their browser cookie issued at bootstrap. If an organizer clears their browser cookies before finalization, organizer authority cannot be recovered without database access. The future Account & Login roadmap addresses this.
-- **Single-Instance Deployment**: SettleTable cannot be horizontally autoscaled across multiple servers due to SQLite WAL concurrency boundaries.
-- **Offline Phone Processing**: OCR inference runs on the host server CPU, not on-device inside client mobile browsers.
+- **Single-Instance Deployment**: Horizontal scaling across multiple containers is prohibited by design. SettleTable relies on SQLite WAL write serialization to guarantee strict cent conservation without distributed database overhead.
+- **Supervised On-Demand Hosting**: Public ingress (`settle.kybuilds.com`) is activated on demand for active dining events rather than running 24/7, minimizing idle server exposure and hosting costs.
+- **Server-Side CPU OCR**: Optical character recognition executes on the server CPU via RapidOCR ONNX rather than on client mobile devices, ensuring consistent recognition results across all mobile hardware.
 
 ---
 
-## Licensing & Intellectual Property
+## Licensing & Repository Status
 
 SettleTable is **Copyright © 2026 Kai Yi. All Rights Reserved.**
 
-This repository is currently source-available for inspection, self-hosting, and evaluation. No project-wide open-source license (such as MIT or Apache 2.0) has been granted. Third-party components and skills retain their respective upstream licenses as documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+This repository is currently private and source-available for inspection, self-hosting, and technical portfolio evaluation. No open-source license grant or public redistribution right is granted. Third-party components retain their respective upstream licenses as documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
