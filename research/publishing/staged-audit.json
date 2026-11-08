@@ -1,28 +1,23 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 3,
-  "staged_bytes_excluding_report": 56601,
+  "staged_files": 2,
+  "staged_bytes_excluding_report": 39429,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 342,
-  "untracked_files": 0,
+  "untracked_files": 1,
   "ignored_files": 27901,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
-      "path": "README.md",
-      "bytes": 20411,
-      "sha256": "b18e05c2a8eef7c15049f38420f222dcdc2043f4d598560d23150549edfc31b6"
-    },
-    {
       "path": "tests/test_settletable_control.py",
-      "bytes": 13770,
-      "sha256": "ce61a6dc9ef46dcbe036d847179268a90d90bac7b4d840527be58930d1c22ebd"
+      "bytes": 16551,
+      "sha256": "801d2617f62de72151e436b59f812ce6fc6243bf48773594a251fb975f5768e0"
     },
     {
       "path": "tools/SettleTable-Control.ps1",
-      "bytes": 22420,
-      "sha256": "5e34fddbf30c824d85e76517afb9f5f9cb4b87a75fb744298601554e05651de4"
+      "bytes": 22878,
+      "sha256": "673067d714c405a2ab6357b62d17ea60b8e109fbd6bc557bfea0f93695b0e919"
     }
   ]
 }

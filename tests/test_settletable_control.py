@@ -101,6 +101,21 @@ sys.exit(0)
                 f'@echo off\n"{sys.executable}" "{mock_py}" curl %*\n',
                 encoding="utf-8",
             )
+            mock_preflight_py = cls.tmppath / "mock_preflight.py"
+            mock_preflight_py.write_text(
+                'import sys, os\n'
+                'if os.environ.get("MOCK_PREFLIGHT_FAIL") == "1":\n'
+                '    print("Preflight failed mock check")\n'
+                '    sys.exit(1)\n'
+                'print("Preflight passed mock check")\n'
+                'sys.exit(0)\n',
+                encoding="utf-8",
+            )
+            cls.mock_preflight = cls.tmppath / "preflight.cmd"
+            cls.mock_preflight.write_text(
+                f'@echo off\n"{sys.executable}" "{mock_preflight_py}" %*\n',
+                encoding="utf-8",
+            )
         else:
             cls.mock_docker = cls.tmppath / "docker.sh"
             cls.mock_docker.write_text(
@@ -114,12 +129,28 @@ sys.exit(0)
                 encoding="utf-8",
             )
             cls.mock_curl.chmod(0o755)
+            mock_preflight_py = cls.tmppath / "mock_preflight.py"
+            mock_preflight_py.write_text(
+                'import sys, os\n'
+                'if os.environ.get("MOCK_PREFLIGHT_FAIL") == "1":\n'
+                '    print("Preflight failed mock check")\n'
+                '    sys.exit(1)\n'
+                'print("Preflight passed mock check")\n'
+                'sys.exit(0)\n',
+                encoding="utf-8",
+            )
+            cls.mock_preflight = cls.tmppath / "preflight.sh"
+            cls.mock_preflight.write_text(
+                f'#!/bin/sh\nexec "{sys.executable}" "{mock_preflight_py}" "$@"\n',
+                encoding="utf-8",
+            )
+            cls.mock_preflight.chmod(0o755)
 
     @classmethod
     def tearDownClass(cls):
         cls.tmpdir.cleanup()
 
-    def run_ps_script(self, args, env_overrides=None, cwd=REPO_ROOT, use_mocks=False):
+    def run_ps_script(self, args, env_overrides=None, cwd=REPO_ROOT, use_mocks=False, skip_preflight=True):
         cmd = [
             PS_BIN,
             "-NoProfile",
@@ -135,11 +166,16 @@ sys.exit(0)
                 "-CurlCmd",
                 str(self.mock_curl),
             ])
+            if skip_preflight:
+                cmd.append("-SkipPreflight")
         cmd.extend(args)
 
         env = os.environ.copy()
         env.setdefault("SETTLETABLE_MAX_PROBE_ATTEMPTS", "2")
         env.setdefault("SETTLETABLE_PROBE_INTERVAL_SEC", "0")
+        if skip_preflight:
+            env.setdefault("SETTLETABLE_SKIP_VOLUME_PREFLIGHT", "1")
+            env.setdefault("SETTLETABLE_SKIP_PREFLIGHT", "1")
         if env_overrides:
             env.update(env_overrides)
         return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
@@ -208,6 +244,20 @@ sys.exit(0)
         self.assertEqual(res.returncode, 1)
         self.assertIn("Failed to execute docker compose stop cloudflared", res.stdout)
 
+    def test_start_local_fails_if_volume_preflight_fails(self):
+        res = self.run_ps_script(
+            ["start-local", "-PreflightCmd", str(self.mock_preflight)],
+            env_overrides={
+                "MOCK_PREFLIGHT_FAIL": "1",
+                "SETTLETABLE_SKIP_VOLUME_PREFLIGHT": "0",
+                "SETTLETABLE_SKIP_PREFLIGHT": "0",
+            },
+            use_mocks=True,
+            skip_preflight=False,
+        )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Storage volume pre-flight check failed", res.stdout)
+
     def test_start_local_fails_if_tunnel_still_running_after_stop(self):
         res = self.run_ps_script(
             ["start-local"],
@@ -241,6 +291,20 @@ sys.exit(0)
         self.assertEqual(res.returncode, 0, f"start-local failed: {res.stderr}\n{res.stdout}")
         self.assertIn("[SUCCESS] SettleTable Local Server is Active", res.stdout)
         self.assertIn("Public Ingress: STOPPED", res.stdout)
+
+    def test_start_public_fails_if_volume_preflight_fails(self):
+        res = self.run_ps_script(
+            ["start-public", "-PreflightCmd", str(self.mock_preflight)],
+            env_overrides={
+                "MOCK_PREFLIGHT_FAIL": "1",
+                "SETTLETABLE_SKIP_VOLUME_PREFLIGHT": "0",
+                "SETTLETABLE_SKIP_PREFLIGHT": "0",
+            },
+            use_mocks=True,
+            skip_preflight=False,
+        )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Storage volume pre-flight check failed", res.stdout)
 
     def test_start_public_fails_if_local_health_probe_fails_and_stops_tunnel(self):
         res = self.run_ps_script(

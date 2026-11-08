@@ -46,8 +46,10 @@ param(
 
     [string]$DockerCmd = "docker",
     [string]$CurlCmd = "",
+    [string]$PreflightCmd = "",
     [int]$MaxProbeAttempts = 15,
-    [int]$ProbeIntervalSec = 1
+    [int]$ProbeIntervalSec = 1,
+    [switch]$SkipPreflight
 )
 
 # Set strict error behavior for the script
@@ -126,15 +128,24 @@ function Invoke-VolumePreFlight {
     param(
         [string]$Mode = "auto"
     )
-    Write-Host "Verifying storage volume configuration (--mode $Mode)..." -ForegroundColor Cyan
-    $verifyScript = Join-Path $RepoRoot (Join-Path "tools" "verify_volume_target.py")
-    if (-not (Test-Path $verifyScript)) {
-        Write-Host "[ERROR] Volume pre-flight utility not found: $verifyScript" -ForegroundColor Red
-        return $false
+    if ($SkipPreflight -or $env:SETTLETABLE_SKIP_PREFLIGHT -eq "1" -or $env:SETTLETABLE_SKIP_VOLUME_PREFLIGHT -eq "1") {
+        Write-Host "Verifying storage volume configuration (--mode $Mode) [SKIPPED FOR TEST]..." -ForegroundColor Cyan
+        return $true
     }
 
-    $pythonBin = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "py" }
-    $preflightOut = & $pythonBin $verifyScript --mode $Mode 2>&1
+    Write-Host "Verifying storage volume configuration (--mode $Mode)..." -ForegroundColor Cyan
+    if ($PreflightCmd) {
+        $preflightOut = & $PreflightCmd --mode $Mode 2>&1
+    } else {
+        $verifyScript = Join-Path $RepoRoot (Join-Path "tools" "verify_volume_target.py")
+        if (-not (Test-Path $verifyScript)) {
+            Write-Host "[ERROR] Volume pre-flight utility not found: $verifyScript" -ForegroundColor Red
+            return $false
+        }
+
+        $pythonBin = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "py" }
+        $preflightOut = & $pythonBin $verifyScript --mode $Mode 2>&1
+    }
     if ($preflightOut) {
         Write-Host ($preflightOut -join "`n")
     }
