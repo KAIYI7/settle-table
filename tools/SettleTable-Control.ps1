@@ -42,11 +42,25 @@ param(
     [string]$Action = "",
 
     [Alias("h")]
-    [switch]$Help
+    [switch]$Help,
+
+    [string]$DockerCmd = "docker",
+    [string]$CurlCmd = "",
+    [string]$PreflightCmd = "",
+    [int]$MaxProbeAttempts = 15,
+    [int]$ProbeIntervalSec = 1,
+    [switch]$SkipPreflight
 )
 
 # Set strict error behavior for the script
 $ErrorActionPreference = "Continue"
+
+if ($env:SETTLETABLE_MAX_PROBE_ATTEMPTS) {
+    $MaxProbeAttempts = [int]$env:SETTLETABLE_MAX_PROBE_ATTEMPTS
+}
+if ($env:SETTLETABLE_PROBE_INTERVAL_SEC) {
+    $ProbeIntervalSec = [int]$env:SETTLETABLE_PROBE_INTERVAL_SEC
+}
 
 if ($Help) {
     Get-Help $MyInvocation.MyCommand.Path -Detailed
@@ -70,7 +84,7 @@ $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 # ---------------------------------------------------------------------------
 
 function Assert-DockerRunning {
-    & docker info >$null 2>&1
+    & $DockerCmd info >$null 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`n[ERROR] Docker daemon is not running or unreachable." -ForegroundColor Red
         Write-Host "Please start Docker Desktop on your Windows host and verify it is running.`n" -ForegroundColor Yellow
@@ -79,14 +93,31 @@ function Assert-DockerRunning {
     return $true
 }
 
+function Get-RunningContainerIds {
+    param(
+        [string]$FilterName
+    )
+    $ids = & $DockerCmd ps --filter "name=$FilterName" --filter "status=running" -q 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $ids) {
+        return @()
+    }
+    return ($ids -split "`r?`n") | Where-Object { $_.Trim() -ne "" }
+}
+
 function Get-EndpointStatusCode {
     param(
         [string]$Url,
         [int]$TimeoutSec = 4
     )
     $nullTarget = if ($env:OS -match "Windows_NT" -or (Get-Variable -Name IsWindows -ValueOnly -ErrorAction SilentlyContinue)) { "NUL" } else { "/dev/null" }
-    $curlBin = if (Get-Command curl.exe -ErrorAction SilentlyContinue) { "curl.exe" } else { "curl" }
-    $code = & $curlBin -s -o $nullTarget -w "%{http_code}" --max-time $TimeoutSec $Url 2>$null
+    $effectiveCurl = if ($CurlCmd) {
+        $CurlCmd
+    } elseif (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+        "curl.exe"
+    } else {
+        "curl"
+    }
+    $code = & $effectiveCurl -s -o $nullTarget -w "%{http_code}" --max-time $TimeoutSec $Url 2>$null
     if ($code) {
         return $code.Trim()
     }
@@ -97,14 +128,27 @@ function Invoke-VolumePreFlight {
     param(
         [string]$Mode = "auto"
     )
-    Write-Host "Verifying storage volume configuration (--mode $Mode)..." -ForegroundColor Cyan
-    $verifyScript = Join-Path $RepoRoot "tools\verify_volume_target.py"
-    if (-not (Test-Path $verifyScript)) {
-        Write-Host "[ERROR] Volume pre-flight utility not found: $verifyScript" -ForegroundColor Red
-        return $false
+    if ($SkipPreflight -or $env:SETTLETABLE_SKIP_PREFLIGHT -eq "1" -or $env:SETTLETABLE_SKIP_VOLUME_PREFLIGHT -eq "1") {
+        Write-Host "Verifying storage volume configuration (--mode $Mode) [SKIPPED FOR TEST]..." -ForegroundColor Cyan
+        return $true
     }
 
-    & python $verifyScript --mode $Mode
+    Write-Host "Verifying storage volume configuration (--mode $Mode)..." -ForegroundColor Cyan
+    if ($PreflightCmd) {
+        $preflightOut = & $PreflightCmd --mode $Mode 2>&1
+    } else {
+        $verifyScript = Join-Path $RepoRoot (Join-Path "tools" "verify_volume_target.py")
+        if (-not (Test-Path $verifyScript)) {
+            Write-Host "[ERROR] Volume pre-flight utility not found: $verifyScript" -ForegroundColor Red
+            return $false
+        }
+
+        $pythonBin = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "py" }
+        $preflightOut = & $pythonBin $verifyScript --mode $Mode 2>&1
+    }
+    if ($preflightOut) {
+        Write-Host ($preflightOut -join "`n")
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`n[ABORT] Storage volume pre-flight check failed! Review your .env configuration before starting." -ForegroundColor Red
         return $false
@@ -118,22 +162,40 @@ function Invoke-VolumePreFlight {
 
 function Invoke-StartLocal {
     if (-not (Assert-DockerRunning)) { return $false }
-    if (-not (Invoke-VolumePreFlight -Mode "auto")) { return $false }
 
+    # Step 1: Enforce public connector shutdown BEFORE volume pre-flight or app launch
     Write-Host "`n[1/3] Ensuring Cloudflare public connector is stopped..." -ForegroundColor Cyan
-    & docker compose stop cloudflared >$null 2>&1
-
-    Write-Host "[2/3] Starting SettleTable application container..." -ForegroundColor Cyan
-    & docker compose up -d settletable
+    $stopOut = & $DockerCmd compose stop cloudflared 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[ERROR] Failed to start settletable application container." -ForegroundColor Red
+        Write-Host "[ERROR] Failed to execute docker compose stop cloudflared." -ForegroundColor Red
+        if ($stopOut) { Write-Host ($stopOut -join "`n") -ForegroundColor Yellow }
         return $false
     }
 
+    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
+    if ($tunnelRunning.Count -gt 0) {
+        Write-Host "[ERROR] Cloudflare tunnel container is still running after stop request. Aborting local mode." -ForegroundColor Red
+        return $false
+    }
+
+    # Step 2: Validate volume configuration
+    $volOk = Invoke-VolumePreFlight -Mode "auto"
+    if ($volOk -ne $true) { return $false }
+
+    # Step 3: Start application container
+    Write-Host "[2/3] Starting SettleTable application container..." -ForegroundColor Cyan
+    $upOut = & $DockerCmd compose up -d settletable 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Failed to start settletable application container." -ForegroundColor Red
+        if ($upOut) { Write-Host ($upOut -join "`n") -ForegroundColor Yellow }
+        return $false
+    }
+
+    # Step 4: Verify local health probe
     Write-Host "[3/3] Waiting for local health probe (http://127.0.0.1:8000/healthz)..." -ForegroundColor Cyan
     $healthy = $false
-    for ($i = 0; $i -lt 15; $i++) {
-        Start-Sleep -Seconds 1
+    for ($i = 0; $i -lt $MaxProbeAttempts; $i++) {
+        if ($ProbeIntervalSec -gt 0) { Start-Sleep -Seconds $ProbeIntervalSec }
         $code = Get-EndpointStatusCode -Url "http://127.0.0.1:8000/healthz" -TimeoutSec 2
         if ($code -eq "200") {
             $healthy = $true
@@ -141,46 +203,52 @@ function Invoke-StartLocal {
         }
     }
 
-    # Verify cloudflared did not start
-    $tunnelRunning = & docker ps --filter "name=settletable_tunnel" --filter "status=running" -q
-    if ($tunnelRunning) {
-        Write-Host "[WARNING] Cloudflare tunnel container was running; stopping it now..." -ForegroundColor Yellow
-        & docker compose stop cloudflared >$null 2>&1
-    }
-
-    if ($healthy) {
-        Write-Host "`n=======================================================" -ForegroundColor Green
-        Write-Host " [SUCCESS] SettleTable Local Server is Active" -ForegroundColor Green
-        Write-Host "=======================================================" -ForegroundColor Green
-        Write-Host " Local URL:      http://127.0.0.1:8000" -ForegroundColor White
-        Write-Host " Public Ingress: STOPPED (cloudflared container inactive)" -ForegroundColor Yellow
-        Write-Host " Storage Mode:   Isolated Docker volume" -ForegroundColor White
-        Write-Host "=======================================================`n" -ForegroundColor Green
-        return $true
-    } else {
-        Write-Host "`n[WARNING] Application container started but local health check did not return 200 within 15s." -ForegroundColor Yellow
-        Write-Host "Check container logs: docker logs --tail 30 settletable_app" -ForegroundColor Yellow
+    if (-not $healthy) {
+        Write-Host "`n[ERROR] Application container started but local health check did not return 200 within ${MaxProbeAttempts}s." -ForegroundColor Red
+        Write-Host "Check container logs: $DockerCmd logs --tail 30 settletable_app" -ForegroundColor Yellow
         return $false
     }
+
+    # Final fail-closed check: verify cloudflared is definitely not running
+    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
+    if ($tunnelRunning.Count -gt 0) {
+        Write-Host "`n[CRITICAL] Cloudflare tunnel container is active! Stopping immediately to prevent unintentional public exposure." -ForegroundColor Red
+        $null = & $DockerCmd compose stop cloudflared 2>&1
+        return $false
+    }
+
+    Write-Host "`n=======================================================" -ForegroundColor Green
+    Write-Host " [SUCCESS] SettleTable Local Server is Active" -ForegroundColor Green
+    Write-Host "=======================================================" -ForegroundColor Green
+    Write-Host " Local URL:      http://127.0.0.1:8000" -ForegroundColor White
+    Write-Host " Public Ingress: STOPPED (cloudflared connector verified inactive)" -ForegroundColor Yellow
+    Write-Host " Storage Mode:   Isolated Docker volume" -ForegroundColor White
+    Write-Host "=======================================================`n" -ForegroundColor Green
+    return $true
 }
 
 function Invoke-StartPublic {
     if (-not (Assert-DockerRunning)) { return $false }
 
+    # Step 1: Pre-flight volume check (mode real)
     Write-Host "`n[PRE-FLIGHT] Verifying real-data volume configuration and permissions..." -ForegroundColor Cyan
-    if (-not (Invoke-VolumePreFlight -Mode "real")) { return $false }
+    $volOk = Invoke-VolumePreFlight -Mode "real"
+    if ($volOk -ne $true) { return $false }
 
+    # Step 2: Start stack
     Write-Host "`n[1/4] Starting SettleTable application and Cloudflare tunnel connector..." -ForegroundColor Cyan
-    & docker compose --profile with-cloudflared up -d
+    $upOut = & $DockerCmd compose --profile with-cloudflared up -d 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[ERROR] Failed to start Docker Compose stack." -ForegroundColor Red
+        if ($upOut) { Write-Host ($upOut -join "`n") -ForegroundColor Yellow }
         return $false
     }
 
+    # Step 3: Enforce local health probe before proceeding
     Write-Host "[2/4] Verifying local container health..." -ForegroundColor Cyan
     $localHealthy = $false
-    for ($i = 0; $i -lt 15; $i++) {
-        Start-Sleep -Seconds 1
+    for ($i = 0; $i -lt $MaxProbeAttempts; $i++) {
+        if ($ProbeIntervalSec -gt 0) { Start-Sleep -Seconds $ProbeIntervalSec }
         $code = Get-EndpointStatusCode -Url "http://127.0.0.1:8000/healthz" -TimeoutSec 2
         if ($code -eq "200") {
             $localHealthy = $true
@@ -188,18 +256,28 @@ function Invoke-StartPublic {
         }
     }
 
-    Write-Host "[3/4] Verifying Cloudflare tunnel connector container..." -ForegroundColor Cyan
-    $tunnelRunning = & docker ps --filter "name=settletable_tunnel" --filter "status=running" -q
-    if (-not $tunnelRunning) {
-        Write-Host "[ERROR] Tunnel container settletable_tunnel is not running." -ForegroundColor Red
-        Write-Host "Check tunnel logs: docker logs --tail 30 settletable_tunnel" -ForegroundColor Yellow
+    if (-not $localHealthy) {
+        Write-Host "`n[ERROR] Local application health check failed (http://127.0.0.1:8000/healthz did not return 200 within ${MaxProbeAttempts}s)." -ForegroundColor Red
+        Write-Host "Check application logs with: $DockerCmd logs --tail 30 settletable_app" -ForegroundColor Yellow
+        Write-Host "Stopping Cloudflare tunnel connector to prevent exposing an unhealthy application..." -ForegroundColor Yellow
+        $null = & $DockerCmd compose stop cloudflared 2>&1
         return $false
     }
 
+    # Step 4: Verify tunnel connector container is running
+    Write-Host "[3/4] Verifying Cloudflare tunnel connector container..." -ForegroundColor Cyan
+    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
+    if ($tunnelRunning.Count -eq 0) {
+        Write-Host "[ERROR] Cloudflare tunnel container settletable_tunnel is not running." -ForegroundColor Red
+        Write-Host "Check tunnel logs: $DockerCmd logs --tail 30 settletable_tunnel" -ForegroundColor Yellow
+        return $false
+    }
+
+    # Step 5: Verify public edge HTTPS health
     Write-Host "[4/4] Verifying live public HTTPS endpoint (https://settle.kybuilds.com/healthz)..." -ForegroundColor Cyan
     $publicHealthy = $false
-    for ($i = 0; $i -lt 15; $i++) {
-        Start-Sleep -Seconds 1
+    for ($i = 0; $i -lt $MaxProbeAttempts; $i++) {
+        if ($ProbeIntervalSec -gt 0) { Start-Sleep -Seconds $ProbeIntervalSec }
         $code = Get-EndpointStatusCode -Url "https://settle.kybuilds.com/healthz" -TimeoutSec 4
         if ($code -eq "200") {
             $publicHealthy = $true
@@ -207,40 +285,57 @@ function Invoke-StartPublic {
         }
     }
 
-    if ($publicHealthy) {
-        Write-Host "`n=======================================================" -ForegroundColor Green
-        Write-Host " [SUCCESS] SettleTable Live Public Service is Active" -ForegroundColor Green
-        Write-Host "=======================================================" -ForegroundColor Green
-        Write-Host " Public URL:     https://settle.kybuilds.com" -ForegroundColor White
-        Write-Host " Local URL:      http://127.0.0.1:8000" -ForegroundColor White
-        Write-Host " Tunnel Status:  Connected (settletable-pilot via Cloudflare)" -ForegroundColor Green
-        Write-Host " Data Volume:    settletable_data (Production)" -ForegroundColor White
-        Write-Host "=======================================================`n" -ForegroundColor Green
-        return $true
-    } else {
-        Write-Host "`n[WARNING] Stack started but public endpoint did not return 200 within 15s." -ForegroundColor Yellow
-        Write-Host "Check tunnel logs: docker logs --tail 30 settletable_tunnel" -ForegroundColor Yellow
+    if (-not $publicHealthy) {
+        Write-Host "`n[ERROR] Cloudflare tunnel container is running, but public HTTPS endpoint did not return 200 within ${MaxProbeAttempts}s." -ForegroundColor Red
+        Write-Host "Check tunnel logs with: $DockerCmd logs --tail 30 settletable_tunnel" -ForegroundColor Yellow
         return $false
     }
+
+    Write-Host "`n=======================================================" -ForegroundColor Green
+    Write-Host " [SUCCESS] SettleTable Live Public Service is Active" -ForegroundColor Green
+    Write-Host "=======================================================" -ForegroundColor Green
+    Write-Host " Public URL:     https://settle.kybuilds.com" -ForegroundColor White
+    Write-Host " Local URL:      http://127.0.0.1:8000" -ForegroundColor White
+    Write-Host " Tunnel Status:  Connected (settletable-pilot via Cloudflare)" -ForegroundColor Green
+    Write-Host " Data Volume:    settletable_data (Production)" -ForegroundColor White
+    Write-Host "=======================================================`n" -ForegroundColor Green
+    return $true
 }
 
 function Invoke-StopPublic {
     if (-not (Assert-DockerRunning)) { return $false }
 
     Write-Host "`n[1/2] Stopping Cloudflare Named Tunnel connector..." -ForegroundColor Cyan
-    & docker compose stop cloudflared
+    $stopOut = & $DockerCmd compose stop cloudflared 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Failed to execute docker compose stop cloudflared." -ForegroundColor Red
+        if ($stopOut) { Write-Host ($stopOut -join "`n") -ForegroundColor Yellow }
+        return $false
+    }
 
-    Write-Host "[2/2] Verifying public ingress deactivation..." -ForegroundColor Cyan
+    # Verify connector container is actually stopped
+    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
+    if ($tunnelRunning.Count -gt 0) {
+        Write-Host "[ERROR] Cloudflare tunnel container settletable_tunnel is still running after stop command." -ForegroundColor Red
+        return $false
+    }
+
+    Write-Host "[2/2] Checking public ingress deactivation..." -ForegroundColor Cyan
     $statusCode = Get-EndpointStatusCode -Url "https://settle.kybuilds.com/healthz" -TimeoutSec 5
-    $disconnected = ($statusCode -eq "530" -or $statusCode -eq "000" -or $statusCode -eq "502")
 
     Write-Host "`n=======================================================" -ForegroundColor Yellow
     Write-Host " [STATUS] Cloudflare Public Ingress Stopped" -ForegroundColor Yellow
     Write-Host "=======================================================" -ForegroundColor Yellow
-    if ($disconnected) {
-        Write-Host " Public Endpoint: DISCONNECTED (HTTP $statusCode / Tunnel inactive verified)" -ForegroundColor Green
+    Write-Host " Host Connector:  STOPPED (settletable_tunnel verified inactive)" -ForegroundColor Green
+
+    if ($statusCode -eq "530") {
+        Write-Host " Public Edge:     DISCONNECTED (Cloudflare edge confirmed: HTTP 530 Tunnel Inactive)" -ForegroundColor Green
+    } elseif ($statusCode -eq "000") {
+        Write-Host " Public Edge:     UNREACHABLE (Network timeout / connection closed)" -ForegroundColor Gray
+    } elseif ($statusCode -eq "200") {
+        Write-Host " Public Edge:     WARNING: Edge returned HTTP 200 (stale CDN cache or routing in-flight)" -ForegroundColor Yellow
     } else {
-        Write-Host " Public Endpoint: Connector stopped (HTTP $statusCode / Edge propagation pending)" -ForegroundColor Yellow
+        Write-Host " Public Edge:     HTTP $statusCode" -ForegroundColor Yellow
     }
 
     # Verify local app state
@@ -258,12 +353,27 @@ function Invoke-StopAll {
     if (-not (Assert-DockerRunning)) { return $false }
 
     Write-Host "`nStopping all SettleTable containers (preserving all volumes and data)..." -ForegroundColor Cyan
-    & docker compose --profile with-cloudflared stop
+    $stopOut = & $DockerCmd compose --profile with-cloudflared stop 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Failed to execute docker compose stop." -ForegroundColor Red
+        if ($stopOut) { Write-Host ($stopOut -join "`n") -ForegroundColor Yellow }
+        return $false
+    }
+
+    # Verify containers are actually stopped
+    $appRunning = @(Get-RunningContainerIds -FilterName "settletable_app")
+    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
+    if ($appRunning.Count -gt 0 -or $tunnelRunning.Count -gt 0) {
+        Write-Host "[ERROR] One or more SettleTable containers are still running after stop command." -ForegroundColor Red
+        if ($appRunning.Count -gt 0) { Write-Host "  - settletable_app is still running" -ForegroundColor Red }
+        if ($tunnelRunning.Count -gt 0) { Write-Host "  - settletable_tunnel is still running" -ForegroundColor Red }
+        return $false
+    }
 
     Write-Host "`n=======================================================" -ForegroundColor Cyan
     Write-Host " [STATUS] All SettleTable Containers Stopped" -ForegroundColor Cyan
     Write-Host "=======================================================" -ForegroundColor Cyan
-    Write-Host " Container State: All containers stopped cleanly" -ForegroundColor White
+    Write-Host " Container State: All containers stopped cleanly and verified inactive" -ForegroundColor White
     Write-Host " Data Safety:     All Docker volumes, SQLite databases, and receipt" -ForegroundColor Green
     Write-Host "                  photos remain intact and fully preserved." -ForegroundColor Green
     Write-Host " Reminder:        If you made real-meal changes during this session," -ForegroundColor Yellow
@@ -281,7 +391,8 @@ function Invoke-ShowStatus {
     Write-Host "=======================================================" -ForegroundColor Cyan
 
     Write-Host "Container Instances:" -ForegroundColor White
-    & docker compose --profile with-cloudflared ps
+    $psOut = & $DockerCmd compose --profile with-cloudflared ps 2>&1
+    if ($psOut) { Write-Host ($psOut -join "`n") }
 
     Write-Host "`nEndpoint Health Probes:" -ForegroundColor White
     $localCode = Get-EndpointStatusCode -Url "http://127.0.0.1:8000/healthz" -TimeoutSec 2
@@ -296,6 +407,8 @@ function Invoke-ShowStatus {
         Write-Host "  * Public Edge (settle.kybuilds.com):  ACTIVE / REACHABLE (200 OK)" -ForegroundColor Green
     } elseif ($publicCode -eq "530") {
         Write-Host "  * Public Edge (settle.kybuilds.com):  DISCONNECTED (HTTP 530 Tunnel Offline)" -ForegroundColor Gray
+    } elseif ($publicCode -eq "000") {
+        Write-Host "  * Public Edge (settle.kybuilds.com):  UNREACHABLE (Network Timeout / Offline)" -ForegroundColor Gray
     } else {
         Write-Host "  * Public Edge (settle.kybuilds.com):  HTTP $publicCode" -ForegroundColor Yellow
     }
@@ -350,16 +463,16 @@ function Show-InteractiveMenu {
 Push-Location $RepoRoot
 try {
     switch ($Action.Trim().ToLower()) {
-        "start-local"   { $ok = Invoke-StartLocal; if (-not $ok) { exit 1 } }
-        "local"         { $ok = Invoke-StartLocal; if (-not $ok) { exit 1 } }
-        "start-public"  { $ok = Invoke-StartPublic; if (-not $ok) { exit 1 } }
-        "public"        { $ok = Invoke-StartPublic; if (-not $ok) { exit 1 } }
-        "stop-public"   { $ok = Invoke-StopPublic; if (-not $ok) { exit 1 } }
-        "disconnect"    { $ok = Invoke-StopPublic; if (-not $ok) { exit 1 } }
-        "stop-all"      { $ok = Invoke-StopAll; if (-not $ok) { exit 1 } }
-        "stop"          { $ok = Invoke-StopAll; if (-not $ok) { exit 1 } }
-        "status"        { $ok = Invoke-ShowStatus; if (-not $ok) { exit 1 } }
-        "info"          { $ok = Invoke-ShowStatus; if (-not $ok) { exit 1 } }
+        "start-local"   { $ok = Invoke-StartLocal; if ($ok -ne $true) { exit 1 } }
+        "local"         { $ok = Invoke-StartLocal; if ($ok -ne $true) { exit 1 } }
+        "start-public"  { $ok = Invoke-StartPublic; if ($ok -ne $true) { exit 1 } }
+        "public"        { $ok = Invoke-StartPublic; if ($ok -ne $true) { exit 1 } }
+        "stop-public"   { $ok = Invoke-StopPublic; if ($ok -ne $true) { exit 1 } }
+        "disconnect"    { $ok = Invoke-StopPublic; if ($ok -ne $true) { exit 1 } }
+        "stop-all"      { $ok = Invoke-StopAll; if ($ok -ne $true) { exit 1 } }
+        "stop"          { $ok = Invoke-StopAll; if ($ok -ne $true) { exit 1 } }
+        "status"        { $ok = Invoke-ShowStatus; if ($ok -ne $true) { exit 1 } }
+        "info"          { $ok = Invoke-ShowStatus; if ($ok -ne $true) { exit 1 } }
         "help"          { Get-Help $MyInvocation.MyCommand.Path -Detailed; exit 0 }
         "-h"            { Get-Help $MyInvocation.MyCommand.Path -Detailed; exit 0 }
         "/?"            { Get-Help $MyInvocation.MyCommand.Path -Detailed; exit 0 }
