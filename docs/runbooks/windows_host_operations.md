@@ -206,6 +206,37 @@ docker compose run --rm settletable python tools/bootstrap_meal.py init-db --db 
 ```
 This initializes the database schema, enables WAL mode, and stamps the volume identity marker in isolation, allowing the baseline quiescent backup to succeed.
 
+#### 6.1.5 Encrypted Cloud Mirroring with 7-Zip (Google Drive / Cloud Storage)
+
+For real dining events, backups contain sensitive receipts, participant names, and settlement figures. To protect data privacy when mirroring to third-party cloud storage (such as Google Drive streamed virtual drive):
+
+1. **Local Quiescence First**: SettleTable generates the snapshot and manifest on local NTFS storage first (`<HOST_BACKUP_DIR>`). Live SQLite WAL files are never synchronized directly to the cloud.
+2. **Strict Single-Snapshot Scoping**: Identify the exact timestamp `<timestamp>` from `manifest_<timestamp>.json`. The backup archive must contain only the files corresponding to that specific snapshot:
+   - `manifest_<timestamp>.json`
+   - `settletable_<timestamp>.sqlite`
+   - `receipt_photos_<timestamp>/`
+   Do not use broad wildcards that could accidentally combine files from different dining events.
+3. **AES-256 Header Encryption (`-mhe=on`)**: Using 7-Zip (`7z.exe`), create a uniquely named `.7z` archive placed outside the source directory:
+   ```powershell
+   # Move into the local backup directory containing the snapshot:
+   cd "<HOST_BACKUP_DIR>"
+
+   # Create the encrypted archive with header encryption (file names, sizes, and structure encrypted):
+   # Note: The archive path MUST precede the input files in 7-Zip command syntax:
+   # 7z a [switches] <archive_name> <file_names...>
+   & "<7Z_PATH>" a -t7z -mhe=on -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" "manifest_<timestamp>.json" "settletable_<timestamp>.sqlite" "receipt_photos_<timestamp>"
+   ```
+   *Security Note on Passphrase*: Passing `-p` without an inline password instructs 7-Zip to securely prompt for the passphrase interactively on console (`Enter password (will not be echoed)`). The passphrase is never exposed in process arguments, logs, scripts, `.env`, or git history.
+4. **Archive Integrity Test**:
+   ```powershell
+   & "<7Z_PATH>" t -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z"
+   ```
+5. **Copy to Google Drive**:
+   ```powershell
+   Copy-Item "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" -Destination "<GDRIVE_BACKUPS_DIR>\"
+   ```
+6. **Confirm Cloud Sync**: Confirm that the Google Drive for desktop taskbar notification area displays "Everything is up to date" (or inspect DriveFS queue) before shutting down the host machine.
+
 ### 6.2 Explicit Stopped-Container Backup (Recommended Gold Standard)
 
 To guarantee 100% quiescence with zero in-flight uploads:
@@ -255,6 +286,25 @@ To guarantee 100% quiescence with zero in-flight uploads:
    ```
 5. **Run Deployment Smoke Checks**:
    ```powershell
+   python tools/deployment_smoke_check.py --url http://127.0.0.1:8000
+   ```
+
+#### 6.3.1 Restoring from an Encrypted Cloud Archive
+
+If restoring from Google Drive or offsite encrypted cloud storage:
+1. **Retrieve Cloud Archive**: Copy `settletable_backup_<timestamp>.7z` from `<GDRIVE_BACKUPS_DIR>` to a clean local staging directory: `<STAGING_DIR>`.
+2. **Decrypt with 7-Zip**:
+   ```powershell
+   & "<7Z_PATH>" x -p "<STAGING_DIR>\settletable_backup_<timestamp>.7z" -o"<STAGING_DIR>\decrypted\" -y
+   ```
+   *(Enter your master passphrase when prompted; files are decrypted into `<STAGING_DIR>\decrypted\` with original directory structure).*
+3. **Execute Verified Restore**:
+   ```powershell
+   docker compose run --rm -v "<STAGING_DIR>\decrypted:/backups" settletable python tools/backup_restore.py restore --manifest /backups/manifest_<timestamp>.json --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
+   ```
+4. **Restart & Smoke Check**:
+   ```powershell
+   docker compose start settletable
    python tools/deployment_smoke_check.py --url http://127.0.0.1:8000
    ```
 
@@ -363,11 +413,27 @@ Use this checklist during the first authorized invited-friends dining session:
   - Review the real-time financial breakdown, multi-payer contributions, and suggested peer settlements.
 
 ### Post-Event Closure (End of Evening)
-- [ ] 11. **Quiescent Backup with Offsite Mirror**:
-  ```powershell
-  docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" -v "<HOST_OFFSITE_DIR>:/offsite" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups --copy-to /offsite
-  ```
-  *Verify host cloud sync client shows synchronized status for offsite files.*
+- [ ] 11. **Quiescent Backup & Encrypted Google Drive Cloud Mirror**:
+  - *11a. Local Quiescent Snapshot*:
+    ```powershell
+    docker compose run --rm -v "<HOST_BACKUP_DIR>:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+    ```
+  - *11b. Create Encrypted Archive (Single-Snapshot Scoped)*:
+    Identify the snapshot timestamp `<timestamp>` from `manifest_<timestamp>.json` and archive strictly its corresponding files:
+    ```powershell
+    cd "<HOST_BACKUP_DIR>"
+    & "<7Z_PATH>" a -t7z -mhe=on -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" "manifest_<timestamp>.json" "settletable_<timestamp>.sqlite" "receipt_photos_<timestamp>"
+    ```
+    *(Type your strong master encryption passphrase when prompted; never write it to scripts or `.env`).*
+  - *11c. Archive Integrity Verification*:
+    ```powershell
+    & "<7Z_PATH>" t -p "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z"
+    ```
+  - *11d. Copy to Google Drive*:
+    ```powershell
+    Copy-Item "<ARCHIVE_DIR>\settletable_backup_<timestamp>.7z" -Destination "<GDRIVE_BACKUPS_DIR>\"
+    ```
+    *Verify Google Drive for desktop taskbar notification area displays "Everything is up to date".*
 - [ ] 12. **Lifecycle Decision**:
   - Either leave running for mostly-available post-dinner review (`restart: unless-stopped`), OR
   - Cleanly deactivate public ingress (`docker compose stop cloudflared`).
