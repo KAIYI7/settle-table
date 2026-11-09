@@ -51,7 +51,7 @@ When executed, the runner initializes the WSGI application and displays:
  SettleTable - Local Browser MVP Demo Server
 ============================================================
  URL:         http://127.0.0.1:8000
- Database:    C:\LKY_Project\TabWise\.local\demo.sqlite
+ Database:    <REPO_ROOT>/.local/demo.sqlite
  Architecture: Zero-dependency WSGI + SQLite WAL + Vanilla ES2022
 ============================================================
  Press Ctrl+C to stop.
@@ -334,7 +334,7 @@ During autonomous integration, attempting `gh pr create` resulted in:
 gh : The term 'gh' is not recognized as the name of a cmdlet, function, script file, or operable program.
 ```
 - **Root Cause**: GitHub CLI (`gh.exe`) is not installed on this host environment.
-- **Repository Visibility**: `KAIYI7/settle-table` is a private repository. Git authentication uses the Windows Git Credential Manager (`credential.helper = manager`), which secures git operations (`git push`, `git fetch`) without exposing a reusable personal access token to shell scripts or unauthenticated `curl` calls.
+- **Repository Visibility**: `KAIYI7/settle-table` is a public repository (intentionally updated to public for recruiter evaluation and portfolio demonstration by Product Owner decision; All Rights Reserved preserved). Git authentication uses the Windows Git Credential Manager (`credential.helper = manager`), which secures git operations (`git push`, `git fetch`) without exposing a reusable personal access token to shell scripts or unauthenticated `curl` calls.
 
 ### 8.2 Reliable Governance Fallback Protocol
 To preserve strict independent review, CI verification, and merge traceability when GitHub CLI is unavailable:

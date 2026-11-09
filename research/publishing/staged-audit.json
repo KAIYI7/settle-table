@@ -1,23 +1,98 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 2,
-  "staged_bytes_excluding_report": 350153,
+  "staged_files": 18,
+  "staged_bytes_excluding_report": 1832218,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 342,
+  "tracked_files": 354,
   "untracked_files": 0,
   "ignored_files": 27901,
-  "valid_json_files": 0,
+  "valid_json_files": 1,
   "findings": [],
   "files": [
     {
+      "path": ".github/workflows/pages.yml",
+      "bytes": 1001,
+      "sha256": "7b43868c6a91eafc61ebe3b73158c5f6762a55f96429a01433d34ec18ce970d2"
+    },
+    {
       "path": "PROJECT_STATUS.md",
-      "bytes": 166010,
-      "sha256": "583f237ac3015079dd81711a671fbb2ceef4da8ce9a2731e227392144d93ad3c"
+      "bytes": 169211,
+      "sha256": "e2555ea271619f437ef3aa8850637360be3cfb517a87524cfaca660a00b25bee"
+    },
+    {
+      "path": "README.md",
+      "bytes": 21698,
+      "sha256": "1b7b42ee56bf864763786ce8aa57c693377ea9b4ffc68c966984fbb7f5b0bd0f"
+    },
+    {
+      "path": "docs/.nojekyll",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "path": "docs/agents/phase-transitions.md",
-      "bytes": 184143,
-      "sha256": "10f8d800759a0330f405a93bbc2bbc7726f4f61586c6294807964440a90c8cd8"
+      "bytes": 188796,
+      "sha256": "94013ce0fd3bc5ccde1eb59e19e8393e72cc40bc457369cfeeea133fceef78d1"
+    },
+    {
+      "path": "docs/assets/demo/01-room-setup.png",
+      "bytes": 149503,
+      "sha256": "5938d20c492c79ec36dbe8333aa8ef865eba740ac3ecc9b8a40225322ee15dc5"
+    },
+    {
+      "path": "docs/assets/demo/02-candidate-review.png",
+      "bytes": 197420,
+      "sha256": "6f56199fbbb283ea8ca91eb3e400aa5b6510564b095e056fa0329f3027defeab"
+    },
+    {
+      "path": "docs/assets/demo/03-portion-allocation.png",
+      "bytes": 206493,
+      "sha256": "f32bece4f164ba9166a29f06815eaf6e9d43f8c8516cfa3063299ab7232435d1"
+    },
+    {
+      "path": "docs/assets/demo/04-mobile-diner-view.png",
+      "bytes": 103415,
+      "sha256": "0410348bbe74d105348cafdf6b6107e4bfcfb76ecab39854e26c2cdd204e2bd6"
+    },
+    {
+      "path": "docs/assets/demo/05-payer-reconciliation.png",
+      "bytes": 200487,
+      "sha256": "0cc4dca98810c1c795fad723059b8dd053971f217aa06555a7f693efa48c8ae2"
+    },
+    {
+      "path": "docs/assets/demo/06-peer-settlement.png",
+      "bytes": 206157,
+      "sha256": "c4dba472190df2618901215fd98f7beb72999e4cbf63a593e5ccdd506469162f"
+    },
+    {
+      "path": "docs/assets/demo/walkthrough.gif",
+      "bytes": 298790,
+      "sha256": "f2b54d1b9859746ac0acb6d5abda0c8756d307b2389b5b495b88af8510a3ce3d"
+    },
+    {
+      "path": "docs/assets/style.css",
+      "bytes": 9701,
+      "sha256": "303e799c06851bad8cf4213f58ba2731055c25e3e269348ae08ae27b558876eb"
+    },
+    {
+      "path": "docs/index.html",
+      "bytes": 29713,
+      "sha256": "ad56a05380c48d2d103d8a36b7e3d53965345c7a0790ece9ee9a6d34e2efc263"
+    },
+    {
+      "path": "docs/uat-handover.md",
+      "bytes": 25070,
+      "sha256": "b5f4d86fe9a0c632d2d1e32e28e655373010896ad930209487ff6e5f048e1e6c"
+    },
+    {
+      "path": "tools/audit_repository.py",
+      "bytes": 4916,
+      "sha256": "24116994b01cb632691cb93355d3cc8f8fde0c135f625c56a00766b156a4bd26"
+    },
+    {
+      "path": "tools/capture_recruiter_demo.mjs",
+      "bytes": 19847,
+      "sha256": "13641ad786a78db06c88046e22a7f07f43e21532a2cb0fa7cd9ff20b4c301130"
     }
   ]
 }
