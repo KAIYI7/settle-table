@@ -1,7 +1,7 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
   "staged_files": 2,
-  "staged_bytes_excluding_report": 45779,
+  "staged_bytes_excluding_report": 350153,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 342,
   "untracked_files": 0,
@@ -10,14 +10,14 @@
   "findings": [],
   "files": [
     {
-      "path": "tests/test_settletable_control.py",
-      "bytes": 18280,
-      "sha256": "f9d104cf6d161ac4ee3be81f686608067f3bc3d5858ff330a24c2218c74f180b"
+      "path": "PROJECT_STATUS.md",
+      "bytes": 166010,
+      "sha256": "583f237ac3015079dd81711a671fbb2ceef4da8ce9a2731e227392144d93ad3c"
     },
     {
-      "path": "tools/SettleTable-Control.ps1",
-      "bytes": 27499,
-      "sha256": "82061424c09b95c75379472acc276382d6dd8a2dd841de148066fb796b7f1ed0"
+      "path": "docs/agents/phase-transitions.md",
+      "bytes": 184143,
+      "sha256": "10f8d800759a0330f405a93bbc2bbc7726f4f61586c6294807964440a90c8cd8"
     }
   ]
 }
