@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SettleTable — Deterministic Dining Bill Apportionment MVP</title>
+  <meta name="description" content="Deterministic, cent-conserving dining bill apportionment MVP with server-side offline receipt OCR, real-time multi-diner collaboration, and verified encrypted disaster recovery.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍽️</text></svg>">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header>
+    <div class="container nav-container">
+      <a href="#" class="brand">
+        <div class="brand-icon">🍽️</div>
+        <span>SettleTable</span>
+      </a>
+      <nav aria-label="Main Navigation">
+        <ul class="nav-links">
+          <li><a href="#problem">The Problem</a></li>
+          <li><a href="#walkthrough">Demonstration</a></li>
+          <li><a href="#engineering">Engineering</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#verification">Verification</a></li>
+        </ul>
+      </nav>
+      <a href="https://github.com/KAIYI7/settle-table" class="btn-github" target="_blank" rel="noopener noreferrer">
+        <svg height="18" viewBox="0 0 16 16" width="18" fill="currentColor" aria-hidden="true">
+          <path d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+        </svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main class="container">
+    <section class="hero">
+      <div class="badge-row">
+        <span class="pill-badge badge-emerald">✓ 371/371 Tests Passing</span>
+        <span class="pill-badge badge-indigo">✓ 13/13 Smoke Checks</span>
+        <span class="pill-badge badge-amber">Stage C1-B Real-Meal Pilot Accepted</span>
+      </div>
+
+      <h1>Deterministic Dining Bill Apportionment</h1>
+      <p class="hero-subtitle">
+        A self-hosted, mathematical expense engine with 100% offline server-side OCR, zero-install mobile guest collaboration, multi-payer cashier reconciliation, and verified encrypted backups.
+      </p>
+
+      <div class="cta-row">
+        <a href="#walkthrough" class="btn btn-primary">
+          <span>Explore Walkthrough</span>
+          <span aria-hidden="true">↓</span>
+        </a>
+        <a href="https://github.com/KAIYI7/settle-table" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+          <span>View Source Repository</span>
+          <span aria-hidden="true">→</span>
+        </a>
+      </div>
+
+      <div class="live-app-notice" role="note">
+        <span style="font-size: 1.25rem;">⚡</span>
+        <div>
+          <strong>On-Demand Live Deployment:</strong>
+          The production application is accessible at <a href="https://settle.kybuilds.com" target="_blank" rel="noopener noreferrer"><code>https://settle.kybuilds.com</code></a> via Cloudflare Named Tunnel during scheduled dining events and supervised tests. When the Windows host connector is offline, Cloudflare gracefully returns <code>HTTP 530 / Error 1033</code> (Tunnel Disconnected), preserving privacy and host resources.
+        </div>
+      </div>
+    </section>
+
+    <!-- The Problem Section -->
+    <section id="problem">
+      <h2 class="section-title">The Problem We Solved</h2>
+      <p class="section-desc">Why manual dining bill splitting and generic consumer apps fall short.</p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon">🧮</div>
+          <h3>Penny Drift &amp; Rounding Errors</h3>
+          <p>
+            Restaurant bills combine discounts, 10% service charges, 6%/8% SST tax, and Bank Negara Malaysia (BNM) 5-sen cash rounding. Floating-point math and equal tax splits cause individual diner shares to diverge from the physical cashier receipt total.
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔒</div>
+          <h3>Cloud Privacy Exposure</h3>
+          <p>
+            Existing AI receipt apps upload diners' raw receipts and images to third-party proprietary vision APIs, exposing dining locations, dates, timestamps, itemized habits, and payment metadata to external cloud vendors.
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📱</div>
+          <h3>Guest Install Friction</h3>
+          <p>
+            Requiring every dining friend at the table to download an app from an app store, register a user account, and configure payment cards creates immediate friction and social hesitation at the end of a meal.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recruiter Demonstration & Walkthrough -->
+    <section id="walkthrough">
+      <h2 class="section-title">Recruiter Demonstration: Authentic Application Walkthrough</h2>
+      <p class="section-desc">
+        Every screen capture below originates from automated Chrome CDP runs against the working SettleTable application using isolated synthetic test fixtures.
+      </p>
+
+      <!-- Walkthrough Animated Summary -->
+      <div class="demo-step" style="margin-bottom: 36px;">
+        <div class="demo-step-header">
+          <div class="step-num-title">
+            <span class="step-badge" style="background: var(--emerald);">GIF</span>
+            <span class="step-title">Automated End-to-End Journey Overview</span>
+          </div>
+          <span style="font-size: 0.85rem; color: var(--text-dim);">Synthetic Data • Real Docker App • 6 Stages</span>
+        </div>
+        <div style="padding: 24px; text-align: center;">
+          <img src="assets/demo/walkthrough.gif" alt="Animated SettleTable Walkthrough Overview" style="max-width: 100%; height: auto; border-radius: var(--radius-sm); border: 1px solid var(--border);" loading="lazy">
+        </div>
+      </div>
+
+      <div class="walkthrough-container">
+
+        <!-- Step 1 -->
+        <article class="demo-step">
+          <div class="demo-step-header">
+            <div class="step-num-title">
+              <span class="step-badge">Stage 1</span>
+              <h3 class="step-title">Organizer Room Setup &amp; Ingress Boundary</h3>
+            </div>
+            <span style="font-size: 0.85rem; color: var(--text-dim);">Desktop View (1280x820)</span>
+          </div>
+          <div class="demo-step-content">
+            <div class="demo-media">
+              <img src="assets/demo/01-room-setup.png" alt="SettleTable Organizer Room Setup" loading="lazy">
+            </div>
+            <div class="demo-text">
+              <h4>Ephemeral Setup &amp; Loopback Protection</h4>
+              <p>
+                In production, public external clients cannot invoke the bootstrap endpoint. The organizer meal room is initialized via administrative host CLI (<code>tools/bootstrap_meal.py</code>), which generates a single-use setup link with an ephemeral claim token.
+              </p>
+              <p>
+                Redeeming this link sets a secure, encrypted <code>HttpOnly</code> session cookie without exposing credentials in server access logs or terminal history.
+              </p>
+              <div class="highlight-box">
+                <strong>Key Safety Guard:</strong> External <code>POST /api/meals/{id}/bootstrap</code> is blocked by ingress WSGI guards; room creation is restricted to the host CLI.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 2 -->
+        <article class="demo-step">
+          <div class="demo-step-header">
+            <div class="step-num-title">
+              <span class="step-badge">Stage 2</span>
+              <h3 class="step-title">Server-Side Offline OCR &amp; Malaysian Parser</h3>
+            </div>
+            <span style="font-size: 0.85rem; color: var(--text-dim);">RapidOCR ONNX • 0 Third-Party API Calls</span>
+          </div>
+          <div class="demo-step-content reverse">
+            <div class="demo-media">
+              <img src="assets/demo/02-candidate-review.png" alt="SettleTable Candidate Review" loading="lazy">
+            </div>
+            <div class="demo-text">
+              <h4>Air-Gapped Optical Recognition</h4>
+              <p>
+                When a receipt photo is uploaded, optical character recognition executes entirely on the host server CPU using RapidOCR (<code>PP-OCRv6</code>) via ONNX Runtime. Zero image payloads are sent to third-party vision models.
+              </p>
+              <p>
+                The domain parser inspects line tokens to identify Malaysian dining patterns: 10% Service Charge, 6% Service Tax (SST), item quantities, and BNM 5-sen rounding.
+              </p>
+              <div class="highlight-box">
+                <strong>Staged Candidate Guard:</strong> Extracted data remains in an uncommitted staged candidate buffer until the organizer explicitly reviews, corrects, and confirms the items against the physical bill.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 3 -->
+        <article class="demo-step">
+          <div class="demo-step-header">
+            <div class="step-num-title">
+              <span class="step-badge">Stage 3</span>
+              <h3 class="step-title">Granular Portion Allocation</h3>
+            </div>
+            <span style="font-size: 0.85rem; color: var(--text-dim);">Rational Fraction Portion Sharing</span>
+          </div>
+          <div class="demo-step-content">
+            <div class="demo-media">
+              <img src="assets/demo/03-portion-allocation.png" alt="SettleTable Portion Allocation" loading="lazy">
+            </div>
+            <div class="demo-text">
+              <h4>Flexible Item Sharing</h4>
+              <p>
+                Diners often share dishes unequally (e.g., two people sharing a dish, or three people splitting a shared pitcher). SettleTable models portions using exact rational numbers (<code>Fraction</code>).
+              </p>
+              <p>
+                Organizers can claim portions for themselves or assign portions on behalf of tablemates using intuitive touch-friendly steppers.
+              </p>
+              <div class="highlight-box">
+                <strong>Complimentary Items:</strong> RM0.00 items (such as ice water or complimentary appetizers) are supported cleanly without triggering false "unclaimed item" validation blockers.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 4 -->
+        <article class="demo-step">
+          <div class="demo-step-header">
+            <div class="step-num-title">
+              <span class="step-badge">Stage 4</span>
+              <h3 class="step-title">Zero-Install Mobile Diner Interaction</h3>
+            </div>
+            <span style="font-size: 0.85rem; color: var(--text-dim);">Mobile Viewport (390x844) • URL Fragment Tokens</span>
+          </div>
+          <div class="demo-step-content reverse">
+            <div class="demo-media" style="text-align: center;">
+              <img src="assets/demo/04-mobile-diner-view.png" alt="SettleTable Mobile Diner View" style="max-width: 320px; margin: 0 auto;" loading="lazy">
+            </div>
+            <div class="demo-text">
+              <h4>Zero-Friction Guest Participation</h4>
+              <p>
+                Diners join by tapping an invitation link sent via private chat (e.g., WhatsApp, Telegram). By placing the single-use token in the URL fragment (<code>/#/invite/&lt;token&gt;</code>), credentials never appear in HTTP request lines, reverse proxy access logs, or CDN traces.
+              </p>
+              <p>
+                Diners immediately see their claimed portions, table progress, and real-time apportioned total on a responsive interface meeting 44px WCAG mobile touch standards.
+              </p>
+              <div class="highlight-box">
+                <strong>Zero App Store Requirement:</strong> Pure Vanilla ES2022 with zero frontend build dependencies runs instantly in Chrome, Safari, Edge, and Firefox.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 5 -->
+        <article class="demo-step">
+          <div class="demo-step-header">
+            <div class="step-num-title">
+              <span class="step-badge">Stage 5</span>
+              <h3 class="step-title">Multi-Payer Cashier Reconciliation</h3>
+            </div>
+            <span style="font-size: 0.85rem; color: var(--text-dim);">Exact Net Balances (Paid − Consumed)</span>
+          </div>
+          <div class="demo-step-content">
+            <div class="demo-media">
+              <img src="assets/demo/05-payer-reconciliation.png" alt="SettleTable Multi-Payer Reconciliation" loading="lazy">
+            </div>
+            <div class="demo-text">
+              <h4>Cashier Bill vs. Individual Portions</h4>
+              <p>
+                Real dining often involves multiple payers: one friend pays cash, another covers part on credit card, or an organizer pays the entire bill.
+              </p>
+              <p>
+                SettleTable decouples restaurant cashier payments from diner consumption, computing exact net balances:
+                $$\text{Net Balance} = \text{Amount Paid to Cashier} - \text{Amount Consumed}$$
+              </p>
+              <div class="highlight-box">
+                <strong>Mathematical Cent Conservation:</strong> Largest-remainder apportionment guarantees $\sum \text{Net Balances} = \text{RM0.00}$ to the exact cent, with zero floating-point accumulation errors.
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Step 6 -->
+        <article class="demo-step">
+          <div class="demo-step-header">
+            <div class="step-num-title">
+              <span class="step-badge">Stage 6</span>
+              <h3 class="step-title">Suggested Peer Settlement &amp; Payment Tracking</h3>
+            </div>
+            <span style="font-size: 0.85rem; color: var(--text-dim);">Greedy Minimum-Transfer Heuristic</span>
+          </div>
+          <div class="demo-step-content reverse">
+            <div class="demo-media">
+              <img src="assets/demo/06-peer-settlement.png" alt="SettleTable Peer Settlement" loading="lazy">
+            </div>
+            <div class="demo-text">
+              <h4>Transparent Repayment Tracking</h4>
+              <p>
+                The settlement engine calculates direct peer-to-peer reimbursement suggestions (e.g., "Sam pays Alex RM 14.18"). Diners can record full or partial repayments with reference notes (e.g., DuitNow QR, Touch 'n Go eWallet, bank transfer).
+              </p>
+              <p>
+                The room displays live remaining balances and updates dynamically until all obligations are fulfilled and the room reaches <em>"✓ All Debts Settled"</em> status.
+              </p>
+              <div class="highlight-box">
+                <strong>Audited Reversals:</strong> If an erroneous transfer is logged, it can be reversed with an immutable strikethrough audit trail, automatically recalculating outstanding balances.
+              </div>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- Key Backend Engineering Achievements -->
+    <section id="engineering">
+      <h2 class="section-title">Key Backend Engineering Achievements</h2>
+      <p class="section-desc">Rigorous standards applied to domain logic, security, and data reliability.</p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon">📐</div>
+          <h3>Integer Minor-Unit Engine</h3>
+          <p>
+            Implemented in pure standard-library Python (<code>settletable/calculation.py</code>). Operates strictly on integer minor units (<code>sen</code>) and rational fractions (<code>Fraction</code>). Largest-remainder apportionment (<code>tabwise-apportion-v1</code>) guarantees exact cent conservation across discounts, tax, and rounding.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>Local CPU Optical Engine</h3>
+          <p>
+            Standardized on RapidOCR with ONNX Runtime running on host CPU cores. Includes a specialized heuristic parser tailored for Malaysian tax invoices, extracting 6%/8% SST, 10% Service Charge, and BNM cash rounding without requiring external network access or GPU acceleration.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🛡️</div>
+          <h3>Fragment Token Ingress</h3>
+          <p>
+            Diner invitation and organizer setup tokens are strictly confined to browser URL fragments (<code>#</code>), preventing token transmission across HTTP request lines or CDN access logs. Two-tier CSRF defenses (<code>X-SettleTable-Action: 1</code> and exact-origin checks) guard mutating endpoints.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">💾</div>
+          <h3>Crash-Consistent Storage</h3>
+          <p>
+            Receipt images are written atomically via temporary files before metadata commits to SQLite. Single-instance SQLite in WAL mode (<code>PRAGMA busy_timeout=5000</code>) ensures serialized writes and instant read concurrency with optimistic revision concurrency guards.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">📦</div>
+          <h3>Volume Isolation Defense</h3>
+          <p>
+            An in-container <code>.volume_identity</code> marker guard automatically aborts container startup if the mounted storage directory does not match the active target environment, strictly preventing cross-contamination between test fixtures and authoritative dining datasets.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🔐</div>
+          <h3>Encrypted Cloud Mirroring</h3>
+          <p>
+            Disaster recovery procedures combine quiescent SQLite write-lock snapshots, SHA-256 integrity manifests, and 7-Zip AES-256 header encryption (<code>7z -mhe=on</code>). Backups are verified bit-for-bit and mirrored to Google Drive with confirmed cloud durability.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture & Technology Stack -->
+    <section id="architecture">
+      <h2 class="section-title">Architecture &amp; Deployment Topology</h2>
+      <p class="section-desc">Single-instance container topology connected via Cloudflare Named Tunnel.</p>
+
+      <div class="arch-diagram-card">
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Untrusted Web Browsers                          │
+│        (Desktop Chrome/Edge, Mobile Android/iOS Safari Chrome)         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Public HTTPS (TLS Termination)
+                                    │ https://settle.kybuilds.com
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                    Cloudflare Global Edge Network                      │
+│  - Edge TLS handshake &amp; health probes                                  │
+│  - Cloudflare Named Tunnel router (settletable-pilot)                  │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ QUIC / HTTP/2 outbound tunnel
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│         Windows Host Docker Stack (settletable_tunnel: cloudflared)    │
+│  - cloudflare/cloudflared:2026.10.7 container                          │
+│  - Connects to internal bridge network (http://settletable:8000)       │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Internal Docker bridge network
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│             SettleTable Production WSGI (settletable_app)              │
+│  - Gunicorn / Python 3.14 WSGI Application (settletable.wsgi)         │
+│  - Ingress Guard: Blocks external /bootstrap; validates Host &amp; Origin  │
+│  - Transport: CSRF validation, HttpOnly session cookies, token logging │
+│  - Authority: Deterministic state transitions, role separation         │
+│  - Financial Core: Cent-conserving apportionment (tabwise-apportion-v1)│
+│  - Local OCR: RapidOCR ONNX CPU inference (zero third-party API calls) │
+└───────────────────┬────────────────────────────────┬───────────────────┘
+                    │                                │
+                    ▼                                ▼
+        ┌────────────────────────┐       ┌────────────────────────┐
+        │   SQLite WAL Database   │       │ Receipt Photo Storage  │
+        │ (/data/settletable.sqlite) │   │ (/data/receipt_photos) │
+        └────────────────────────┘       └────────────────────────┘
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Layer</th>
+              <th>Technology</th>
+              <th>Key Invariants &amp; Responsibilities</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Frontend</strong></td>
+              <td>Vanilla ES2022, CSS3, HTML5</td>
+              <td>Zero npm dependencies, 44px touch targets, container queries, <code>prefers-reduced-motion</code> compliance.</td>
+            </tr>
+            <tr>
+              <td><strong>Transport</strong></td>
+              <td>Python WSGI (<code>SettleTableApp</code>)</td>
+              <td>Origin validation, <code>X-SettleTable-Action: 1</code> header enforcement, loopback bootstrap protection, integer bounds (&le; 19 digits).</td>
+            </tr>
+            <tr>
+              <td><strong>Authority</strong></td>
+              <td>Standard Library Python</td>
+              <td>Deterministic state machine, optimistic revision locking, role separation (organizer vs diner).</td>
+            </tr>
+            <tr>
+              <td><strong>Financial Core</strong></td>
+              <td>Pure Python (<code>calculation.py</code>)</td>
+              <td>Integer minor units (<code>sen</code>), rational fractions (<code>Fraction</code>), largest-remainder cent conservation.</td>
+            </tr>
+            <tr>
+              <td><strong>Optical Engine</strong></td>
+              <td>RapidOCR, ONNX Runtime (CPU)</td>
+              <td>100% offline inference, Malaysian SST and BNM rounding heuristics, pre-cached model weights.</td>
+            </tr>
+            <tr>
+              <td><strong>Database</strong></td>
+              <td>SQLite in WAL Mode</td>
+              <td>Single-instance write serialization, crash consistency, busy timeout = 5000ms.</td>
+            </tr>
+            <tr>
+              <td><strong>Ingress &amp; Tunnel</strong></td>
+              <td>Cloudflare Named Tunnel</td>
+              <td>Zero open inbound firewall ports; on-demand edge routing to <code>settle.kybuilds.com</code>.</td>
+            </tr>
+            <tr>
+              <td><strong>Disaster Recovery</strong></td>
+              <td>7-Zip (LZMA2), Google DriveFS</td>
+              <td>Quiescent write-lock snapshots, SHA-256 manifests, AES-256 header encryption (<code>-mhe=on</code>), verified cloud parity.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Verified Testing & Pilot Evidence -->
+    <section id="verification">
+      <h2 class="section-title">Testing &amp; Verification Evidence</h2>
+      <p class="section-desc">Comprehensive test coverage spanning mathematical invariants, browser journeys, and real-world dining.</p>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-number">371</div>
+          <div class="stat-label">Automated Tests (100% Passing)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">13 / 13</div>
+          <div class="stat-label">Deployment Smoke Checks</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">7</div>
+          <div class="stat-label">Chrome CDP E2E Regressions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">100%</div>
+          <div class="stat-label">Mathematical Cent Conservation</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom: 24px;">
+        <h3>Stage C1-B Real-Meal Pilot Accepted</h3>
+        <p style="margin-bottom: 12px;">
+          On November 8, 2026, the Product Owner executed the inaugural real-world dining pilot on <code>https://settle.kybuilds.com</code> with invited friends:
+        </p>
+        <ul style="padding-left: 20px; color: var(--text-muted); line-height: 1.7;">
+          <li>Real Malaysian restaurant paper receipt uploaded and parsed via RapidOCR ONNX.</li>
+          <li>Fragment invitation links distributed to diners via private chat.</li>
+          <li>Diners joined from separate physical mobile phones over cellular data and claimed portions without errors.</li>
+          <li>Financial reconciliation verified: cashier payment matched individual portions to the exact sen.</li>
+          <li>Authoritative dataset quiesced and snapshotted; 7-Zip AES-256 header-encrypted archive created and verified durable in Google Drive.</li>
+          <li>Public ingress safely closed (returning HTTP 530 / Error 1033).</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Windows Host Lifecycle Controller</h3>
+        <p style="margin-bottom: 12px;">
+          To govern development and on-demand hosting reliably, SettleTable includes a dedicated PowerShell lifecycle controller (<code>tools/SettleTable-Control.ps1</code>):
+        </p>
+        <ul style="padding-left: 20px; color: var(--text-muted); line-height: 1.7;">
+          <li><code>start-local</code>: Starts app on <code>127.0.0.1:8000</code> with the Cloudflare tunnel verified inactive.</li>
+          <li><code>start-public</code>: Runs volume pre-flight, verifies local container health, starts tunnel, and asserts edge HTTPS connectivity.</li>
+          <li><code>stop-public</code>: Stops the Cloudflare tunnel while preserving local container access.</li>
+          <li><code>stop-all</code>: Cleanly stops application and tunnel, preserving all SQLite databases and Docker volumes.</li>
+          <li><code>status</code>: Displays container states, local health probes, and edge status without printing sensitive tokens.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p style="margin-bottom: 8px;">
+        <strong>SettleTable</strong> &mdash; Copyright &copy; 2026 Kai Yi. All Rights Reserved.
+      </p>
+      <p style="font-size: 0.85rem; color: var(--text-dim);">
+        Source-available on <a href="https://github.com/KAIYI7/settle-table" target="_blank" rel="noopener noreferrer">GitHub</a> for technical evaluation.
+        Third-party components retain their upstream licenses as documented in <a href="https://github.com/KAIYI7/settle-table/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">THIRD_PARTY_NOTICES.md</a>.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

@@ -36,14 +36,26 @@ def main():
         "literal_secret_assignment": r"(?i)(?:api_key|access_token|client_secret|password)\s*[=:]\s*[\"'][A-Za-z0-9_+/=-]{20,}[\"']",
     }
     forbidden_parts = {".local", ".venv", "venv", "node_modules", "__pycache__", "cache", ".cache", "build", "dist"}
-    forbidden_suffixes = {".sqlite", ".sqlite3", ".db", ".onnx", ".exe", ".dll", ".pyd", ".pem", ".key", ".pfx", ".p12", ".pt", ".pth", ".traineddata", ".safetensors", ".jpg", ".jpeg", ".png", ".webp", ".pdf"}
+    forbidden_suffixes = {".sqlite", ".sqlite3", ".db", ".onnx", ".exe", ".dll", ".pyd", ".pem", ".key", ".pfx", ".p12", ".pt", ".pth", ".traineddata", ".safetensors", ".pdf"}
+    allowed_media_roots = {"docs/assets", "tests/fixtures", ".scratch"}
+    media_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico"}
+
     for name in staged:
         p = Path(name)
-        if forbidden_parts.intersection(p.parts) or p.suffix.lower() in forbidden_suffixes or p.name.startswith(".env"):
+        is_approved_media = any(name.startswith(root) for root in allowed_media_roots) and p.suffix.lower() in media_suffixes
+        if forbidden_parts.intersection(p.parts) or p.name.startswith(".env"):
             findings.append({"file": name, "category": "excluded_payload_staged"})
+        elif p.suffix.lower() in forbidden_suffixes or (p.suffix.lower() in media_suffixes and not is_approved_media):
+            findings.append({"file": name, "category": "excluded_payload_staged"})
+
         data = git("show", ":" + name)
         if name != "research/publishing/staged-audit.json":
             reviewed.append({"path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+
+        if is_approved_media:
+            # Skip text-based regex scans on approved binary media assets
+            continue
+
         try:
             text = data.decode("utf-8")
         except UnicodeError:

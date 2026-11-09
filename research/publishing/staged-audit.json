@@ -1,23 +1,12 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 2,
-  "staged_bytes_excluding_report": 350153,
+  "staged_files": 0,
+  "staged_bytes_excluding_report": 0,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 342,
+  "tracked_files": 354,
   "untracked_files": 0,
   "ignored_files": 27901,
   "valid_json_files": 0,
   "findings": [],
-  "files": [
-    {
-      "path": "PROJECT_STATUS.md",
-      "bytes": 166010,
-      "sha256": "583f237ac3015079dd81711a671fbb2ceef4da8ce9a2731e227392144d93ad3c"
-    },
-    {
-      "path": "docs/agents/phase-transitions.md",
-      "bytes": 184143,
-      "sha256": "10f8d800759a0330f405a93bbc2bbc7726f4f61586c6294807964440a90c8cd8"
-    }
-  ]
+  "files": []
 }

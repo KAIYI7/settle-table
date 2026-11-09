@@ -2,11 +2,20 @@
 
 > **Deterministic, cent-conserving dining bill apportionment with local offline receipt OCR, real-time multi-diner collaboration, and verified encrypted disaster recovery.**
 
+[![Public Showcase](https://img.shields.io/badge/showcase-GitHub%20Pages-blue.svg)](https://kaiyi7.github.io/settle-table/)
 [![Python Tests](https://github.com/KAIYI7/settle-table/actions/workflows/python-tests.yml/badge.svg)](https://github.com/KAIYI7/settle-table/actions/workflows/python-tests.yml)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![License: All Rights Reserved](https://img.shields.io/badge/license-All%20Rights%20Reserved-lightgrey.svg)](THIRD_PARTY_NOTICES.md)
 [![Frontend](https://img.shields.io/badge/frontend-zero%20dependencies%20(vanilla%20ES2022)-brightgreen.svg)](settletable/static/)
 [![Ingress](https://img.shields.io/badge/ingress-Cloudflare%20Named%20Tunnel-orange.svg)](deploy/cloudflare/)
+
+---
+
+### Quick Evaluation Links
+
+- **Always-Accessible Project Showcase**: **[https://kaiyi7.github.io/settle-table/](https://kaiyi7.github.io/settle-table/)** &mdash; Interactive visual demonstration, architecture breakdown, and verified testing evidence (hosted 24/7 on GitHub Pages).
+- **Public GitHub Repository**: **[https://github.com/KAIYI7/settle-table](https://github.com/KAIYI7/settle-table)** &mdash; Full source code, test suites, and operational runbooks.
+- **On-Demand Hosted Application**: **[https://settle.kybuilds.com](https://settle.kybuilds.com)** &mdash; Self-hosted via Cloudflare Named Tunnel during active dining sessions (returns `HTTP 530 / Error 1033` when host connector is offline).
 
 ---
 
@@ -29,17 +38,27 @@ Splitting restaurant dining bills among friends is notoriously frustrating: tax,
 
 ---
 
-## Screenshots & User Experience
+## Screenshots & Recruiter Walkthrough
 
-*All screenshots display sanitized synthetic test fixtures to protect dining privacy.*
+*All screenshots and recordings originate from automated Chrome CDP runs against the working application using sanitized synthetic fixtures.*
 
-| Desktop Allocation & Review | Mobile Responsive Diner View |
+<p align="center">
+  <img src="docs/assets/demo/walkthrough.gif" alt="SettleTable End-to-End Walkthrough Animation" width="90%">
+</p>
+
+| 1. Organizer Room Setup | 2. Staged OCR Candidate Review |
 |:---:|:---:|
-| ![Desktop UI](.scratch/uat-ui-corrections/evidence/capacity-desktop.png) | ![Mobile UI](.scratch/uat-ui-corrections/evidence/capacity-mobile.png) |
+| ![Room Setup](docs/assets/demo/01-room-setup.png) | ![Candidate Review](docs/assets/demo/02-candidate-review.png) |
 
-| Receipt Review & Quantities | Mobile Capacity Details |
+| 3. Granular Portion Allocation | 4. Mobile Diner View |
 |:---:|:---:|
-| ![Receipt Quantities](.scratch/uat-ui-corrections/evidence/receipt-quantities.png) | ![Mobile Details](.scratch/uat-ui-corrections/evidence/capacity-mobile-details.png) |
+| ![Portion Allocation](docs/assets/demo/03-portion-allocation.png) | ![Mobile View](docs/assets/demo/04-mobile-diner-view.png) |
+
+| 5. Multi-Payer Reconciliation | 6. Suggested Peer Settlements |
+|:---:|:---:|
+| ![Payer Reconciliation](docs/assets/demo/05-payer-reconciliation.png) | ![Peer Settlements](docs/assets/demo/06-peer-settlement.png) |
+
+*For an interactive walkthrough with architectural annotations, visit the [Always-Accessible Project Showcase](https://kaiyi7.github.io/settle-table/).*
 
 ---
 
@@ -240,7 +259,7 @@ For complete operational steps, see the [Windows Host Operations Runbook](docs/r
 SettleTable maintains automated test suites spanning mathematical invariants, state machine transitions, adversarial security, and browser user journeys:
 
 ```bash
-# Run all Python unit, calculation, and security tests (349 tests)
+# Run all Python unit, calculation, and security tests (371 tests)
 python -m unittest discover -s tests -v
 
 # Run lifecycle controller test suite
@@ -289,4 +308,4 @@ node tools/verify_mobile_ux_remediation.mjs
 
 SettleTable is **Copyright © 2026 Kai Yi. All Rights Reserved.**
 
-This repository is private and accessible only to authorized collaborators for inspection, self-hosting, and technical portfolio evaluation. It is not publicly accessible, and no open-source license grant or redistribution right is granted. Third-party components retain their respective upstream licenses as documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+This repository is publicly available on GitHub for technical portfolio evaluation, architecture inspection, and demonstration review. No open-source license grant or redistribution right is granted. Third-party components retain their respective upstream licenses as documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
