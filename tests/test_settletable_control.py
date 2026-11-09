@@ -57,6 +57,9 @@ if tool == "docker":
         sys.exit(0)
 
     if "ps" in args:
+        if os.environ.get("MOCK_PS_FAIL") == "1":
+            print("docker ps failed: daemon communication timeout", file=sys.stderr)
+            sys.exit(1)
         # Check filter
         running = os.environ.get("MOCK_RUNNING_CONTAINERS", "")
         filter_name = ""
@@ -173,9 +176,6 @@ sys.exit(0)
         env = os.environ.copy()
         env.setdefault("SETTLETABLE_MAX_PROBE_ATTEMPTS", "2")
         env.setdefault("SETTLETABLE_PROBE_INTERVAL_SEC", "0")
-        if skip_preflight:
-            env.setdefault("SETTLETABLE_SKIP_VOLUME_PREFLIGHT", "1")
-            env.setdefault("SETTLETABLE_SKIP_PREFLIGHT", "1")
         if env_overrides:
             env.update(env_overrides)
         return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
@@ -249,8 +249,6 @@ sys.exit(0)
             ["start-local", "-PreflightCmd", str(self.mock_preflight)],
             env_overrides={
                 "MOCK_PREFLIGHT_FAIL": "1",
-                "SETTLETABLE_SKIP_VOLUME_PREFLIGHT": "0",
-                "SETTLETABLE_SKIP_PREFLIGHT": "0",
             },
             use_mocks=True,
             skip_preflight=False,
@@ -297,8 +295,6 @@ sys.exit(0)
             ["start-public", "-PreflightCmd", str(self.mock_preflight)],
             env_overrides={
                 "MOCK_PREFLIGHT_FAIL": "1",
-                "SETTLETABLE_SKIP_VOLUME_PREFLIGHT": "0",
-                "SETTLETABLE_SKIP_PREFLIGHT": "0",
             },
             use_mocks=True,
             skip_preflight=False,
@@ -419,6 +415,57 @@ sys.exit(0)
         self.assertIn("[STATUS] All SettleTable Containers Stopped", res.stdout)
         self.assertIn("Container State: All containers stopped cleanly and verified inactive", res.stdout)
         self.assertIn("encrypted backup procedure to", res.stdout)
+
+    def test_stop_public_fails_if_docker_ps_query_fails(self):
+        res = self.run_ps_script(
+            ["stop-public"],
+            env_overrides={
+                "MOCK_STOP_TUNNEL_FAIL": "0",
+                "MOCK_PS_FAIL": "1",
+            },
+            use_mocks=True,
+        )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Failed to verify container state after stop command", res.stdout)
+
+    def test_stop_all_fails_if_docker_ps_query_fails(self):
+        res = self.run_ps_script(
+            ["stop-all"],
+            env_overrides={
+                "MOCK_STOP_ALL_FAIL": "0",
+                "MOCK_PS_FAIL": "1",
+            },
+            use_mocks=True,
+        )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Failed to verify container state after stop command", res.stdout)
+
+    def test_start_local_fails_if_docker_ps_query_fails(self):
+        res = self.run_ps_script(
+            ["start-local"],
+            env_overrides={
+                "MOCK_PS_FAIL": "1",
+            },
+            use_mocks=True,
+        )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Failed to query Docker container state for settletable_tunnel", res.stdout)
+
+    def test_skip_preflight_rejected_with_production_docker(self):
+        res = self.run_ps_script(
+            ["start-public", "-SkipPreflight"],
+            use_mocks=False,
+        )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("-SkipPreflight is a test-only parameter and cannot be used with production Docker", res.stdout)
+
+    def test_preflight_cmd_rejected_with_production_docker(self):
+        res = self.run_ps_script(
+            ["start-public", "-PreflightCmd", "fake-preflight"],
+            use_mocks=False,
+        )
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("-PreflightCmd is a test-only parameter and cannot be used with production Docker", res.stdout)
 
 
 if __name__ == "__main__":
