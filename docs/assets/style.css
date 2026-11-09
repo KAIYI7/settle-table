@@ -417,6 +417,24 @@ section {
   line-height: 1.6;
 }
 
+.formula-box {
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  margin: 12px 0;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: #38bdf8;
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.formula-box strong {
+  color: var(--text-main);
+}
+
 .highlight-box {
   background: var(--bg-main);
   border-left: 3px solid var(--emerald);

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SettleTable — Deterministic Dining Bill Apportionment MVP</title>
+  <title>SettleTable — Restaurant Bill Splitting Engineered for Mathematical Precision</title>
   <meta name="description" content="Deterministic, cent-conserving dining bill apportionment MVP with server-side offline receipt OCR, real-time multi-diner collaboration, and verified encrypted disaster recovery.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍽️</text></svg>">
   <link rel="stylesheet" href="assets/style.css">
@@ -44,9 +44,9 @@
         <span class="pill-badge badge-amber">Stage C1-B Real-Meal Pilot Accepted</span>
       </div>
 
-      <h1>Deterministic Dining Bill Apportionment</h1>
+      <h1>Restaurant Bill Splitting Engineered for Mathematical Precision</h1>
       <p class="hero-subtitle">
-        A self-hosted, mathematical expense engine with 100% offline server-side OCR, zero-install mobile guest collaboration, multi-payer cashier reconciliation, and verified encrypted backups.
+        A self-hosted dining expense engine with server-side offline receipt OCR, zero-install mobile guest collaboration, multi-payer cashier reconciliation, and exact cent-conserving financial apportionment.
       </p>
 
       <div class="cta-row">
@@ -141,7 +141,7 @@
                 In production, public external clients cannot invoke the bootstrap endpoint. The organizer meal room is initialized via administrative host CLI (<code>tools/bootstrap_meal.py</code>), which generates a single-use setup link with an ephemeral claim token.
               </p>
               <p>
-                Redeeming this link sets a secure, encrypted <code>HttpOnly</code> session cookie without exposing credentials in server access logs or terminal history.
+                Redeeming this link sets an authenticated <code>HttpOnly; Secure; SameSite=Strict</code> session cookie (transmitted over TLS and validated server-side against a SHA-256 verifier) without exposing credentials in server access logs or terminal history.
               </p>
               <div class="highlight-box">
                 <strong>Key Safety Guard:</strong> External <code>POST /api/meals/{id}/bootstrap</code> is blocked by ingress WSGI guards; room creation is restricted to the host CLI.
@@ -164,7 +164,7 @@
               <img src="assets/demo/02-candidate-review.png" alt="SettleTable Candidate Review" loading="lazy">
             </div>
             <div class="demo-text">
-              <h4>Air-Gapped Optical Recognition</h4>
+              <h4>Server-Side Offline Receipt OCR</h4>
               <p>
                 When a receipt photo is uploaded, optical character recognition executes entirely on the host server CPU using RapidOCR (<code>PP-OCRv6</code>) via ONNX Runtime. Zero image payloads are sent to third-party vision models.
               </p>
@@ -254,10 +254,12 @@
               </p>
               <p>
                 SettleTable decouples restaurant cashier payments from diner consumption, computing exact net balances:
-                $$\text{Net Balance} = \text{Amount Paid to Cashier} - \text{Amount Consumed}$$
               </p>
+              <div class="formula-box" role="math" aria-label="Net Balance equals Amount Paid to Cashier minus Amount Consumed">
+                <strong>Net Balance</strong> = Amount Paid to Cashier &minus; Amount Consumed
+              </div>
               <div class="highlight-box">
-                <strong>Mathematical Cent Conservation:</strong> Largest-remainder apportionment guarantees $\sum \text{Net Balances} = \text{RM0.00}$ to the exact cent, with zero floating-point accumulation errors.
+                <strong>Mathematical Cent Conservation:</strong> When the cashier bill is fully funded (total paid equals receipt total), largest-remainder apportionment guarantees that the sum of all individual net balances is exactly RM0.00 (&sum; Net Balances = RM0.00), with zero floating-point penny drift.
               </div>
             </div>
           </div>
@@ -270,7 +272,7 @@
               <span class="step-badge">Stage 6</span>
               <h3 class="step-title">Suggested Peer Settlement &amp; Payment Tracking</h3>
             </div>
-            <span style="font-size: 0.85rem; color: var(--text-dim);">Greedy Minimum-Transfer Heuristic</span>
+            <span style="font-size: 0.85rem; color: var(--text-dim);">Greedy Settlement Suggestions</span>
           </div>
           <div class="demo-step-content reverse">
             <div class="demo-media">
