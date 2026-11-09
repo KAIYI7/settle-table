@@ -97,11 +97,20 @@ function Get-RunningContainerIds {
     param(
         [string]$FilterName
     )
-    $ids = & $DockerCmd ps --filter "name=$FilterName" --filter "status=running" -q 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $ids) {
-        return @()
+    $output = & $DockerCmd ps --filter "name=$FilterName" --filter "status=running" -q 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return @{
+            Success = $false
+            Error   = ($output -join "`n")
+            Ids     = @()
+        }
     }
-    return ($ids -split "`r?`n") | Where-Object { $_.Trim() -ne "" }
+    $ids = @(($output -split "`r?`n") | Where-Object { $_.Trim() -ne "" })
+    return @{
+        Success = $true
+        Error   = $null
+        Ids     = $ids
+    }
 }
 
 function Get-EndpointStatusCode {
@@ -128,15 +137,25 @@ function Invoke-VolumePreFlight {
     param(
         [string]$Mode = "auto"
     )
-    if ($SkipPreflight -or $env:SETTLETABLE_SKIP_PREFLIGHT -eq "1" -or $env:SETTLETABLE_SKIP_VOLUME_PREFLIGHT -eq "1") {
+    if ($SkipPreflight) {
+        if ($DockerCmd -eq "docker") {
+            Write-Host "`n[ERROR] -SkipPreflight is a test-only parameter and cannot be used with production Docker." -ForegroundColor Red
+            Write-Host "Volume verification cannot be bypassed when targeting live Docker.`n" -ForegroundColor Yellow
+            return $false
+        }
         Write-Host "Verifying storage volume configuration (--mode $Mode) [SKIPPED FOR TEST]..." -ForegroundColor Cyan
         return $true
     }
 
-    Write-Host "Verifying storage volume configuration (--mode $Mode)..." -ForegroundColor Cyan
     if ($PreflightCmd) {
+        if ($DockerCmd -eq "docker") {
+            Write-Host "`n[ERROR] -PreflightCmd is a test-only parameter and cannot be used with production Docker.`n" -ForegroundColor Red
+            return $false
+        }
+        Write-Host "Verifying storage volume configuration (--mode $Mode)..." -ForegroundColor Cyan
         $preflightOut = & $PreflightCmd --mode $Mode 2>&1
     } else {
+        Write-Host "Verifying storage volume configuration (--mode $Mode)..." -ForegroundColor Cyan
         $verifyScript = Join-Path $RepoRoot (Join-Path "tools" "verify_volume_target.py")
         if (-not (Test-Path $verifyScript)) {
             Write-Host "[ERROR] Volume pre-flight utility not found: $verifyScript" -ForegroundColor Red
@@ -172,8 +191,13 @@ function Invoke-StartLocal {
         return $false
     }
 
-    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
-    if ($tunnelRunning.Count -gt 0) {
+    $tunnelCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+    if (-not $tunnelCheck.Success) {
+        Write-Host "[ERROR] Failed to query Docker container state for settletable_tunnel." -ForegroundColor Red
+        if ($tunnelCheck.Error) { Write-Host $tunnelCheck.Error -ForegroundColor Yellow }
+        return $false
+    }
+    if ($tunnelCheck.Ids.Count -gt 0) {
         Write-Host "[ERROR] Cloudflare tunnel container is still running after stop request. Aborting local mode." -ForegroundColor Red
         return $false
     }
@@ -210,10 +234,24 @@ function Invoke-StartLocal {
     }
 
     # Final fail-closed check: verify cloudflared is definitely not running
-    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
-    if ($tunnelRunning.Count -gt 0) {
-        Write-Host "`n[CRITICAL] Cloudflare tunnel container is active! Stopping immediately to prevent unintentional public exposure." -ForegroundColor Red
+    $tunnelCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+    if (-not $tunnelCheck.Success) {
+        Write-Host "`n[ERROR] Failed to verify container state: cannot confirm Cloudflare tunnel is inactive." -ForegroundColor Red
+        if ($tunnelCheck.Error) { Write-Host $tunnelCheck.Error -ForegroundColor Yellow }
+        Write-Host "Attempting defensive tunnel shutdown..." -ForegroundColor Yellow
         $null = & $DockerCmd compose stop cloudflared 2>&1
+        return $false
+    }
+    if ($tunnelCheck.Ids.Count -gt 0) {
+        Write-Host "`n[CRITICAL] Cloudflare tunnel container is active! Stopping immediately to prevent unintentional public exposure." -ForegroundColor Red
+        $stopOut = & $DockerCmd compose stop cloudflared 2>&1
+        $postCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+        if (-not $postCheck.Success -or $postCheck.Ids.Count -gt 0) {
+            Write-Host "[CRITICAL] Failed to verify tunnel shutdown! Cloudflare tunnel may still be running." -ForegroundColor Red
+            Write-Host "Manual cleanup required: $DockerCmd compose stop cloudflared" -ForegroundColor Yellow
+        } else {
+            Write-Host "[STATUS] Cloudflare tunnel connector stopped and verified inactive." -ForegroundColor Green
+        }
         return $false
     }
 
@@ -260,14 +298,27 @@ function Invoke-StartPublic {
         Write-Host "`n[ERROR] Local application health check failed (http://127.0.0.1:8000/healthz did not return 200 within ${MaxProbeAttempts}s)." -ForegroundColor Red
         Write-Host "Check application logs with: $DockerCmd logs --tail 30 settletable_app" -ForegroundColor Yellow
         Write-Host "Stopping Cloudflare tunnel connector to prevent exposing an unhealthy application..." -ForegroundColor Yellow
-        $null = & $DockerCmd compose stop cloudflared 2>&1
+        $rollbackOut = & $DockerCmd compose stop cloudflared 2>&1
+        $rollbackCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+        if (-not $rollbackCheck.Success -or $rollbackCheck.Ids.Count -gt 0) {
+            Write-Host "[CRITICAL] Failed to verify tunnel shutdown! Cloudflare tunnel may still be running." -ForegroundColor Red
+            if (-not $rollbackCheck.Success -and $rollbackCheck.Error) { Write-Host "  Query error: $($rollbackCheck.Error)" -ForegroundColor Yellow }
+            Write-Host "Manual cleanup required: $DockerCmd compose stop cloudflared" -ForegroundColor Yellow
+        } else {
+            Write-Host "[STATUS] Cloudflare tunnel connector stopped and verified inactive." -ForegroundColor Green
+        }
         return $false
     }
 
     # Step 4: Verify tunnel connector container is running
     Write-Host "[3/4] Verifying Cloudflare tunnel connector container..." -ForegroundColor Cyan
-    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
-    if ($tunnelRunning.Count -eq 0) {
+    $tunnelCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+    if (-not $tunnelCheck.Success) {
+        Write-Host "[ERROR] Failed to query Docker container state for settletable_tunnel." -ForegroundColor Red
+        if ($tunnelCheck.Error) { Write-Host $tunnelCheck.Error -ForegroundColor Yellow }
+        return $false
+    }
+    if ($tunnelCheck.Ids.Count -eq 0) {
         Write-Host "[ERROR] Cloudflare tunnel container settletable_tunnel is not running." -ForegroundColor Red
         Write-Host "Check tunnel logs: $DockerCmd logs --tail 30 settletable_tunnel" -ForegroundColor Yellow
         return $false
@@ -288,6 +339,16 @@ function Invoke-StartPublic {
     if (-not $publicHealthy) {
         Write-Host "`n[ERROR] Cloudflare tunnel container is running, but public HTTPS endpoint did not return 200 within ${MaxProbeAttempts}s." -ForegroundColor Red
         Write-Host "Check tunnel logs with: $DockerCmd logs --tail 30 settletable_tunnel" -ForegroundColor Yellow
+        Write-Host "Stopping Cloudflare tunnel connector to prevent partial exposure..." -ForegroundColor Yellow
+        $rollbackOut = & $DockerCmd compose stop cloudflared 2>&1
+        $rollbackCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+        if (-not $rollbackCheck.Success -or $rollbackCheck.Ids.Count -gt 0) {
+            Write-Host "[CRITICAL] Failed to verify tunnel shutdown! Cloudflare tunnel may still be running." -ForegroundColor Red
+            if (-not $rollbackCheck.Success -and $rollbackCheck.Error) { Write-Host "  Query error: $($rollbackCheck.Error)" -ForegroundColor Yellow }
+            Write-Host "Manual cleanup required: $DockerCmd compose stop cloudflared" -ForegroundColor Yellow
+        } else {
+            Write-Host "[STATUS] Cloudflare tunnel connector stopped and verified inactive." -ForegroundColor Green
+        }
         return $false
     }
 
@@ -314,8 +375,13 @@ function Invoke-StopPublic {
     }
 
     # Verify connector container is actually stopped
-    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
-    if ($tunnelRunning.Count -gt 0) {
+    $tunnelCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+    if (-not $tunnelCheck.Success) {
+        Write-Host "[ERROR] Failed to verify container state after stop command: 'docker ps' failed." -ForegroundColor Red
+        if ($tunnelCheck.Error) { Write-Host $tunnelCheck.Error -ForegroundColor Yellow }
+        return $false
+    }
+    if ($tunnelCheck.Ids.Count -gt 0) {
         Write-Host "[ERROR] Cloudflare tunnel container settletable_tunnel is still running after stop command." -ForegroundColor Red
         return $false
     }
@@ -361,12 +427,18 @@ function Invoke-StopAll {
     }
 
     # Verify containers are actually stopped
-    $appRunning = @(Get-RunningContainerIds -FilterName "settletable_app")
-    $tunnelRunning = @(Get-RunningContainerIds -FilterName "settletable_tunnel")
-    if ($appRunning.Count -gt 0 -or $tunnelRunning.Count -gt 0) {
+    $appCheck = Get-RunningContainerIds -FilterName "settletable_app"
+    $tunnelCheck = Get-RunningContainerIds -FilterName "settletable_tunnel"
+    if (-not $appCheck.Success -or -not $tunnelCheck.Success) {
+        Write-Host "[ERROR] Failed to verify container state after stop command: 'docker ps' query failed." -ForegroundColor Red
+        if (-not $appCheck.Success -and $appCheck.Error) { Write-Host "  - settletable_app query error: $($appCheck.Error)" -ForegroundColor Yellow }
+        if (-not $tunnelCheck.Success -and $tunnelCheck.Error) { Write-Host "  - settletable_tunnel query error: $($tunnelCheck.Error)" -ForegroundColor Yellow }
+        return $false
+    }
+    if ($appCheck.Ids.Count -gt 0 -or $tunnelCheck.Ids.Count -gt 0) {
         Write-Host "[ERROR] One or more SettleTable containers are still running after stop command." -ForegroundColor Red
-        if ($appRunning.Count -gt 0) { Write-Host "  - settletable_app is still running" -ForegroundColor Red }
-        if ($tunnelRunning.Count -gt 0) { Write-Host "  - settletable_tunnel is still running" -ForegroundColor Red }
+        if ($appCheck.Ids.Count -gt 0) { Write-Host "  - settletable_app is still running" -ForegroundColor Red }
+        if ($tunnelCheck.Ids.Count -gt 0) { Write-Host "  - settletable_tunnel is still running" -ForegroundColor Red }
         return $false
     }
 
