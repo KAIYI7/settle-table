@@ -1303,6 +1303,18 @@ class SettleTableApp:
                         self.close()
 
                 with self._export_lock:
+                    active_thread = self._export_threads.get(thread_key)
+                    if active_thread is not None and active_thread.is_alive():
+                        return 202, self._default_headers(), serialize_json({
+                            'ok': True,
+                            'export': {
+                                'ok': True,
+                                'status': 'in_progress',
+                                'page_id': None,
+                                'page_url': None,
+                                'message': 'Notion export running asynchronously in background',
+                            }
+                        })
                     bg_thread = threading.Thread(target=_bg_export, daemon=True)
                     self._export_threads[thread_key] = bg_thread
                     bg_thread.start()

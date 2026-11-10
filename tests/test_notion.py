@@ -1306,6 +1306,84 @@ class TestNotionTransportIntegration(unittest.TestCase):
             gate.set()
             self.app.notion_client = original_client
 
+    def test_concurrent_post_export_double_checked_lock_prevents_duplicate_workers(self):
+        """Verify that two simultaneous POST export requests hitting the dispatch concurrently trigger double-checked locking and spawn only one worker."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        gate = threading.Event()
+        original_client = self.app.notion_client
+        create_page_calls = []
+
+        class DelayedMockClient:
+            def __init__(self, inner):
+                self._inner = inner
+            def create_page(self, *args, **kwargs):
+                create_page_calls.append(args)
+                gate.wait(timeout=5.0)
+                return self._inner.create_page(*args, **kwargs)
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        delayed_client = DelayedMockClient(original_client)
+        self.app.notion_client = delayed_client
+
+        headers = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        body = {
+            "parent_id": "11111111-2222-3333-4444-555555555555",
+            "token": "secret_12345678901234567890",
+        }
+
+        # Clear any prior export record for clean state
+        auth = Authority(str(self.db_path))
+        try:
+            auth._db.execute("DELETE FROM notion_exports WHERE meal_id='meal-notion-test'")
+            auth._db.commit()
+        finally:
+            auth.close()
+
+        try:
+            barrier = threading.Barrier(2)
+            results = []
+
+            def send_req():
+                barrier.wait()
+                code, _, res_bytes = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+                results.append((code, json.loads(res_bytes.decode("utf-8"))))
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                t1 = executor.submit(send_req)
+                t2 = executor.submit(send_req)
+                t1.result()
+                t2.result()
+
+            self.assertEqual(len(results), 2)
+            for code, data in results:
+                self.assertEqual(code, 202)
+                self.assertEqual(data["export"]["status"], "in_progress")
+
+            # Unblock worker
+            gate.set()
+
+            # Poll until completed
+            body_p = {}
+            for _ in range(100):
+                code_p, _, res_p = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers)
+                if code_p == 200:
+                    body_p = json.loads(res_p.decode("utf-8"))
+                    if body_p.get("export", {}).get("status") == "completed":
+                        break
+                time.sleep(0.03)
+
+            self.assertEqual(body_p.get("export", {}).get("status"), "completed")
+            self.assertEqual(len(create_page_calls), 1)
+        finally:
+            gate.set()
+            self.app.notion_client = original_client
+
     def test_lagging_worker_after_75s_timeout_cannot_overwrite_completed_retry(self):
         """Verify that when a request times out (>75s) and a subsequent retry succeeds, any lagging failure from the original worker cannot clobber the completed state."""
         auth = Authority(str(self.db_path))
