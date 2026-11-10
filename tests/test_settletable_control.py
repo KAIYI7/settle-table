@@ -8,6 +8,7 @@ import unittest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "tools" / "SettleTable-Control.ps1"
+CMD_PATH = REPO_ROOT / "tools" / "SettleTable-Control.cmd"
 PS_BIN = (
     shutil.which("powershell.exe")
     or shutil.which("powershell")
@@ -182,6 +183,98 @@ sys.exit(0)
 
     def test_script_file_exists(self):
         self.assertTrue(SCRIPT_PATH.is_file(), "SettleTable-Control.ps1 must exist")
+
+    def run_cmd_launcher(self, args, env_overrides=None, cwd=REPO_ROOT):
+        if os.name != "nt":
+            raise unittest.SkipTest("CMD launcher requires Windows host")
+        cmd = [str(CMD_PATH)] + list(args)
+        env = os.environ.copy()
+        env.setdefault("SETTLETABLE_MAX_PROBE_ATTEMPTS", "2")
+        env.setdefault("SETTLETABLE_PROBE_INTERVAL_SEC", "0")
+        if env_overrides:
+            env.update(env_overrides)
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
+
+    def test_cmd_launcher_file_exists_and_structure(self):
+        self.assertTrue(CMD_PATH.is_file(), "SettleTable-Control.cmd must exist")
+        content = CMD_PATH.read_text(encoding="utf-8")
+        self.assertIn("@echo off", content)
+        self.assertIn("-NoProfile", content)
+        self.assertIn("-ExecutionPolicy Bypass", content)
+        self.assertIn("%~dp0SettleTable-Control.ps1", content)
+        self.assertIn("%*", content)
+        self.assertIn("exit /b %ERRORLEVEL%", content)
+
+    def test_cmd_launcher_help_action_exits_zero(self):
+        if os.name != "nt":
+            self.skipTest("CMD launcher requires Windows host")
+        res = self.run_cmd_launcher(["help"])
+        self.assertEqual(res.returncode, 0, f"CMD help failed: {res.stderr}")
+        self.assertIn("SettleTable Windows Host Lifecycle Controller", res.stdout)
+        self.assertIn("start-local", res.stdout)
+        self.assertIn("status", res.stdout)
+
+    def test_cmd_launcher_invalid_action_exits_one(self):
+        if os.name != "nt":
+            self.skipTest("CMD launcher requires Windows host")
+        res = self.run_cmd_launcher(["nonexistent-command"])
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("Unknown action", res.stdout)
+        self.assertIn("Usage:", res.stdout)
+
+    def test_cmd_launcher_status_action_with_mocks(self):
+        if os.name != "nt":
+            self.skipTest("CMD launcher requires Windows host")
+        res = self.run_cmd_launcher([
+            "status",
+            "-DockerCmd", str(self.mock_docker),
+            "-CurlCmd", str(self.mock_curl),
+        ])
+        self.assertEqual(res.returncode, 0, f"CMD status failed: {res.stderr}")
+        self.assertIn("SettleTable Environment & Container Status", res.stdout)
+        self.assertIn("Endpoint Health Probes:", res.stdout)
+        self.assertNotIn("TUNNEL_TOKEN", res.stdout)
+        self.assertNotIn("settletable_session", res.stdout)
+
+    def test_cmd_launcher_resolves_root_from_external_cwd(self):
+        if os.name != "nt":
+            self.skipTest("CMD launcher requires Windows host")
+        temp_dir = Path(os.environ.get("TEMP", os.environ.get("TMP", ".")))
+        res = self.run_cmd_launcher([
+            "status",
+            "-DockerCmd", str(self.mock_docker),
+            "-CurlCmd", str(self.mock_curl),
+        ], cwd=temp_dir)
+        self.assertEqual(res.returncode, 0, f"CMD status from external cwd failed: {res.stderr}")
+        self.assertIn("SettleTable Environment & Container Status", res.stdout)
+
+    def test_restricted_execution_policy_resolution(self):
+        """Verifies that unbypassed execution policy failure is reproduced and resolved via launcher."""
+        if os.name != "nt":
+            self.skipTest("Execution policy tests require Windows host")
+
+        # 1. Direct powershell invocation without bypass flags fails when policy is Restricted
+        res_blocked = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-File", str(SCRIPT_PATH), "status"],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+        )
+        if res_blocked.returncode != 0:
+            err_text = (res_blocked.stderr + " " + res_blocked.stdout).lower()
+            self.assertTrue(
+                "cannot be loaded" in err_text or "unauthorizedaccess" in err_text or "disabled" in err_text,
+                f"Expected script execution block, got: {res_blocked.stderr}",
+            )
+
+        # 2. Command launcher always succeeds regardless of host execution policy
+        res_cmd = self.run_cmd_launcher([
+            "status",
+            "-DockerCmd", str(self.mock_docker),
+            "-CurlCmd", str(self.mock_curl),
+        ])
+        self.assertEqual(res_cmd.returncode, 0, f"Launcher failed under policy: {res_cmd.stderr}")
+        self.assertIn("SettleTable Environment & Container Status", res_cmd.stdout)
 
     def test_help_action_exits_zero(self):
         res = self.run_ps_script(["help"])
