@@ -7,6 +7,20 @@
     stop, and monitor SettleTable services using Docker Compose. Supports both local-only
     development/inspection and public on-demand hosting via Cloudflare Named Tunnel.
 
+    Execution Policy & Companion App Compatibility:
+    On Windows systems where PowerShell script execution is restricted by default,
+    this controller supports two launch pathways:
+      1. Zero-Configuration Launcher (tools\SettleTable-Control.cmd):
+         Recommended for Companion App Quick Actions, Stream Deck buttons, desktop
+         shortcuts, CMD, and PowerShell under default Restricted execution policy.
+         Executes with scoped process bypass without modifying system or user settings.
+      2. Direct PowerShell Script (tools\SettleTable-Control.ps1):
+         Recommended for interactive PowerShell sessions with parameter completion.
+         Enable local script execution for the current user via:
+           Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+         Or for the current console session only via:
+           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
 .PARAMETER Action
     The action to execute: 'start-local', 'start-public', 'stop-public', 'stop-all', 'status', 'help'.
     If omitted, an interactive menu is displayed.
@@ -552,6 +566,7 @@ try {
         default {
             Write-Host "Unknown action: '$Action'" -ForegroundColor Red
             Write-Host "Usage: .\tools\SettleTable-Control.ps1 [start-local | start-public | stop-public | stop-all | status | help]" -ForegroundColor Yellow
+            Write-Host "   Or: .\tools\SettleTable-Control.cmd [start-local | start-public | stop-public | stop-all | status | help]" -ForegroundColor Yellow
             exit 1
         }
     }

@@ -144,10 +144,21 @@ Splitting restaurant dining bills among friends is notoriously frustrating: tax,
 
 ## Windows Host Lifecycle Controller
 
-To manage local development and public on-demand hosting on Windows hosts, SettleTable includes a dedicated PowerShell controller:
+To manage local development and public on-demand hosting on Windows hosts, SettleTable provides a dedicated lifecycle controller with dual launch pathways:
 
-```powershell
-# Interactive Menu Mode:
+- **Zero-Configuration Launcher (`tools\SettleTable-Control.cmd`)**: Recommended for Companion App Quick Actions, Stream Deck buttons, desktop shortcuts, CMD, and PowerShell. Executes with a scoped process bypass (`-NoProfile -ExecutionPolicy Bypass`), working immediately on systems with Windows default `Restricted` execution policy without altering system or user configuration.
+- **Direct PowerShell Script (`tools\SettleTable-Control.ps1`)**: Supports interactive execution with parameter completion in PowerShell. If your Windows host uses the default `Restricted` policy, enable local scripts once for your user account:
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+  ```
+
+### Interactive Menu Mode
+
+```cmd
+# Run via CMD / PowerShell / double-click:
+.\tools\SettleTable-Control.cmd
+
+# Or directly in PowerShell (when RemoteSigned):
 .\tools\SettleTable-Control.ps1
 ```
 
@@ -166,22 +177,36 @@ To manage local development and public on-demand hosting on Windows hosts, Settl
 
 ### Non-Interactive Automation Commands
 
-```powershell
+```cmd
 # Start local-only container (tunnel stopped, port 8000 bound to loopback)
-.\tools\SettleTable-Control.ps1 start-local
+.\tools\SettleTable-Control.cmd start-local
 
 # Verify real volume, start app, and activate Cloudflare Named Tunnel
-.\tools\SettleTable-Control.ps1 start-public
+.\tools\SettleTable-Control.cmd start-public
 
 # Deactivate public ingress while keeping local app accessible
-.\tools\SettleTable-Control.ps1 stop-public
+.\tools\SettleTable-Control.cmd stop-public
 
 # Cleanly stop both application and tunnel (preserves all data volumes)
-.\tools\SettleTable-Control.ps1 stop-all
+.\tools\SettleTable-Control.cmd stop-all
 
 # Inspect container status, local health probe, and public edge status
-.\tools\SettleTable-Control.ps1 status
+.\tools\SettleTable-Control.cmd status
 ```
+
+*(You can also substitute `.\tools\SettleTable-Control.ps1` for any command above when running in a PowerShell session configured with `RemoteSigned` or `Bypass` policy).*
+
+### Companion App & Stream Deck Quick Actions
+
+When configuring Quick Actions in mobile companion apps, Stream Deck, Task Scheduler, or desktop shortcuts, configure the command target using the `.cmd` launcher for guaranteed execution and deterministic exit code propagation:
+
+| Quick Action | Target Command | Behavior |
+|:---|:---|:---|
+| **Start Local** | `tools\SettleTable-Control.cmd start-local` | Starts container bound to loopback; ensures public tunnel is stopped. |
+| **Start Public** | `tools\SettleTable-Control.cmd start-public` | Pre-flight check on data volume, launches app + tunnel, asserts edge HTTPS. |
+| **Stop Public** | `tools\SettleTable-Control.cmd stop-public` | Deactivates Cloudflare tunnel connector; keeps local app running for inspection. |
+| **Stop All** | `tools\SettleTable-Control.cmd stop-all` | Quiescently stops all containers; all SQLite data and receipts preserved. |
+| **Status Probe** | `tools\SettleTable-Control.cmd status` | Probes local endpoint, edge HTTPS, and active containers without leaking secrets. |
 
 ---
 
@@ -259,7 +284,7 @@ For complete operational steps, see the [Windows Host Operations Runbook](docs/r
 SettleTable maintains automated test suites spanning mathematical invariants, state machine transitions, adversarial security, and browser user journeys:
 
 ```bash
-# Run all Python unit, calculation, and security tests (371 tests)
+# Run all Python unit, calculation, and security tests (396 tests)
 python -m unittest discover -s tests -v
 
 # Run lifecycle controller test suite
