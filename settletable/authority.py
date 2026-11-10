@@ -2350,7 +2350,8 @@ class Authority:
                 'INSERT INTO notion_exports (meal_id, finalized_revision, page_id, page_url, exported_at, export_digest, status) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?) '
                 'ON CONFLICT(meal_id, finalized_revision) DO UPDATE SET '
-                'status = excluded.status, exported_at = excluded.exported_at, export_digest = excluded.export_digest',
+                'status = excluded.status, exported_at = excluded.exported_at, export_digest = excluded.export_digest '
+                'WHERE notion_exports.status != "completed" OR excluded.export_digest != notion_exports.export_digest',
                 (meal_id, finalized_revision, '', '', now, export_digest, 'in_progress'),
             )
             self._db.execute('COMMIT')
@@ -2366,7 +2367,8 @@ class Authority:
                 'INSERT INTO notion_exports (meal_id, finalized_revision, page_id, page_url, exported_at, export_digest, status) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?) '
                 'ON CONFLICT(meal_id, finalized_revision) DO UPDATE SET '
-                'status = excluded.status, exported_at = excluded.exported_at, export_digest = excluded.export_digest',
+                'status = excluded.status, exported_at = excluded.exported_at, export_digest = excluded.export_digest '
+                'WHERE notion_exports.status != "completed"',
                 (meal_id, finalized_revision, '', '', now, str(error_code)[:128], 'failed'),
             )
             self._db.execute('COMMIT')

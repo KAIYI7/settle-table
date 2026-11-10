@@ -1,12 +1,23 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 0,
-  "staged_bytes_excluding_report": 0,
+  "staged_files": 2,
+  "staged_bytes_excluding_report": 142644,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 354,
+  "tracked_files": 357,
   "untracked_files": 0,
-  "ignored_files": 27901,
+  "ignored_files": 27905,
   "valid_json_files": 0,
   "findings": [],
-  "files": []
+  "files": [
+    {
+      "path": "settletable/transport.py",
+      "bytes": 78872,
+      "sha256": "e6f86dbe052db285816485a2a1c92b61fe1e93a69db72da4dba10e48e02cd4f0"
+    },
+    {
+      "path": "tests/test_notion.py",
+      "bytes": 63772,
+      "sha256": "6ec6cc52a78f10388962af0be542f9025a7b47886d94d66b9295f1d2c08eed05"
+    }
+  ]
 }
