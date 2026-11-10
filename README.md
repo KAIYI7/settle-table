@@ -284,7 +284,7 @@ For complete operational steps, see the [Windows Host Operations Runbook](docs/r
 SettleTable maintains automated test suites spanning mathematical invariants, state machine transitions, adversarial security, and browser user journeys:
 
 ```bash
-# Run all Python unit, calculation, and security tests (390 tests)
+# Run all Python unit, calculation, and security tests (396 tests)
 python -m unittest discover -s tests -v
 
 # Run lifecycle controller test suite
