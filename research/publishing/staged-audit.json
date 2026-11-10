@@ -1,12 +1,38 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 0,
-  "staged_bytes_excluding_report": 0,
+  "staged_files": 6,
+  "staged_bytes_excluding_report": 292186,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 354,
+  "tracked_files": 357,
   "untracked_files": 0,
-  "ignored_files": 27901,
-  "valid_json_files": 0,
+  "ignored_files": 27902,
+  "valid_json_files": 1,
   "findings": [],
-  "files": []
+  "files": [
+    {
+      "path": "settletable/authority.py",
+      "bytes": 129431,
+      "sha256": "b4f778afdb20cc41882d2557386478c954720ef7cfb5f17760e2dd38e1798512"
+    },
+    {
+      "path": "settletable/transport.py",
+      "bytes": 78208,
+      "sha256": "da9d7abf7bcced07a14ebcc4676a57545e5a837ab2e11ea9dc52ea6962eadd05"
+    },
+    {
+      "path": "tests/test_notion.py",
+      "bytes": 60789,
+      "sha256": "996ba9a3d697df51dd9a3562335e6353d65e5609fbbf48c74c800a49f34437f7"
+    },
+    {
+      "path": "tests/test_post_finalization_uat.py",
+      "bytes": 23620,
+      "sha256": "21ae83648410b89aba7d72ac3e14bba4a77a0e9b1b614c068c777ee201b530c7"
+    },
+    {
+      "path": "tools/SettleTable-Control.cmd",
+      "bytes": 138,
+      "sha256": "882879771fb5356b39dea05d74c2d57ca05d7053afabf1bf26729935fceb4b05"
+    }
+  ]
 }
