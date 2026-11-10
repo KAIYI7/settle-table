@@ -1,12 +1,18 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 0,
-  "staged_bytes_excluding_report": 0,
+  "staged_files": 2,
+  "staged_bytes_excluding_report": 39052,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 357,
   "untracked_files": 0,
-  "ignored_files": 27902,
-  "valid_json_files": 0,
+  "ignored_files": 27905,
+  "valid_json_files": 1,
   "findings": [],
-  "files": []
+  "files": [
+    {
+      "path": "docs/runbooks/windows_host_operations.md",
+      "bytes": 39052,
+      "sha256": "a90f86437a1c76ec6d9f15bca44ce68f59da36594937a3f21f284702bc330df1"
+    }
+  ]
 }
