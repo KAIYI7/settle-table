@@ -130,6 +130,17 @@ class TestAuthorityFunding(unittest.TestCase):
             self.auth.apply(self.bob_cred, self.meal_id, cmd)
         self.assertEqual(ctx.exception.code, 'forbidden')
 
+        # Organizer records contribution
+        cmd_org = RecordContribution('c-alice', snap.revision, 'alice', 1000, 'cash')
+        res_org = self.auth.apply(self.alice_cred, self.meal_id, cmd_org)
+        snap2 = self.auth.snapshot(self.alice_cred, self.meal_id)
+
+        # Diner cannot reverse it
+        rev_cmd = ReverseContribution('rev-bob', snap2.revision, res_org.contribution_id, 'Diner reversal')
+        with self.assertRaises(AuthorityError) as ctx2:
+            self.auth.apply(self.bob_cred, self.meal_id, rev_cmd)
+        self.assertEqual(ctx2.exception.code, 'forbidden')
+
     def test_record_contribution_overpayment_prohibited(self):
         self._setup_finalized_meal(total_sen=6000)
         snap = self.auth.snapshot(self.alice_cred, self.meal_id)
@@ -324,6 +335,7 @@ class TestTransportFunding(unittest.TestCase):
         p2 = Participant('bob', 'Bob', False)
         res = self.auth.bootstrap(self.meal_id, (p1, p2))
         self.alice_cred = res.sessions[0].credential
+        self.bob_cred = res.sessions[1].credential
 
         # Finalize meal
         snap = self.auth.snapshot(self.alice_cred, self.meal_id)
@@ -422,6 +434,42 @@ class TestTransportFunding(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(res['export']['status'], 'completed')
         self.assertEqual(res['export']['page_id'], 'page-123')
+
+    def test_diner_contribution_write_commands_forbidden(self):
+        """Verify that diners cannot record or reverse restaurant contributions via transport."""
+        snap = self.auth.snapshot(self.alice_cred, self.meal_id)
+
+        # 1. Diner executing RecordContribution via Transport -> 403 forbidden
+        payload_rec = {
+            'kind': 'RecordContribution',
+            'command_id': 'http-diner-rec',
+            'expected_revision': snap.revision,
+            'participant_id': 'bob',
+            'amount_sen': 1000,
+            'payment_method': 'cash',
+        }
+        status, res = self._call('POST', f'/api/meals/{self.meal_id}/apply', data=payload_rec, cred=self.bob_cred)
+        self.assertEqual(status, 403)
+        self.assertEqual(res.get('error'), 'forbidden')
+
+        # Organizer records a valid contribution
+        cmd_org = RecordContribution('cmd-org-rec-wire', snap.revision, 'alice', 1000, 'cash')
+        res_org = self.auth.apply(self.alice_cred, self.meal_id, cmd_org)
+        contrib_id = res_org.contribution_id
+
+        snap = self.auth.snapshot(self.alice_cred, self.meal_id)
+
+        # 2. Diner executing ReverseContribution via Transport -> 403 forbidden
+        payload_rev = {
+            'kind': 'ReverseContribution',
+            'command_id': 'http-diner-rev',
+            'expected_revision': snap.revision,
+            'contribution_id': contrib_id,
+            'reason': 'Diner reverse',
+        }
+        status, res = self._call('POST', f'/api/meals/{self.meal_id}/apply', data=payload_rev, cred=self.bob_cred)
+        self.assertEqual(status, 403)
+        self.assertEqual(res.get('error'), 'forbidden')
 
 
 if __name__ == '__main__':

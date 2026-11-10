@@ -313,6 +313,9 @@ class DraftSnapshot:
     contributions: tuple[PayerContributionRecord, ...] = ()
     transfers: tuple[PeerTransferRecord, ...] = ()
     settlement: SettlementSnapshot | None = None
+    receipt_photo_shared: bool = False
+    notion_export_status: str | None = None
+    notion_public_url: str | None = None
 
 
 def _require(condition, code='invalid_input'):
@@ -659,6 +662,7 @@ class Authority:
                     exported_at REAL NOT NULL,
                     export_digest TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'completed',
+                    public_url TEXT,
                     PRIMARY KEY(meal_id, finalized_revision));
                 CREATE TABLE IF NOT EXISTS receipt_photos (
                     meal_id TEXT PRIMARY KEY REFERENCES meals(id) ON DELETE CASCADE,
@@ -670,6 +674,7 @@ class Authority:
                     height INTEGER NOT NULL,
                     uploaded_at REAL NOT NULL,
                     uploaded_by TEXT NOT NULL,
+                    share_with_diners INTEGER NOT NULL DEFAULT 0,
                     FOREIGN KEY(meal_id, uploaded_by) REFERENCES participants(meal_id, id));
                 CREATE TABLE IF NOT EXISTS join_requests (
                     id TEXT PRIMARY KEY,
@@ -794,6 +799,14 @@ class Authority:
                     END;
                 END;
             ''')
+            try:
+                self._db.execute('ALTER TABLE notion_exports ADD COLUMN public_url TEXT')
+            except sqlite3.OperationalError:
+                pass
+            try:
+                self._db.execute('ALTER TABLE receipt_photos ADD COLUMN share_with_diners INTEGER NOT NULL DEFAULT 0')
+            except sqlite3.OperationalError:
+                pass
         except sqlite3.Error:
             self.close()
             raise AuthorityError('storage_error') from None
@@ -949,15 +962,17 @@ class Authority:
                     ORDER BY created_at DESC''', (meal_id, now)).fetchall()
                 join_requests = tuple(JoinRequestRecord(r[0], r[1], r[2], r[3], r[4], r[5]) for r in jr_rows)
             photo_row = self._db.execute(
-                'SELECT filename, content_type, byte_size, width, height, uploaded_at FROM receipt_photos WHERE meal_id=?',
+                'SELECT filename, content_type, byte_size, width, height, uploaded_at, share_with_diners FROM receipt_photos WHERE meal_id=?',
                 (meal_id,)
             ).fetchone()
             has_receipt_photo = False
             receipt_photo = None
+            receipt_photo_shared = False
             if photo_row:
                 photo_path = (self.storage_dir / photo_row[0]).resolve()
                 if photo_path.is_relative_to(self.storage_dir.resolve()) and photo_path.is_file():
                     has_receipt_photo = True
+                    receipt_photo_shared = bool(photo_row[6])
                     receipt_photo = {
                         'filename': photo_row[0],
                         'content_type': photo_row[1],
@@ -965,10 +980,24 @@ class Authority:
                         'width': photo_row[3],
                         'height': photo_row[4],
                         'uploaded_at': photo_row[5],
+                        'shared': receipt_photo_shared,
                     }
             finalized_revision = state.get('finalized_revision')
             if finalized_revision is None and state['calculation'] is not None:
                 finalized_revision = state['revision']
+            notion_export_status = None
+            notion_public_url = None
+            if finalized_revision is not None:
+                notion_row = self._db.execute(
+                    'SELECT status, exported_at, public_url FROM notion_exports WHERE meal_id=? AND finalized_revision=?',
+                    (meal_id, finalized_revision)
+                ).fetchone()
+                if notion_row:
+                    notion_status = notion_row[0]
+                    if notion_status == 'in_progress' and (self._now() - notion_row[1]) > 75.0:
+                        notion_status = 'failed'
+                    notion_export_status = notion_status
+                    notion_public_url = notion_row[2]
             contributions = ()
             funding = None
             transfers = ()
@@ -1047,7 +1076,10 @@ class Authority:
                                    funding,
                                    contributions,
                                    transfers,
-                                   settlement)
+                                   settlement,
+                                   receipt_photo_shared,
+                                   notion_export_status,
+                                   notion_public_url)
             self._db.execute('COMMIT')
             return result
         except AuthorityError:
@@ -2248,7 +2280,7 @@ class Authority:
     def get_notion_export(self, meal_id, finalized_revision):
         try:
             row = self._db.execute(
-                'SELECT page_id, page_url, exported_at, export_digest, status '
+                'SELECT page_id, page_url, exported_at, export_digest, status, public_url '
                 'FROM notion_exports WHERE meal_id = ? AND finalized_revision = ?',
                 (meal_id, finalized_revision),
             ).fetchone()
@@ -2256,7 +2288,7 @@ class Authority:
                 return None
             status = row[4]
             digest = row[3]
-            if status == 'in_progress' and (self._now() - row[2]) > 60.0:
+            if status == 'in_progress' and (self._now() - row[2]) > 75.0:
                 status = 'failed'
                 digest = 'timeout'
             return {
@@ -2265,7 +2297,48 @@ class Authority:
                 'exported_at': row[2],
                 'export_digest': digest,
                 'status': status,
+                'public_url': row[5],
             }
+        except sqlite3.Error as err:
+            self._storage_failure(err)
+
+    def set_notion_public_url(self, organizer_credential, meal_id, public_url):
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        if public_url is not None:
+            _require(isinstance(public_url, str), 'invalid_input')
+            public_url = public_url.strip()
+            if public_url:
+                _require(len(public_url) <= 512, 'invalid_input')
+                import urllib.parse
+                parsed = urllib.parse.urlparse(public_url)
+                _require(parsed.scheme == 'https', 'invalid_input')
+                host = (parsed.hostname or '').lower()
+                _require(host == 'notion.site' or host.endswith('.notion.site') or host == 'notion.so' or host.endswith('.notion.so'), 'invalid_input')
+            else:
+                public_url = None
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            actor, is_organizer = self._authenticate(verifier, meal_id)
+            _require(is_organizer, 'forbidden')
+
+            meal_row = self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()
+            _require(meal_row is not None, 'not_found')
+            state = json.loads(meal_row[0])
+            _require(state.get('calculation') is not None, 'not_finalized')
+            rev = state.get('finalized_revision') or state.get('revision', 0)
+
+            row = self._db.execute('SELECT status FROM notion_exports WHERE meal_id=? AND finalized_revision=?', (meal_id, rev)).fetchone()
+            _require(row is not None, 'not_found')
+
+            self._db.execute('UPDATE notion_exports SET public_url=? WHERE meal_id=? AND finalized_revision=?',
+                             (public_url, meal_id, rev))
+            self._db.execute('COMMIT')
+            return public_url
+        except AuthorityError:
+            self._rollback()
+            raise
         except sqlite3.Error as err:
             self._storage_failure(err)
 
@@ -2446,14 +2519,28 @@ class Authority:
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN')
             actor, is_organizer = self._authenticate(verifier, meal_id)
-            _require(is_organizer, 'forbidden')
 
             row = self._db.execute(
-                'SELECT filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by FROM receipt_photos WHERE meal_id=?',
+                'SELECT filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by, share_with_diners FROM receipt_photos WHERE meal_id=?',
                 (meal_id,)
             ).fetchone()
             _require(row is not None, 'photo_not_found')
-            filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by = row
+            filename, content_type, byte_size, sha256, width, height, uploaded_at, uploaded_by, share_with_diners = row
+
+            if not is_organizer:
+                # 1. Meal must be finalized
+                meal_row = self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()
+                _require(meal_row is not None, 'not_found')
+                state = json.loads(meal_row[0])
+                _require(state.get('calculation') is not None, 'forbidden')
+
+                # 2. Actor must be an active participant
+                part_row = self._db.execute('SELECT active FROM participants WHERE meal_id=? AND id=?', (meal_id, actor)).fetchone()
+                _require(part_row is not None and bool(part_row[0]), 'forbidden')
+
+                # 3. Sharing must be enabled
+                _require(bool(share_with_diners), 'forbidden')
+
             target_path = (self.storage_dir / filename).resolve()
             _require(target_path.is_relative_to(self.storage_dir.resolve()), 'forbidden')
             _require(target_path.is_file(), 'photo_not_found')
@@ -2470,6 +2557,7 @@ class Authority:
                 'height': height,
                 'uploaded_at': uploaded_at,
                 'uploaded_by': uploaded_by,
+                'shared': bool(share_with_diners),
             }
             return data, meta
         except AuthorityError:
@@ -2480,6 +2568,34 @@ class Authority:
         except Exception:
             self._rollback()
             raise AuthorityError('storage_error') from None
+
+    def set_receipt_photo_sharing(self, organizer_credential, meal_id, enabled: bool):
+        verifier = _verifier(organizer_credential)
+        _id(meal_id)
+        _require(isinstance(enabled, bool), 'invalid_input')
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            actor, is_organizer = self._authenticate(verifier, meal_id)
+            _require(is_organizer, 'forbidden')
+
+            meal_row = self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()
+            _require(meal_row is not None, 'not_found')
+            state = json.loads(meal_row[0])
+            _require(state.get('calculation') is not None, 'not_finalized')
+
+            photo_row = self._db.execute('SELECT filename FROM receipt_photos WHERE meal_id=?', (meal_id,)).fetchone()
+            _require(photo_row is not None, 'photo_not_found')
+
+            self._db.execute('UPDATE receipt_photos SET share_with_diners=? WHERE meal_id=?',
+                             (1 if enabled else 0, meal_id))
+            self._db.execute('COMMIT')
+            return bool(enabled)
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
 
     def delete_receipt_photo(self, organizer_credential, meal_id):
         verifier = _verifier(organizer_credential)
