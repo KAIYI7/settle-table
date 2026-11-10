@@ -889,7 +889,10 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function startPolling() {
-  stopPolling();
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
   state.pollTimer = setInterval(pollSnapshot, 3000);
 }
 
@@ -1545,13 +1548,8 @@ async function loadMeal(mealId) {
           const expRes = await apiCall(`/api/meals/${mealId}/export/notion`);
           if (expRes?.ok && expRes.export) {
             const expStatus = expRes.export.status;
-            if (expStatus === 'completed' || expStatus === 'already_exported' || expStatus === 'failed') {
+            if (expStatus === 'completed' || expStatus === 'already_exported' || expStatus === 'failed' || expStatus === 'in_progress') {
               state.notionExport = expRes.export;
-            } else if (expStatus === 'in_progress') {
-              state.notionExport = expRes.export;
-              if (snap.is_organizer) {
-                pollNotionExportStatus();
-              }
             }
           }
         } catch {
@@ -1562,6 +1560,11 @@ async function loadMeal(mealId) {
       updateMealUI();
       loadSimulationReads(snap);
       startPolling();
+
+      // If in-progress export, resume active polling for organizer
+      if (snap.finalized && snap.is_organizer && state.notionExport && state.notionExport.status === 'in_progress') {
+        pollNotionExportStatus();
+      }
     }
   } catch (err) {
     if (err.status === 401) {
