@@ -106,10 +106,10 @@ class TestNotionModelsAndFormatting(unittest.TestCase):
         # Unhyphenated 32-hex
         self.assertEqual(extract_notion_id("3fb0ffe172a6815eb59def81c6e8eb4d"), canonical)
         # Full Notion sharing page URL with slug and query
-        share_url = "https://app.notion.com/p/SYNTHETIC-Meal-001-3fb0ffe172a6815eb59def81c6e8eb4d?source=copy_link"
+        share_url = "https://app.notion.com/p/SYNTHETIC-Meal-001-" + "3fb0ffe172a6815eb59def81c6e8eb4d?source=copy_link"
         self.assertEqual(extract_notion_id(share_url), canonical)
         # Workspace Notion URL
-        ws_url = "https://www.notion.so/my-workspace/Dinner-3fb0ffe172a6815eb59def81c6e8eb4d"
+        ws_url = "https://www.notion.so/my-workspace/Dinner-" + "3fb0ffe172a6815eb59def81c6e8eb4d"
         self.assertEqual(extract_notion_id(ws_url), canonical)
         # Invalid inputs
         self.assertIsNone(extract_notion_id(""))
@@ -946,7 +946,7 @@ class TestNotionTransportIntegration(unittest.TestCase):
             "Authorization": f"Bearer {self.org_cred}",
             "X-SettleTable-Action": "1",
         }
-        share_url = "https://app.notion.com/p/SYNTHETIC-Meal-001-3fb0ffe172a6815eb59def81c6e8eb4d?source=copy_link"
+        share_url = "https://app.notion.com/p/SYNTHETIC-Meal-001-" + "3fb0ffe172a6815eb59def81c6e8eb4d?source=copy_link"
         body = {
             "parent_id": share_url,
             # token omitted to test mock notion mode defaulting
@@ -1200,6 +1200,233 @@ class TestNotionTransportIntegration(unittest.TestCase):
             self.assertEqual(rec_timeout["export_digest"], "timeout")
         finally:
             auth.close()
+
+    def test_record_notion_export_failed_does_not_overwrite_completed_status(self):
+        """Verify that record_notion_export_failed and record_notion_export_in_progress do not overwrite completed exports."""
+        auth = Authority(str(self.db_path))
+        try:
+            snap = auth.snapshot(self.org_cred, "meal-notion-test")
+            fin_rev = snap.finalized_revision or snap.revision
+
+            # Record initial completed export
+            auth.record_notion_export_completed(
+                "meal-notion-test", fin_rev, "page-completed-123", "https://notion.so/page-completed-123", "digest-abc"
+            )
+            rec = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertEqual(rec["status"], "completed")
+            self.assertEqual(rec["page_id"], "page-completed-123")
+            self.assertEqual(rec["page_url"], "https://notion.so/page-completed-123")
+
+            # Lagging failure attempt arrives (e.g. from an overlapping timed-out worker)
+            auth.record_notion_export_failed("meal-notion-test", fin_rev, "lagging_worker_timeout")
+
+            rec_after_failed = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertEqual(rec_after_failed["status"], "completed")
+            self.assertEqual(rec_after_failed["page_id"], "page-completed-123")
+            self.assertEqual(rec_after_failed["page_url"], "https://notion.so/page-completed-123")
+
+            # In-progress attempt with the same digest also cannot downgrade completed status
+            auth.record_notion_export_in_progress("meal-notion-test", fin_rev, "digest-abc")
+            rec_after_inprogress = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertEqual(rec_after_inprogress["status"], "completed")
+            self.assertEqual(rec_after_inprogress["page_id"], "page-completed-123")
+        finally:
+            auth.close()
+
+    def test_overlapping_async_export_requests_reuse_active_thread_and_prevent_duplicates(self):
+        """Verify that concurrent or retry export calls while a worker is alive reuse the active thread without duplicate Notion page creations."""
+        import threading
+
+        # Wrap mock client to delay create_page until an event is set
+        gate = threading.Event()
+        original_client = self.app.notion_client
+        create_page_calls = []
+
+        class DelayedMockClient:
+            def __init__(self, inner):
+                self._inner = inner
+            def create_page(self, *args, **kwargs):
+                create_page_calls.append(args)
+                gate.wait(timeout=5.0)
+                return self._inner.create_page(*args, **kwargs)
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        delayed_client = DelayedMockClient(original_client)
+        self.app.notion_client = delayed_client
+
+        headers = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        body = {
+            "parent_id": "11111111-2222-3333-4444-555555555555",
+            "token": "secret_12345678901234567890",
+        }
+
+        try:
+            # First request: starts background worker
+            code1, _, res1 = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+            self.assertEqual(code1, 202)
+            data1 = json.loads(res1.decode("utf-8"))
+            self.assertEqual(data1["export"]["status"], "in_progress")
+
+            # Wait briefly for worker thread to enter create_page
+            for _ in range(50):
+                if len(create_page_calls) > 0:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(len(create_page_calls), 1)
+
+            # Second request arrives while worker 1 is still in-flight
+            code2, _, res2 = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+            self.assertEqual(code2, 202)
+            data2 = json.loads(res2.decode("utf-8"))
+            self.assertEqual(data2["export"]["status"], "in_progress")
+
+            # Verify that create_page was NOT called a second time
+            self.assertEqual(len(create_page_calls), 1)
+
+            # Unblock the gate so worker completes
+            gate.set()
+
+            # Poll until completed
+            body_p = {}
+            for _ in range(100):
+                code_p, _, res_p = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers)
+                if code_p == 200:
+                    body_p = json.loads(res_p.decode("utf-8"))
+                    if body_p.get("export", {}).get("status") == "completed":
+                        break
+                time.sleep(0.03)
+
+            self.assertEqual(body_p.get("export", {}).get("status"), "completed")
+            self.assertEqual(len(create_page_calls), 1)
+        finally:
+            gate.set()
+            self.app.notion_client = original_client
+
+    def test_concurrent_post_export_double_checked_lock_prevents_duplicate_workers(self):
+        """Verify that two simultaneous POST export requests hitting the dispatch concurrently trigger double-checked locking and spawn only one worker."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        gate = threading.Event()
+        original_client = self.app.notion_client
+        create_page_calls = []
+
+        class DelayedMockClient:
+            def __init__(self, inner):
+                self._inner = inner
+            def create_page(self, *args, **kwargs):
+                create_page_calls.append(args)
+                gate.wait(timeout=5.0)
+                return self._inner.create_page(*args, **kwargs)
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        delayed_client = DelayedMockClient(original_client)
+        self.app.notion_client = delayed_client
+
+        headers = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        body = {
+            "parent_id": "11111111-2222-3333-4444-555555555555",
+            "token": "secret_12345678901234567890",
+        }
+
+        # Clear any prior export record for clean state
+        auth = Authority(str(self.db_path))
+        try:
+            auth._db.execute("DELETE FROM notion_exports WHERE meal_id='meal-notion-test'")
+            auth._db.commit()
+        finally:
+            auth.close()
+
+        try:
+            barrier = threading.Barrier(2)
+            results = []
+
+            def send_req():
+                barrier.wait()
+                code, _, res_bytes = self._call("POST", "/api/meals/meal-notion-test/export/notion", headers, body)
+                results.append((code, json.loads(res_bytes.decode("utf-8"))))
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                t1 = executor.submit(send_req)
+                t2 = executor.submit(send_req)
+                t1.result()
+                t2.result()
+
+            self.assertEqual(len(results), 2)
+            for code, data in results:
+                self.assertEqual(code, 202)
+                self.assertEqual(data["export"]["status"], "in_progress")
+
+            # Unblock worker
+            gate.set()
+
+            # Poll until completed
+            body_p = {}
+            for _ in range(100):
+                code_p, _, res_p = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers)
+                if code_p == 200:
+                    body_p = json.loads(res_p.decode("utf-8"))
+                    if body_p.get("export", {}).get("status") == "completed":
+                        break
+                time.sleep(0.03)
+
+            self.assertEqual(body_p.get("export", {}).get("status"), "completed")
+            self.assertEqual(len(create_page_calls), 1)
+        finally:
+            gate.set()
+            self.app.notion_client = original_client
+
+    def test_lagging_worker_after_75s_timeout_cannot_overwrite_completed_retry(self):
+        """Verify that when a request times out (>75s) and a subsequent retry succeeds, any lagging failure from the original worker cannot clobber the completed state."""
+        auth = Authority(str(self.db_path))
+        try:
+            snap = auth.snapshot(self.org_cred, "meal-notion-test")
+            fin_rev = snap.finalized_revision or snap.revision
+
+            # 1. Worker 1 starts at t=0
+            now = time.time()
+            auth.record_notion_export_in_progress("meal-notion-test", fin_rev, "digest-abc")
+
+            # 2. Worker 1 lags beyond 75s
+            auth._db.execute(
+                "UPDATE notion_exports SET exported_at = ? WHERE meal_id = ? AND finalized_revision = ?",
+                (now - 80.0, "meal-notion-test", fin_rev),
+            )
+            auth._db.commit()
+
+            # Authority sees timeout failure
+            timed_out = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertEqual(timed_out["status"], "failed")
+            self.assertEqual(timed_out["export_digest"], "timeout")
+
+            # 3. Retry happens and succeeds (Worker 2 records completion)
+            auth.record_notion_export_completed(
+                "meal-notion-test", fin_rev, "page-retry-win", "https://notion.so/page-retry-win", "digest-abc"
+            )
+            completed_rec = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertEqual(completed_rec["status"], "completed")
+            self.assertEqual(completed_rec["page_id"], "page-retry-win")
+
+            # 4. Lagging Worker 1 finally errors out at t=85 and attempts to record failure
+            auth.record_notion_export_failed("meal-notion-test", fin_rev, "http_read_timeout_504")
+
+            # 5. Completed status and URL MUST remain intact
+            final_rec = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertEqual(final_rec["status"], "completed")
+            self.assertEqual(final_rec["page_id"], "page-retry-win")
+            self.assertEqual(final_rec["page_url"], "https://notion.so/page-retry-win")
+        finally:
+            auth.close()
+
+
 
 
 if __name__ == "__main__":

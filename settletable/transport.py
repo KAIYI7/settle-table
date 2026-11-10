@@ -289,6 +289,8 @@ class SettleTableApp:
             bool(allow_sync_export)
             or os.environ.get('SETTLETABLE_ALLOW_SYNC_EXPORT') == '1'
         )
+        self._export_threads = {}
+        self._export_lock = threading.Lock()
         self._local = threading.local()
 
     def _get_session_ttl(self):
@@ -1168,6 +1170,21 @@ class SettleTableApp:
                 else:
                     existing_page_id = rec.get('page_id')
 
+            thread_key = (meal_id, rev)
+            with self._export_lock:
+                active_thread = self._export_threads.get(thread_key)
+                if active_thread is not None and active_thread.is_alive():
+                    return 202, self._default_headers(), serialize_json({
+                        'ok': True,
+                        'export': {
+                            'ok': True,
+                            'status': 'in_progress',
+                            'page_id': None,
+                            'page_url': None,
+                            'message': 'Notion export running asynchronously in background',
+                        }
+                    })
+
             if rec and rec.get('status') == 'in_progress':
                 elapsed = time.time() - rec.get('exported_at', 0)
                 if elapsed < 75.0:
@@ -1247,10 +1264,14 @@ class SettleTableApp:
                 # Asynchronous delivery: dispatch in background thread, return 202 immediately
                 # to prevent WSGI worker thread starvation for live diners.
                 # Ephemeral background worker thread (asynchronous execution, not durable queue persistence).
-                # Does not survive process termination; uncompleted exports time out cleanly after 60s.
+                # Does not survive process termination; uncompleted exports time out cleanly after 75s.
                 def _bg_export():
                     bg_auth = self.get_authority()
                     try:
+                        cur_rec = bg_auth.get_notion_export(meal_id, rev)
+                        if cur_rec and cur_rec.get('status') == 'completed':
+                            if cur_rec.get('export_digest') == export_digest:
+                                return
                         client = self.get_notion_client()
                         result = export_finalized_meal(client, meal_id, snap, config)
                         if result.ok:
@@ -1276,10 +1297,27 @@ class SettleTableApp:
                         clean = sanitize_notion_error_message(str(err))
                         bg_auth.record_notion_export_failed(meal_id, rev, f'unexpected_error: {clean}'[:128])
                     finally:
+                        with self._export_lock:
+                            if self._export_threads.get(thread_key) is threading.current_thread():
+                                self._export_threads.pop(thread_key, None)
                         self.close()
 
-                bg_thread = threading.Thread(target=_bg_export, daemon=True)
-                bg_thread.start()
+                with self._export_lock:
+                    active_thread = self._export_threads.get(thread_key)
+                    if active_thread is not None and active_thread.is_alive():
+                        return 202, self._default_headers(), serialize_json({
+                            'ok': True,
+                            'export': {
+                                'ok': True,
+                                'status': 'in_progress',
+                                'page_id': None,
+                                'page_url': None,
+                                'message': 'Notion export running asynchronously in background',
+                            }
+                        })
+                    bg_thread = threading.Thread(target=_bg_export, daemon=True)
+                    self._export_threads[thread_key] = bg_thread
+                    bg_thread.start()
                 out = {
                     'ok': True,
                     'export': {
