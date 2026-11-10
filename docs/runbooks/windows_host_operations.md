@@ -220,54 +220,76 @@ For real dining events, backups contain sensitive receipts, participant names, a
    ```
 2. **Strict Single-Snapshot Scoping & Timestamp Extraction**: SettleTable's `backup_restore.py` generates its own UTC timestamp internally (`YYYYMMDD_HHMMSSZ`). Do not guess or generate a separate host timestamp. Obtain the exact snapshot timestamp directly from the generated manifest, and verify that the manifest, SQLite file, and receipt-photo directory strictly belong to that same snapshot before archiving:
    ```powershell
-   # Move into the local backup directory containing the snapshot:
-   cd "$hostBackupDir"
+   # Preserve repository working directory and enter snapshot directory:
+   Push-Location -LiteralPath "$hostBackupDir"
+   try {
+       # Extract the exact timestamp from the newly generated manifest:
+       $manifestFile = (Get-ChildItem -Filter "manifest_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+       if (-not $manifestFile) { throw "No backup manifest found in $hostBackupDir!" }
+       if ($manifestFile.BaseName -match '^manifest_(.+)$') {
+           $timestamp = $Matches[1]
+       } else {
+           throw "Manifest filename '$($manifestFile.Name)' does not match expected pattern 'manifest_<timestamp>.json'!"
+       }
 
-   # Extract the exact timestamp from the newly generated manifest:
-   $manifestFile = (Get-ChildItem -Filter "manifest_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
-   if (-not $manifestFile) { throw "No backup manifest found in $hostBackupDir!" }
-   if ($manifestFile.BaseName -match '^manifest_(.+)$') {
-       $timestamp = $Matches[1]
-   } else {
-       throw "Manifest filename '$($manifestFile.Name)' does not match expected pattern 'manifest_<timestamp>.json'!"
-   }
+       # Verify tripartite snapshot integrity and manifest alignment before archiving:
+       $manifestData = Get-Content $manifestFile.FullName -Raw | ConvertFrom-Json
+       $expectedDb = "settletable_${timestamp}.sqlite"
+       $expectedPhotos = "receipt_photos_${timestamp}"
 
-   # Verify tripartite snapshot integrity and manifest alignment before archiving:
-   $manifestData = Get-Content $manifestFile.FullName -Raw | ConvertFrom-Json
-   $expectedDb = "settletable_${timestamp}.sqlite"
-   $expectedPhotos = "receipt_photos_${timestamp}"
+       if ($manifestData.database.filename -ne $expectedDb -or -not (Test-Path -LiteralPath $expectedDb)) {
+           throw "Snapshot database mismatch: expected '$expectedDb' on disk and in manifest!"
+       }
+       if ($manifestData.receipt_photos_dir -ne $expectedPhotos -or -not (Test-Path -LiteralPath $expectedPhotos)) {
+           throw "Snapshot photos mismatch: expected '$expectedPhotos' on disk and in manifest!"
+       }
 
-   if ($manifestData.database.filename -ne $expectedDb -or -not (Test-Path $expectedDb)) {
-       throw "Snapshot database mismatch: expected '$expectedDb' on disk and in manifest!"
+       $archivePath = "${archiveDir}\settletable_backup_${timestamp}.7z"
+       if (Test-Path -LiteralPath $archivePath) {
+           throw "Target archive '$archivePath' already exists! Aborting to prevent overwrite."
+       }
+
+       # 3. Create encrypted archive with header encryption (file names, sizes, structure encrypted):
+       # Note: The archive path MUST precede the input files in 7-Zip command syntax:
+       & "<7Z_PATH>" a -t7z -mhe=on -p "$archivePath" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
+       if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed with exit code $LASTEXITCODE!" }
+
+       # 4. Verify archive integrity:
+       & "<7Z_PATH>" t -p "$archivePath"
+       if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed with exit code $LASTEXITCODE!" }
+   } finally {
+       Pop-Location
    }
-   if ($manifestData.receipt_photos_dir -ne $expectedPhotos -or -not (Test-Path $expectedPhotos)) {
-       throw "Snapshot photos mismatch: expected '$expectedPhotos' on disk and in manifest!"
-   }
-   ```
-   Do not use broad wildcards that could combine files from different dining events or snapshots.
-3. **AES-256 Header Encryption (`-mhe=on`)**: Using 7-Zip (`7z.exe`), create a uniquely named `.7z` archive:
-   ```powershell
-   # Create the encrypted archive with header encryption (file names, sizes, and structure encrypted):
-   # Note: The archive path MUST precede the input files in 7-Zip command syntax:
-   # 7z a [switches] <archive_name> <file_names...>
-   & "<7Z_PATH>" a -t7z -mhe=on -p "${archiveDir}\settletable_backup_${timestamp}.7z" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
-   if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed!" }
    ```
    *Security Note on Passphrase*: Passing `-p` without an inline password instructs 7-Zip to securely prompt for the passphrase interactively on console (`Enter password (will not be echoed)`). The passphrase is never exposed in process arguments, logs, scripts, `.env`, or git history.
-4. **Archive Integrity Test**:
-   ```powershell
-   & "<7Z_PATH>" t -p "${archiveDir}\settletable_backup_${timestamp}.7z"
-   if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed!" }
-   ```
-5. **Copy to Google Drive**:
+5. **Copy to Google Drive & Validate Hash**:
    The approved host Google Drive destination is `<GDRIVE_BACKUPS_DIR>` (located on the host at Google Drive `My Drive\SettleTable\backups`; strictly do not use `SettleTable_Backups`).
    The established local backup location is `.local\backups` within the repository root (do not create parallel backup directories).
    *Caution*: Never overwrite `settletable_backup_20261108_123746Z.7z` (the first real-meal backup).
    ```powershell
    # Ensure $gdriveBackupsDir is configured to your host's Google Drive 'My Drive\SettleTable\backups'
-   if (-not $gdriveBackupsDir -or -not (Test-Path $gdriveBackupsDir)) { throw "Approved Google Drive backup directory not accessible: $gdriveBackupsDir" }
-   Copy-Item "${archiveDir}\settletable_backup_${timestamp}.7z" -Destination "$gdriveBackupsDir\"
-   if ($LASTEXITCODE -ne 0) { throw "Failed copying archive to Google Drive!" }
+   if (-not $gdriveBackupsDir -or -not (Test-Path -LiteralPath $gdriveBackupsDir)) {
+       throw "Approved Google Drive backup directory not accessible: $gdriveBackupsDir"
+   }
+
+   $sourceArchive = Join-Path $archiveDir "settletable_backup_${timestamp}.7z"
+   $destArchive = Join-Path $gdriveBackupsDir "settletable_backup_${timestamp}.7z"
+
+   # Safety check: prevent overwriting any existing backup (including inaugural real-meal archive):
+   if (Test-Path -LiteralPath $destArchive) {
+       throw "Destination archive already exists in Google Drive: $destArchive. Aborting to prevent overwrite."
+   }
+
+   # Copy using cmdlet error-handling (-ErrorAction Stop):
+   Copy-Item -LiteralPath $sourceArchive -Destination $destArchive -ErrorAction Stop
+
+   # Verify bit-for-bit SHA-256 match between local archive and Google Drive copy:
+   $sourceHash = (Get-FileHash -LiteralPath $sourceArchive -Algorithm SHA256).Hash
+   $destHash = (Get-FileHash -LiteralPath $destArchive -Algorithm SHA256).Hash
+   if ($sourceHash -ne $destHash) {
+       throw "SHA-256 verification failed between local archive ($sourceHash) and Google Drive copy ($destHash)!"
+   }
+   Write-Host "Archive copy verified matching SHA-256: $destHash" -ForegroundColor Green
    ```
 6. **Distinguish Local Filesystem Copying from Verified Remote Cloud Upload**:
    - **Local Cache Copy (Virtual Mount Drive)**: `Copy-Item` copies the archive into the local DriveFS cache on Windows. Local readback or SHA-256 calculation confirms only that the file was written to the local cache. While in transit, DriveFS assigns a transient identifier (`local-*`), which is **not** evidence of cloud durability.
@@ -391,110 +413,245 @@ When upgrading the production container to a newer reviewed checkpoint that incl
 > **Controller Build Semantics**: `docker compose up -d settletable` and `.\tools\SettleTable-Control.ps1 start-local` reuse the locally tagged image `settletable:latest` and **do not automatically rebuild** when source files change. An explicit image rebuild is mandatory.
 
 #### Step 1: Pre-Upgrade Quiescent Backup & Google Drive Durability
-1. Stop the application container to ensure complete quiescence:
+
+0. **Preserve and Verify Working Directory**:
+   Ensure all operations originate from the SettleTable repository root:
+   ```powershell
+   $repoRoot = (Get-Location).Path
+   if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "tools\SettleTable-Control.cmd"))) {
+       throw "Current working directory '$repoRoot' is not the SettleTable repository root!"
+   }
+   $hostBackupDir = Join-Path $repoRoot ".local\backups\pre_upgrade_snapshot"
+   $archiveDir = Join-Path $repoRoot ".local\backups"
+   if (-not (Test-Path -LiteralPath $hostBackupDir)) { New-Item -ItemType Directory -Path $hostBackupDir -Force }
+   ```
+
+1. **Stop Application Container**:
+   Stop the application container to ensure complete quiescence:
    ```powershell
    .\tools\SettleTable-Control.ps1 stop-all
    # Or using the CMD launcher:
    # .\tools\SettleTable-Control.cmd stop-all
    ```
-2. Verify production volume configuration:
+
+2. **Verify Production Volume Target**:
    ```powershell
    python tools/verify_volume_target.py --mode real
-   if ($LASTEXITCODE -ne 0) { throw "Volume pre-flight check failed! Aborting upgrade." }
+   if ($LASTEXITCODE -ne 0) { throw "Volume pre-flight check failed with exit code $LASTEXITCODE! Aborting upgrade." }
    ```
-3. Take a fresh quiescent backup of `settletable_data`:
-   ```powershell
-   $hostBackupDir = (Join-Path $pwd.Path ".local\backups\pre_upgrade_snapshot")
-   docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
-   if ($LASTEXITCODE -ne 0) { throw "Pre-upgrade backup failed!" }
-   ```
-4. Extract the exact timestamp from the generated manifest and verify snapshot consistency:
-   ```powershell
-   cd "$hostBackupDir"
-   $manifestFile = (Get-ChildItem -Filter "manifest_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
-   if (-not $manifestFile) { throw "No backup manifest found in $hostBackupDir!" }
-   if ($manifestFile.BaseName -match '^manifest_(.+)$') {
-       $timestamp = $Matches[1]
-   } else {
-       throw "Manifest filename '$($manifestFile.Name)' does not match expected pattern!"
-   }
-   $manifestData = Get-Content $manifestFile.FullName -Raw | ConvertFrom-Json
-   $expectedDb = "settletable_${timestamp}.sqlite"
-   $expectedPhotos = "receipt_photos_${timestamp}"
-   if ($manifestData.database.filename -ne $expectedDb -or -not (Test-Path $expectedDb)) {
-       throw "Snapshot database mismatch: expected '$expectedDb' on disk and in manifest!"
-   }
-   if ($manifestData.receipt_photos_dir -ne $expectedPhotos -or -not (Test-Path $expectedPhotos)) {
-       throw "Snapshot photos mismatch: expected '$expectedPhotos' on disk and in manifest!"
-   }
-   ```
-5. Create and test the AES-256 encrypted 7-Zip archive:
-   ```powershell
-   & "<7Z_PATH>" a -t7z -mhe=on -p "settletable_backup_${timestamp}.7z" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
-   if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed!" }
 
-   & "<7Z_PATH>" t -p "settletable_backup_${timestamp}.7z"
-   if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed!" }
-   ```
-6. Copy archive to approved Google Drive location and verify remote cloud durability:
+3. **Take Quiescent Backup of `settletable_data`**:
    ```powershell
-   # Ensure $gdriveBackupsDir is configured to your host's Google Drive 'My Drive\SettleTable\backups'
-   if (-not $gdriveBackupsDir -or -not (Test-Path $gdriveBackupsDir)) { throw "Approved Google Drive backup directory not accessible: $gdriveBackupsDir" }
-   Copy-Item "settletable_backup_${timestamp}.7z" -Destination "$gdriveBackupsDir\"
-   if ($LASTEXITCODE -ne 0) { throw "Failed copying archive to Google Drive!" }
+   docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py backup --db /data/settletable.sqlite --photos /data/receipt_photos --out-dir /backups
+   if ($LASTEXITCODE -ne 0) { throw "Pre-upgrade backup generation failed with exit code $LASTEXITCODE!" }
+   ```
+
+4. **Extract Manifest Timestamp, Verify Integrity, and Archive**:
+   Preserve repository root and enter the snapshot folder temporarily using `Push-Location` / `Pop-Location`:
+   ```powershell
+   Push-Location -LiteralPath "$hostBackupDir"
+   try {
+       $manifestFile = (Get-ChildItem -Filter "manifest_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+       if (-not $manifestFile) { throw "No backup manifest found in $hostBackupDir!" }
+       if ($manifestFile.BaseName -match '^manifest_(.+)$') {
+           $timestamp = $Matches[1]
+       } else {
+           throw "Manifest filename '$($manifestFile.Name)' does not match expected pattern!"
+       }
+
+       $manifestData = Get-Content $manifestFile.FullName -Raw | ConvertFrom-Json
+       $expectedDb = "settletable_${timestamp}.sqlite"
+       $expectedPhotos = "receipt_photos_${timestamp}"
+
+       if ($manifestData.database.filename -ne $expectedDb -or -not (Test-Path -LiteralPath $expectedDb)) {
+           throw "Snapshot database mismatch: expected '$expectedDb' on disk and in manifest!"
+       }
+       if ($manifestData.receipt_photos_dir -ne $expectedPhotos -or -not (Test-Path -LiteralPath $expectedPhotos)) {
+           throw "Snapshot photos mismatch: expected '$expectedPhotos' on disk and in manifest!"
+       }
+
+       $archivePath = Join-Path $archiveDir "settletable_backup_${timestamp}.7z"
+       if (Test-Path -LiteralPath $archivePath) {
+           throw "Target archive '$archivePath' already exists! Aborting to prevent overwrite."
+       }
+
+       # Create 7-Zip encrypted archive:
+       & "<7Z_PATH>" a -t7z -mhe=on -p "$archivePath" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
+       if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed with exit code $LASTEXITCODE!" }
+
+       # Verify archive integrity:
+       & "<7Z_PATH>" t -p "$archivePath"
+       if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed with exit code $LASTEXITCODE!" }
+   } finally {
+       Pop-Location
+   }
+   ```
+
+5. **Copy to Google Drive & Validate Hash**:
+   The approved host Google Drive destination is `<GDRIVE_BACKUPS_DIR>` (located on the host at Google Drive `My Drive\SettleTable\backups`; strictly do not use `SettleTable_Backups`).
+   *Caution*: Never overwrite `settletable_backup_20261108_123746Z.7z` (the first real-meal backup).
+   ```powershell
+   if (-not $gdriveBackupsDir -or -not (Test-Path -LiteralPath $gdriveBackupsDir)) {
+       throw "Approved Google Drive backup directory not accessible: $gdriveBackupsDir"
+   }
+
+   $sourceArchive = Join-Path $archiveDir "settletable_backup_${timestamp}.7z"
+   $destArchive = Join-Path $gdriveBackupsDir "settletable_backup_${timestamp}.7z"
+
+   # Safety check: prevent overwriting any existing backup:
+   if (Test-Path -LiteralPath $destArchive) {
+       throw "Destination archive already exists in Google Drive: $destArchive. Aborting to prevent overwrite."
+   }
+
+   # Copy using cmdlet error-handling (-ErrorAction Stop):
+   Copy-Item -LiteralPath $sourceArchive -Destination $destArchive -ErrorAction Stop
+
+   # Verify bit-for-bit SHA-256 match between local archive and Google Drive copy:
+   $sourceHash = (Get-FileHash -LiteralPath $sourceArchive -Algorithm SHA256).Hash
+   $destHash = (Get-FileHash -LiteralPath $destArchive -Algorithm SHA256).Hash
+   if ($sourceHash -ne $destHash) {
+       throw "SHA-256 verification failed between local archive ($sourceHash) and Google Drive copy ($destHash)!"
+   }
+   Write-Host "Archive copy verified matching SHA-256: $destHash" -ForegroundColor Green
    ```
    *Human Verification*: Confirm the Google Drive for desktop taskbar notification reports "Everything is up to date" (queue count 0), and a permanent cloud ID replaces the local ID.
 
 #### Step 2: Preserve Working Image & Rebuild Application Image
-1. Tag previous working image as fallback:
+
+Ensure execution from repository root:
+```powershell
+Set-Location -LiteralPath $repoRoot
+```
+
+1. **Tag previous working image as fallback**:
    ```powershell
    docker tag settletable:latest settletable:pre-pr65-safe
+   if ($LASTEXITCODE -ne 0) { throw "Docker tag failed with exit code $LASTEXITCODE!" }
    ```
-2. Explicitly rebuild the Docker application image from the reviewed repository checkpoint:
+2. **Explicitly rebuild Docker application image**:
    ```powershell
    docker compose build settletable
-   if ($LASTEXITCODE -ne 0) { throw "Docker image build failed!" }
+   if ($LASTEXITCODE -ne 0) { throw "Docker image build failed with exit code $LASTEXITCODE!" }
    ```
 
 #### Step 3: Local-Only Startup & Post-Migration Verification
-1. Start the updated application locally with Cloudflare strictly offline:
+
+Ensure execution from repository root:
+```powershell
+Set-Location -LiteralPath $repoRoot
+```
+
+1. **Start updated application locally** with Cloudflare strictly offline:
    ```powershell
    .\tools\SettleTable-Control.ps1 start-local
-   if ($LASTEXITCODE -ne 0) { throw "Local startup failed!" }
+   # Or using the CMD launcher:
+   # .\tools\SettleTable-Control.cmd start-local
+   if ($LASTEXITCODE -ne 0) { throw "Local startup failed with exit code $LASTEXITCODE!" }
    ```
-2. Verify local health probe returns HTTP 200:
+2. **Verify local health probe returns HTTP 200**:
    ```powershell
    curl.exe -i http://127.0.0.1:8000/healthz
+   if ($LASTEXITCODE -ne 0) { throw "Health probe failed with exit code $LASTEXITCODE!" }
    ```
-3. Inspect container logs for clean database schema upgrade:
+3. **Inspect container logs for clean database schema upgrade**:
    ```powershell
    docker compose logs --tail 30 settletable
    ```
-4. Verify historical meal, original receipt photo, participant balances, and Notion export records in browser:
-   - Navigate to `http://127.0.0.1:8000`.
-   - Confirm the historical pilot meal loads with all participant apportionments intact.
-   - Confirm the original receipt photo displays in the thumbnail card and zooms cleanly.
-   - Confirm receipt photo sharing toggle is visible to the organizer and defaults to disabled (`share_with_diners = 0`).
-   - Confirm Notion export card renders with persistent status and view-only link input.
+4. **Safe, Read-Only Database & Asset Integrity Verification**:
+   > [!IMPORTANT]
+   > **Domain & Session Cookie Scope**: The organizer's session cookie was issued for domain `settle.kybuilds.com` with `Secure; HttpOnly; SameSite=Strict`. Standard desktop browsers will not transmit this cookie to `http://127.0.0.1:8000`, so visiting localhost in a browser will display the unauthenticated landing page. Do not assume the browser can access the historical meal simply because localhost health checks pass.
+   >
+   > Execute the following read-only Python verification script inside the container. It validates schema migration, meal state, finalized calculations, receipt photo SHA-256, and Notion export status directly against storage without exposing private diner names, receipt items, money values, or tokens in the console transcript:
+   ```powershell
+   docker compose exec settletable python -c @"
+import hashlib, json, os, sqlite3
+
+db = sqlite3.connect('/data/settletable.sqlite')
+
+# 1. Verify schema columns
+notion_cols = [r[1] for r in db.execute('PRAGMA table_info(notion_exports)').fetchall()]
+photo_cols = [r[1] for r in db.execute('PRAGMA table_info(receipt_photos)').fetchall()]
+assert 'public_url' in notion_cols, 'Missing public_url in notion_exports'
+assert 'share_with_diners' in photo_cols, 'Missing share_with_diners in receipt_photos'
+
+# 2. Verify meal and participants counts (privacy-safe: counts only)
+meal_count = db.execute('SELECT COUNT(*) FROM meals').fetchone()[0]
+part_row = db.execute('SELECT COUNT(*), SUM(organizer), SUM(active) FROM participants').fetchone()
+assert meal_count >= 1, 'No meal found'
+assert part_row[0] >= 1 and part_row[1] >= 1, 'Missing participants or organizer'
+
+# 3. Verify finalized financial state and revision identifiers
+meal_id, state_bytes = db.execute('SELECT id, state FROM meals LIMIT 1').fetchone()
+state = json.loads(state_bytes)
+assert state.get('calculation') is not None, 'Meal is not finalized'
+assert state.get('finalized_revision') is not None, 'Missing finalized_revision'
+assert len(state['calculation'].get('consumption', [])) > 0, 'No consumption records found'
+
+# 4. Verify receipt photo file existence and SHA-256 integrity
+photo_row = db.execute('SELECT filename, sha256, share_with_diners FROM receipt_photos WHERE meal_id = ?', (meal_id,)).fetchone()
+if photo_row:
+    fname, expected_hash, share_val = photo_row
+    assert share_val == 0, f'Expected share_with_diners == 0 (default-disabled), got {share_val}'
+    fpath = os.path.join('/data/receipt_photos', fname)
+    assert os.path.isfile(fpath), f'Photo file missing at {fpath}'
+    with open(fpath, 'rb') as f:
+        actual_hash = hashlib.sha256(f.read()).hexdigest()
+    assert actual_hash == expected_hash, 'Photo SHA-256 integrity mismatch'
+
+# 5. Verify Notion export records and page associations
+notion_row = db.execute('SELECT finalized_revision, status, page_id, public_url FROM notion_exports WHERE meal_id = ?', (meal_id,)).fetchone()
+if notion_row:
+    rev, status, page_id, pub_url = notion_row
+    assert status == 'completed', f'Unexpected export status: {status}'
+    assert len(page_id) > 0, 'Empty Notion page_id'
+    assert rev == state['finalized_revision'], 'Notion export revision mismatch'
+
+print('POST_MIGRATION_VERIFICATION: PASS')
+print(f'  Meals: {meal_count}, Participants: {part_row[0]} (Organizers: {part_row[1]}, Active: {part_row[2]})')
+print(f'  Finalized Revision: {state["finalized_revision"]}, Items: {len(state.get("items", []))}')
+print(f'  Receipt Photo: Verified bit-for-bit (share_with_diners={photo_row[2] if photo_row else "N/A"})')
+print(f'  Notion Export: Status={notion_row[1] if notion_row else "N/A"} (Revision={notion_row[0] if notion_row else "N/A"})')
+print(f'  Schema Migration: public_url and share_with_diners verified present')
+"@
+   if ($LASTEXITCODE -ne 0) { throw "Post-migration data integrity verification failed with exit code $LASTEXITCODE!" }
+   ```
+
+5. **Authenticated Browser Verification Considerations**:
+   If visual UI inspection in a browser is desired prior to reactivating the public tunnel:
+   - **Do not bootstrap a new meal or issue new claim tokens** on the real production database. The historical meal is finalized; generating new bootstrap sessions risks state pollution.
+   - **Do not open public ingress prematurely** (`start-public`).
+   - If visual inspection is required, the operator can temporarily configure local loopback resolution (`127.0.0.1 settle.kybuilds.com` in Windows `hosts`) behind a local trusted HTTPS proxy terminating TLS for `settle.kybuilds.com`, allowing the browser to present the existing session cookie.
+   - Otherwise, the programmatic post-migration verification above provides authoritative proof of data and schema integrity.
 
 #### Step 4: Practical Rollback Procedure (If Verification Fails)
 If container health check fails or post-migration verification is inconclusive:
-1. Stop the application container immediately:
+1. Ensure operations execute from repository root:
+   ```powershell
+   Set-Location -LiteralPath $repoRoot
+   ```
+2. Stop the application container immediately:
    ```powershell
    .\tools\SettleTable-Control.ps1 stop-all
    ```
-2. Restore the previous working Docker image:
+3. Restore the previous working Docker image:
    ```powershell
    docker tag settletable:pre-pr65-safe settletable:latest
+   if ($LASTEXITCODE -ne 0) { throw "Docker tag rollback failed with exit code $LASTEXITCODE!" }
    ```
-3. Restore database and receipt photos from the pre-upgrade verified snapshot:
+4. Restore database and receipt photos from the pre-upgrade verified snapshot:
    ```powershell
    docker compose run --rm -v "${hostBackupDir}:/backups" settletable python tools/backup_restore.py restore --manifest "/backups/manifest_${timestamp}.json" --dest-db /data/settletable.sqlite --dest-photos /data/receipt_photos --confirm-stopped
-   if ($LASTEXITCODE -ne 0) { throw "Disaster recovery restore failed!" }
+   if ($LASTEXITCODE -ne 0) { throw "Disaster recovery restore failed with exit code $LASTEXITCODE!" }
    ```
-4. Start previous working image locally:
+5. Start previous working image locally:
    ```powershell
    .\tools\SettleTable-Control.ps1 start-local
+   if ($LASTEXITCODE -ne 0) { throw "Local startup failed with exit code $LASTEXITCODE!" }
+   ```
+6. Verify local health probe of restored state:
+   ```powershell
+   curl.exe -i http://127.0.0.1:8000/healthz
+   if ($LASTEXITCODE -ne 0) { throw "Restored state health probe failed!" }
    ```
 
 ---
@@ -582,25 +739,34 @@ Use this checklist during the first authorized invited-friends dining session:
   - *11b. Create Encrypted Archive (Single-Snapshot Scoped)*:
     Extract the snapshot timestamp `${timestamp}` directly from the generated manifest and archive strictly its corresponding verified files:
     ```powershell
-    cd "$hostBackupDir"
-    $manifestFile = (Get-ChildItem -Filter "manifest_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
-    if (-not $manifestFile -or -not ($manifestFile.BaseName -match '^manifest_(.+)$')) { throw "Valid backup manifest not found in $hostBackupDir!" }
-    $timestamp = $Matches[1]
-    & "<7Z_PATH>" a -t7z -mhe=on -p "${archiveDir}\settletable_backup_${timestamp}.7z" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
-    if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed!" }
+    Push-Location -LiteralPath "$hostBackupDir"
+    try {
+        $manifestFile = (Get-ChildItem -Filter "manifest_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+        if (-not $manifestFile -or -not ($manifestFile.BaseName -match '^manifest_(.+)$')) { throw "Valid backup manifest not found in $hostBackupDir!" }
+        $timestamp = $Matches[1]
+        $archivePath = "${archiveDir}\settletable_backup_${timestamp}.7z"
+        if (Test-Path -LiteralPath $archivePath) { throw "Target archive '$archivePath' already exists! Aborting." }
+        & "<7Z_PATH>" a -t7z -mhe=on -p "$archivePath" "manifest_${timestamp}.json" "settletable_${timestamp}.sqlite" "receipt_photos_${timestamp}"
+        if ($LASTEXITCODE -ne 0) { throw "7-Zip encrypted archive creation failed with exit code $LASTEXITCODE!" }
+        & "<7Z_PATH>" t -p "$archivePath"
+        if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed with exit code $LASTEXITCODE!" }
+    } finally {
+        Pop-Location
+    }
     ```
     *(Type your strong master encryption passphrase when prompted; never write it to scripts or `.env`).*
-  - *11c. Archive Integrity Verification*:
-    ```powershell
-    & "<7Z_PATH>" t -p "${archiveDir}\settletable_backup_${timestamp}.7z"
-    if ($LASTEXITCODE -ne 0) { throw "7-Zip archive integrity verification failed!" }
-    ```
-  - *11d. Copy to Google Drive & Verify Cloud Durability*:
+  - *11c. Copy to Google Drive & Verify Cloud Durability*:
     ```powershell
     # Ensure $gdriveBackupsDir is configured to your host's Google Drive 'My Drive\SettleTable\backups'
-    if (-not $gdriveBackupsDir -or -not (Test-Path $gdriveBackupsDir)) { throw "Approved Google Drive directory not accessible: $gdriveBackupsDir" }
-    Copy-Item "${archiveDir}\settletable_backup_${timestamp}.7z" -Destination "$gdriveBackupsDir\"
-    if ($LASTEXITCODE -ne 0) { throw "Failed copying archive to Google Drive!" }
+    if (-not $gdriveBackupsDir -or -not (Test-Path -LiteralPath $gdriveBackupsDir)) { throw "Approved Google Drive directory not accessible: $gdriveBackupsDir" }
+    $sourceArchive = Join-Path $archiveDir "settletable_backup_${timestamp}.7z"
+    $destArchive = Join-Path $gdriveBackupsDir "settletable_backup_${timestamp}.7z"
+    if (Test-Path -LiteralPath $destArchive) { throw "Destination archive already exists in Google Drive: $destArchive. Aborting to prevent overwrite." }
+    Copy-Item -LiteralPath $sourceArchive -Destination $destArchive -ErrorAction Stop
+    $sourceHash = (Get-FileHash -LiteralPath $sourceArchive -Algorithm SHA256).Hash
+    $destHash = (Get-FileHash -LiteralPath $destArchive -Algorithm SHA256).Hash
+    if ($sourceHash -ne $destHash) { throw "SHA-256 mismatch between local archive ($sourceHash) and Google Drive copy ($destHash)!" }
+    Write-Host "Archive copy verified matching SHA-256: $destHash" -ForegroundColor Green
     ```
     *Important: Local copying to Google Drive writes to the local DriveFS cache (and receives a transient `local-*` identifier). Confirm verified remote cloud upload before powering off: the system tray icon displays "Everything is up to date" (queue count 0), and a permanent cloud ID replaces the local ID.*
 - [ ] 12. **Lifecycle Decision**:
