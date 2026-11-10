@@ -1012,9 +1012,7 @@ class SettleTableApp:
             if not active_cred:
                 raise TransportError('invalid_session', 401)
             meal_id = m_photo_get.group(1)
-            part_id, is_org = authority.authenticate(active_cred, meal_id)
-            if not is_org:
-                raise TransportError('forbidden', 403)
+            authority.authenticate(active_cred, meal_id)
 
             img_bytes, meta = authority.get_receipt_photo(active_cred, meal_id)
             ext_map = {'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}
@@ -1027,6 +1025,21 @@ class SettleTableApp:
                 ('Cache-Control', 'private, no-cache, no-store, must-revalidate'),
             ]
             return 200, headers, img_bytes
+
+        # Toggle Receipt Photo Sharing POST /api/meals/{meal_id}/receipt/photo/share
+        m_photo_share = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/receipt/photo/share', path)
+        if m_photo_share and method == 'POST':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_photo_share.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+            share_val = body_data.get('share')
+            if not isinstance(share_val, bool):
+                raise TransportError('invalid_input', 400)
+            res = authority.set_receipt_photo_sharing(active_cred, meal_id, share_val)
+            return 200, self._default_headers(), serialize_json({'ok': True, 'shared': res})
 
         # Delete Receipt Photo DELETE /api/meals/{meal_id}/receipt/photo
         m_photo_del = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/receipt/photo', path)
@@ -1048,14 +1061,37 @@ class SettleTableApp:
                 raise TransportError('invalid_session', 401)
             meal_id = m_notion_get.group(1)
             part_id, is_org = authority.authenticate(active_cred, meal_id)
-            if not is_org:
-                raise TransportError('forbidden', 403)
             snap = asdict(authority.snapshot(active_cred, meal_id))
             rev = snap.get('finalized_revision') or snap.get('revision', 0)
             rec = authority.get_notion_export(meal_id, rev)
+            if not is_org:
+                if rec:
+                    return 200, self._default_headers(), serialize_json({
+                        'ok': True,
+                        'export': {
+                            'status': rec['status'],
+                            'public_url': rec.get('public_url'),
+                        }
+                    })
+                return 200, self._default_headers(), serialize_json({'ok': True, 'export': {'status': 'not_started'}})
             if rec:
                 return 200, self._default_headers(), serialize_json({'ok': True, 'export': rec})
             return 200, self._default_headers(), serialize_json({'ok': True, 'export': {'status': 'not_started'}})
+
+        # Set Notion Public Link POST /api/meals/{meal_id}/export/notion/public-url
+        m_notion_pub = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/export/notion/public-url', path)
+        if m_notion_pub and method == 'POST':
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_notion_pub.group(1)
+            part_id, is_org = authority.authenticate(active_cred, meal_id)
+            if not is_org:
+                raise TransportError('forbidden', 403)
+            pub_url = body_data.get('public_url')
+            if pub_url is not None and not isinstance(pub_url, str):
+                raise TransportError('invalid_input', 400)
+            saved = authority.set_notion_public_url(active_cred, meal_id, pub_url)
+            return 200, self._default_headers(), serialize_json({'ok': True, 'public_url': saved})
 
         # Export Finalized Meal to Notion POST /api/meals/{meal_id}/export/notion
         m_notion = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/export/notion', path)
@@ -1134,7 +1170,7 @@ class SettleTableApp:
 
             if rec and rec.get('status') == 'in_progress':
                 elapsed = time.time() - rec.get('exported_at', 0)
-                if elapsed < 60.0:
+                if elapsed < 75.0:
                     return 202, self._default_headers(), serialize_json({
                         'ok': True,
                         'export': {

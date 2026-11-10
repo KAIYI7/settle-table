@@ -738,5 +738,292 @@ class TestNotionPhotoExport(unittest.TestCase):
         self.assertEqual(len(self.mock_client.pages), 1)
 
 
+class TestReceiptPhotoSharing(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / 'settletable.sqlite'
+        self.storage_dir = Path(self.temp_dir.name) / 'receipt_photos'
+        self.authority = Authority(str(self.db_path), storage_dir=self.storage_dir)
+
+        self.meal_id = 'test-meal-photo-sharing'
+        res = self.authority.bootstrap(self.meal_id, (
+            Participant('O', 'Alice', True),
+            Participant('D1', 'Bob', False),
+            Participant('D2', 'Charlie', False),
+        ))
+        self.org_cred = res.sessions[0].credential
+        self.org_id = 'O'
+
+        # Bob
+        inv1 = self.authority.issue_invitation(self.org_cred, self.meal_id, 'D1')
+        self.bob_cred = self.authority.redeem_invitation(inv1.token, self.meal_id).credential
+
+        # Charlie
+        inv2 = self.authority.issue_invitation(self.org_cred, self.meal_id, 'D2')
+        self.charlie_cred = self.authority.redeem_invitation(inv2.token, self.meal_id).credential
+
+        # Upload photo by organizer
+        self.png_bytes = make_minimal_png(50, 50)
+        self.authority.store_receipt_photo(
+            self.org_cred, self.meal_id, self.png_bytes, 'image/png', 50, 50
+        )
+
+        self.app = SettleTableApp(
+            db_path=str(self.db_path),
+            storage_dir=str(self.storage_dir),
+            server_origin='http://localhost:8000',
+        )
+
+    def tearDown(self):
+        self.app.close()
+        self.authority.close()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
+
+    def _call(self, method: str, path: str, headers: dict | None = None, body: bytes | dict | None = None):
+        import io
+        environ = {
+            'REQUEST_METHOD': method,
+            'PATH_INFO': path,
+            'HTTP_HOST': 'localhost:8000',
+            'HTTP_ORIGIN': 'http://localhost:8000',
+            'HTTP_X_SETTLETABLE_ACTION': '1',
+            'SERVER_NAME': 'localhost',
+            'SERVER_PORT': '8000',
+            'wsgi.url_scheme': 'http',
+        }
+        if headers:
+            for k, v in headers.items():
+                if k.startswith('HTTP_') or k in ('CONTENT_TYPE', 'CONTENT_LENGTH'):
+                    environ[k] = v
+                else:
+                    environ['HTTP_' + k.replace('-', '_').upper()] = v
+
+        if body is not None:
+            if isinstance(body, dict):
+                body_bytes = json.dumps(body).encode('utf-8')
+                environ['CONTENT_TYPE'] = 'application/json'
+            else:
+                body_bytes = body
+            environ['CONTENT_LENGTH'] = str(len(body_bytes))
+            environ['wsgi.input'] = io.BytesIO(body_bytes)
+        else:
+            environ['wsgi.input'] = io.BytesIO(b'')
+
+        resp_headers = []
+        status_box = []
+
+        def start_response(status, response_headers):
+            status_box.append(status)
+            resp_headers.extend(response_headers)
+
+        body_iter = self.app(environ, start_response)
+        res_body = b''.join(body_iter)
+        code = int(status_box[0].split()[0])
+        return code, resp_headers, res_body
+
+    def _finalize_meal(self):
+        # Set receipt with 1 item, claim it, review, finalize
+        receipt = Receipt(
+            items=(ReceiptItem('item-1', 'Burger', 1, 2000),),
+            subtotal_sen=2000,
+            total_sen=2000,
+            adjustments=(),
+        )
+        snap = self.authority.snapshot(self.org_cred, self.meal_id)
+        self.authority.apply(self.org_cred, self.meal_id, ReplaceReceipt('cmd-r1', snap.revision, snap.financial_revision, receipt))
+        snap = self.authority.snapshot(self.org_cred, self.meal_id)
+        item_rev = snap.items[0].item_revision
+        self.authority.apply(self.bob_cred, self.meal_id, SetOwnQuantity('cmd-b1', 'item-1', 1, item_rev, snap.financial_revision))
+        snap = self.authority.snapshot(self.org_cred, self.meal_id)
+        self.authority.apply(self.org_cred, self.meal_id, ReviewReceipt('cmd-rev', snap.revision, snap.financial_revision, snap.receipt_digest))
+        snap = self.authority.snapshot(self.org_cred, self.meal_id)
+        self.authority.apply(self.org_cred, self.meal_id, Finalize('cmd-fin', snap.revision, snap.financial_revision))
+
+    def test_default_sharing_is_disabled(self):
+        snap = self.authority.snapshot(self.bob_cred, self.meal_id)
+        self.assertFalse(snap.receipt_photo_shared)
+        self.assertFalse(snap.receipt_photo.get('shared', False))
+
+    def test_sharing_cannot_be_enabled_before_finalization(self):
+        # Unfinalized meal -> cannot enable photo sharing
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.set_receipt_photo_sharing(self.org_cred, self.meal_id, True)
+        self.assertEqual(ctx.exception.code, 'not_finalized')
+
+        # Transport route returns 409
+        code, _, res_body = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/receipt/photo/share',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}', 'X-SettleTable-Action': '1'},
+            body={'share': True},
+        )
+        self.assertEqual(code, 409)
+
+    def test_non_organizer_cannot_toggle_sharing(self):
+        self._finalize_meal()
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.set_receipt_photo_sharing(self.bob_cred, self.meal_id, True)
+        self.assertEqual(ctx.exception.code, 'forbidden')
+
+        code, _, _ = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/receipt/photo/share',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.bob_cred}', 'X-SettleTable-Action': '1'},
+            body={'share': True},
+        )
+        self.assertEqual(code, 403)
+
+    def test_organizer_can_enable_and_disable_sharing_post_finalization(self):
+        self._finalize_meal()
+
+        # Before sharing: Bob GET photo returns 403
+        code, _, _ = self._call(
+            'GET',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.bob_cred}'},
+        )
+        self.assertEqual(code, 403)
+
+        # Organizer enables sharing
+        code, _, res_body = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/receipt/photo/share',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}', 'X-SettleTable-Action': '1'},
+            body={'share': True},
+        )
+        self.assertEqual(code, 200)
+        data = json.loads(res_body.decode('utf-8'))
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['shared'])
+
+        # Snapshot reflects sharing enabled for all participants
+        snap_org = self.authority.snapshot(self.org_cred, self.meal_id)
+        snap_bob = self.authority.snapshot(self.bob_cred, self.meal_id)
+        self.assertTrue(snap_org.receipt_photo_shared)
+        self.assertTrue(snap_bob.receipt_photo_shared)
+        self.assertTrue(snap_bob.receipt_photo['shared'])
+
+        # Bob can now GET photo
+        code_get, headers_get, img_data = self._call(
+            'GET',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.bob_cred}'},
+        )
+        self.assertEqual(code_get, 200)
+        self.assertEqual(img_data, self.png_bytes)
+        hdr_dict = dict(headers_get)
+        self.assertIn('no-store', hdr_dict.get('Cache-Control', ''))
+        self.assertEqual(hdr_dict.get('X-Content-Type-Options'), 'nosniff')
+
+        # Charlie (other diner) can also GET photo
+        code_char, _, char_img = self._call(
+            'GET',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.charlie_cred}'},
+        )
+        self.assertEqual(code_char, 200)
+        self.assertEqual(char_img, self.png_bytes)
+
+        # Organizer disables sharing
+        code_dis, _, dis_body = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/receipt/photo/share',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.org_cred}', 'X-SettleTable-Action': '1'},
+            body={'share': False},
+        )
+        self.assertEqual(code_dis, 200)
+        dis_data = json.loads(dis_body.decode('utf-8'))
+        self.assertFalse(dis_data['shared'])
+
+        # Bob GET photo is immediately 403 again
+        code_revoked, _, _ = self._call(
+            'GET',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {self.bob_cred}'},
+        )
+        self.assertEqual(code_revoked, 403)
+
+    def test_inactive_and_cross_meal_participants_remain_forbidden(self):
+        self._finalize_meal()
+        # Enable sharing
+        self.authority.set_receipt_photo_sharing(self.org_cred, self.meal_id, True)
+
+        # Deactivate Charlie
+        from settletable.authority import RevokeMembership
+        snap = self.authority.snapshot(self.org_cred, self.meal_id)
+        self.authority.apply(self.org_cred, self.meal_id, RevokeMembership('cmd-rev-c', snap.revision, 'D2'))
+
+        # Deactivated Charlie is rejected with invalid_session
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.get_receipt_photo(self.charlie_cred, self.meal_id)
+        self.assertEqual(ctx.exception.code, 'invalid_session')
+
+        # Unauthenticated request is rejected with 401
+        code_unauth, _, _ = self._call(
+            'GET',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+        )
+        self.assertEqual(code_unauth, 401)
+
+        # Cross-meal session (session from meal2) rejected
+        meal2 = 'other-meal-999'
+        res2 = self.authority.bootstrap(meal2, (Participant('O2', 'Dave', True),))
+        dave_cred = res2.sessions[0].credential
+        code_cross, _, _ = self._call(
+            'GET',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+            headers={'HTTP_AUTHORIZATION': f'Bearer {dave_cred}'},
+        )
+        self.assertEqual(code_cross, 401)
+
+    def test_diner_write_operations_remain_forbidden_when_shared(self):
+        self._finalize_meal()
+        self.authority.set_receipt_photo_sharing(self.org_cred, self.meal_id, True)
+
+        # Diner POST photo rejected
+        code_post, _, _ = self._call(
+            'POST',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+            headers={
+                'CONTENT_TYPE': 'image/png',
+                'HTTP_AUTHORIZATION': f'Bearer {self.bob_cred}',
+                'X-SettleTable-Action': '1',
+            },
+            body=self.png_bytes,
+        )
+        self.assertEqual(code_post, 403)
+
+        # Diner DELETE photo rejected
+        code_del, _, _ = self._call(
+            'DELETE',
+            f'/api/meals/{self.meal_id}/receipt/photo',
+            headers={
+                'HTTP_AUTHORIZATION': f'Bearer {self.bob_cred}',
+                'X-SettleTable-Action': '1',
+            },
+        )
+        self.assertEqual(code_del, 403)
+
+    def test_financial_calculations_preserved_when_toggling_sharing(self):
+        self._finalize_meal()
+        snap_before = self.authority.snapshot(self.org_cred, self.meal_id)
+
+        # Toggle sharing on and off
+        self.authority.set_receipt_photo_sharing(self.org_cred, self.meal_id, True)
+        self.authority.set_receipt_photo_sharing(self.org_cred, self.meal_id, False)
+
+        snap_after = self.authority.snapshot(self.org_cred, self.meal_id)
+
+        # Exact financial revisions and calculation outputs preserved
+        self.assertEqual(snap_before.revision, snap_after.revision)
+        self.assertEqual(snap_before.financial_revision, snap_after.financial_revision)
+        self.assertEqual(snap_before.receipt_digest, snap_after.receipt_digest)
+        self.assertEqual(snap_before.finalized_revision, snap_after.finalized_revision)
+        self.assertEqual(snap_before.calculation.consumption, snap_after.calculation.consumption)
+
+
 if __name__ == '__main__':
     unittest.main()

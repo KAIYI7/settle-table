@@ -25,6 +25,7 @@ const state = {
   notionParentId: '',
   notionToken: '',
   notionExport: null,
+  notionPollTimer: null,
   paymentSimulations: new Map(),
   paymentBusy: new Set(),
   paymentReadSeq: new Map(),
@@ -897,6 +898,51 @@ function stopPolling() {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
+  if (state.notionPollTimer) {
+    clearInterval(state.notionPollTimer);
+    state.notionPollTimer = null;
+  }
+}
+
+function pollNotionExportStatus(onDone) {
+  if (state.notionPollTimer) {
+    clearInterval(state.notionPollTimer);
+    state.notionPollTimer = null;
+  }
+  let pollAttempts = 0;
+  state.notionPollTimer = setInterval(async () => {
+    pollAttempts++;
+    try {
+      const pollRes = await fetch(`/api/meals/${state.mealId}/export/notion`);
+      const pollData = await pollRes.json();
+      if (pollData.ok && pollData.export && (pollData.export.status === 'completed' || pollData.export.status === 'already_exported')) {
+        clearInterval(state.notionPollTimer);
+        state.notionPollTimer = null;
+        state.notionExport = pollData.export;
+        updateMealUI();
+        showAlert('Report exported to Notion successfully!', 'success');
+        if (onDone) onDone(true);
+      } else if (pollData.ok && pollData.export && pollData.export.status === 'failed') {
+        clearInterval(state.notionPollTimer);
+        state.notionPollTimer = null;
+        state.notionExport = pollData.export;
+        updateMealUI();
+        const errDetail = pollData.export.export_digest || 'notion_error';
+        showAlert(`Notion export failed: ${errDetail}`, 'error');
+        if (onDone) onDone(false);
+      } else if (pollAttempts >= 70) {
+        clearInterval(state.notionPollTimer);
+        state.notionPollTimer = null;
+        if (onDone) onDone(false);
+        showAlert('Notion export is taking longer than expected. Please check back shortly.', 'conflict');
+      }
+    } catch {
+      clearInterval(state.notionPollTimer);
+      state.notionPollTimer = null;
+      if (onDone) onDone(false);
+      showAlert('Failed to poll Notion export status.', 'error');
+    }
+  }, 1000);
 }
 
 async function fetchSnapshot(force = false) {
@@ -1493,12 +1539,20 @@ async function loadMeal(mealId) {
       state.currentUserId = snap.current_participant_id;
       state.isOrganizer = snap.is_organizer;
 
-      // If finalized and organizer, check if this revision was already exported to Notion
-      if (snap.finalized && snap.is_organizer) {
+      // If finalized, check Notion export status (both organizer and diners)
+      if (snap.finalized) {
         try {
           const expRes = await apiCall(`/api/meals/${mealId}/export/notion`);
-          if (expRes?.ok && expRes.export && (expRes.export.status === 'completed' || expRes.export.status === 'already_exported' || expRes.export.status === 'failed')) {
-            state.notionExport = expRes.export;
+          if (expRes?.ok && expRes.export) {
+            const expStatus = expRes.export.status;
+            if (expStatus === 'completed' || expStatus === 'already_exported' || expStatus === 'failed') {
+              state.notionExport = expRes.export;
+            } else if (expStatus === 'in_progress') {
+              state.notionExport = expRes.export;
+              if (snap.is_organizer) {
+                pollNotionExportStatus();
+              }
+            }
           }
         } catch {
           // Non-critical, ignore
@@ -2780,38 +2834,55 @@ function formatNotionSuccessHtml(exp) {
   if (!exp) return '';
   const pageId = exp.page_id || '';
   const pageUrl = exp.page_url || '#';
+  const publicUrl = exp.public_url || '';
+  const exportTimeStr = exp.exported_at ? new Date(exp.exported_at * 1000).toLocaleString() : '';
   return `
-    <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #6ee7b7;">
-      <div style="font-weight: 700; margin-bottom: 4px;">✓ Export Successful!</div>
-      <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 6px;">
+    <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.85rem; border-radius: 8px; background-color: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); color: #6ee7b7;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+        <div style="font-weight: 700; font-size: 0.95rem;">✓ Export Successful — Meal Archived to Notion</div>
+        ${exportTimeStr ? `<small style="color: var(--text-dim);">${escapeHtml(exportTimeStr)}</small>` : ''}
+      </div>
+      <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">
         Page ID: <code style="font-size: 0.8rem; color: #a7f3d0;">${escapeHtml(pageId)}</code>
       </div>
       <div>
-        <a href="${escapeHtml(pageUrl)}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7; font-weight: bold; text-decoration: underline; display: inline-block; margin-bottom: 0.75rem;" id="notion-page-link">
+        <a href="${escapeHtml(pageUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-success" style="font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;" id="notion-page-link">
           Open Report in Notion ↗
         </a>
       </div>
-      <div id="notion-view-only-guidance" style="padding: 0.75rem; border-radius: 6px; background-color: var(--bg-main); border: 1px solid var(--border-subtle); font-size: 0.85rem; text-align: left;">
-        <div style="font-weight: 600; color: #818cf8; margin-bottom: 4px;">
-          🔗 How to Share View-Only Link with Diners:
+
+      <!-- Public Link Sharing with Diners -->
+      <div style="margin-top: 1rem; padding: 0.75rem; border-radius: 6px; background-color: var(--surface-primary); border: 1px solid var(--border-subtle); text-align: left;">
+        <div style="font-weight: 600; color: #818cf8; font-size: 0.85rem; margin-bottom: 4px;">
+          🔗 Diner Sharing: View-Only Web Link
         </div>
-        <p style="margin: 0 0 6px 0; color: var(--text-dim); font-size: 0.8rem;">
-          Notion pages created via the API are private to your workspace by default. To share with diners without requiring Notion accounts:
+        <p style="margin: 0 0 8px 0; color: var(--text-dim); font-size: 0.8rem;">
+          Notion API pages are private to your workspace. To share view-only access with diners without requiring Notion accounts:
         </p>
-        <ol style="margin: 0 0 8px 18px; padding: 0; color: var(--text-main); line-height: 1.4; font-size: 0.82rem;">
+        <div style="display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;">
+          <input type="url" id="notion-public-url-input" value="${escapeHtml(publicUrl)}" placeholder="https://...notion.site/..." class="form-input" style="flex: 1; min-width: 200px; font-size: 0.82rem; font-family: monospace;" />
+          <button type="button" class="btn btn-secondary btn-sm" id="save-notion-public-url-btn">
+            ${publicUrl ? 'Update Link' : 'Share Link with Diners'}
+          </button>
+          ${publicUrl ? '<button type="button" class="btn btn-secondary btn-sm" id="clear-notion-public-url-btn" style="color: var(--accent-rose);">Remove</button>' : ''}
+        </div>
+        <div style="font-size: 0.78rem; color: ${publicUrl ? '#10b981' : 'var(--text-dim)'};">
+          ${publicUrl ? `✓ Active: Diners can view published report via link.` : '🔒 Private: Diners see meal is archived to workspace, but have no view link.'}
+        </div>
+      </div>
+
+      <div id="notion-view-only-guidance" style="margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: var(--bg-main); border: 1px solid var(--border-subtle); font-size: 0.82rem; text-align: left;">
+        <div style="font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">
+          How to publish a view-only link in Notion:
+        </div>
+        <ol style="margin: 0 0 6px 18px; padding: 0; color: var(--text-muted); line-height: 1.4; font-size: 0.78rem;">
           <li>Click <strong>Open Report in Notion ↗</strong> above.</li>
-          <li>In Notion, click <strong>Share</strong> (top right) &rarr; select the <strong>Publish</strong> tab &rarr; click <strong>Publish to web</strong>.</li>
-          <li>Set access permissions:
-            <ul style="margin: 2px 0 0 14px; color: var(--text-muted); font-size: 0.78rem;">
-              <li><strong>Allow editing:</strong> OFF</li>
-              <li><strong>Allow comments:</strong> OFF</li>
-              <li><strong>Search engine indexing:</strong> OFF</li>
-            </ul>
-          </li>
-          <li>Copy the published web link and send it to diners for view-only verification.</li>
+          <li>In Notion, click <strong>Share</strong> (top right) &rarr; select <strong>Publish</strong> &rarr; click <strong>Publish to web</strong>.</li>
+          <li>Ensure <strong>Allow editing</strong>, <strong>Allow comments</strong>, and <strong>Search engine indexing</strong> are all turned OFF.</li>
+          <li>Copy the published web link and paste it in the field above.</li>
         </ol>
-        <div style="padding: 6px 8px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); color: #fde68a; font-size: 0.78rem; line-height: 1.35;">
-          ⚠️ <strong>Privacy Warning:</strong> Anyone possessing the link can access the report and any included receipt photo. Confirm the slip contains no confidential personal data (e.g. credit card PAN, phone numbers) before sharing.
+        <div style="padding: 4px 6px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); color: #fde68a; font-size: 0.75rem;">
+          ⚠️ <strong>Privacy Warning:</strong> Anyone with the published link can view the report and attached photo. Verify the slip contains no confidential data before publishing.
         </div>
       </div>
     </div>
@@ -2863,8 +2934,9 @@ function renderFinalizedCalculation(snap) {
   const parentVal = state.notionParentId || '';
   const tokenVal = state.notionToken || '';
 
+  const isExported = Boolean(state.notionExport && (state.notionExport.status === 'completed' || state.notionExport.status === 'already_exported'));
   let exportResultHtml = '';
-  if (state.notionExport && (state.notionExport.status === 'completed' || state.notionExport.status === 'already_exported')) {
+  if (isExported) {
     exportResultHtml = formatNotionSuccessHtml(state.notionExport);
   } else if (state.notionExport && state.notionExport.status === 'failed') {
     exportResultHtml = `
@@ -2875,6 +2947,29 @@ function renderFinalizedCalculation(snap) {
   } else {
     exportResultHtml = `<div id="notion-export-result" style="display: none; margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px;"></div>`;
   }
+
+  const exportControlsHtml = `
+    <div id="notion-export-controls">
+      <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
+        <label style="font-size: 0.8rem; color: var(--text-muted);">Notion Parent Page URL or UUID:</label>
+        <input type="text" id="notion-parent-id" value="${escapeHtml(parentVal)}" placeholder="Paste Notion page URL or UUID (e.g. 3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d)" class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
+        <label style="font-size: 0.8rem; color: var(--text-muted);">Integration Token (optional if set on server):</label>
+        <input type="password" id="notion-token" value="${escapeHtml(tokenVal)}" placeholder="secret_..." class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.75rem;">
+        <input type="checkbox" id="notion-include-photo" ${snap.has_receipt_photo ? '' : 'disabled'} />
+        <label for="notion-include-photo" style="font-size: 0.85rem; color: ${snap.has_receipt_photo ? 'var(--text-main)' : 'var(--text-dim)'}; cursor: ${snap.has_receipt_photo ? 'pointer' : 'not-allowed'}; margin: 0;">
+          Include original receipt photo in Notion report
+          ${!snap.has_receipt_photo ? '<small style="display:block; color:var(--text-dim);">(No receipt photo attached to this meal)</small>' : ''}
+        </label>
+      </div>
+      <button id="notion-export-btn" class="btn btn-primary" style="width: 100%;">
+        Export Finalized Report to Notion
+      </button>
+    </div>
+  `;
 
   return `
     <div id="apportionment-section" class="card">
@@ -2898,7 +2993,7 @@ function renderFinalizedCalculation(snap) {
         </tbody>
       </table>
 
-      ${(snap.is_organizer && snap.has_receipt_photo) ? `
+      ${(snap.has_receipt_photo && (snap.is_organizer || snap.receipt_photo_shared)) ? `
         <div class="card" id="finalized-receipt-photo-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
           <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; color: #818cf8;">
             <span>📷 Original Receipt Photo</span>
@@ -2909,10 +3004,23 @@ function renderFinalizedCalculation(snap) {
               <img src="/api/meals/${mealId}/receipt/photo" alt="Thumbnail of original receipt" class="receipt-thumbnail-img" />
             </div>
             <div style="font-size: 0.85rem; color: var(--text-muted);">
-              <div>Original merchant receipt preserved with immutable meal record.</div>
+              <div>${snap.is_organizer ? 'Original merchant receipt preserved with immutable meal record.' : 'Original merchant receipt shared by organizer for transparency.'}</div>
               <small style="color: var(--text-dim);">${snap.receipt_photo ? `${(snap.receipt_photo.byte_size / 1024).toFixed(0)} KB • ${snap.receipt_photo.width}×${snap.receipt_photo.height}px` : 'Archived receipt photo'}</small>
             </div>
           </div>
+          ${snap.is_organizer ? `
+            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(99, 102, 241, 0.2);">
+              <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.85rem; margin: 0;">
+                <input type="checkbox" id="share-receipt-photo-checkbox" ${snap.receipt_photo_shared ? 'checked' : ''} style="margin-top: 2px;" />
+                <div>
+                  <strong style="color: var(--text-main);">Allow authenticated diners to view receipt photo</strong>
+                  <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 2px;">
+                    ⚠️ Privacy Warning: Merchant receipts may show cardholder payment details, server names, or cashier notes. Only enable if trusted.
+                  </div>
+                </div>
+              </label>
+            </div>
+          ` : ''}
         </div>
       ` : ''}
 
@@ -2921,34 +3029,49 @@ function renderFinalizedCalculation(snap) {
           <div class="card-title" style="color: #818cf8;">📤 Notion Archive & Reporting</div>
           <p class="card-desc">Export an immutable, structured summary to your Notion workspace in Compact Mode (&le; 40 blocks).</p>
 
-          <div id="notion-export-controls">
-            <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
-              <label style="font-size: 0.8rem; color: var(--text-muted);">Notion Parent Page URL or UUID:</label>
-              <input type="text" id="notion-parent-id" value="${escapeHtml(parentVal)}" placeholder="Paste Notion page URL or UUID (e.g. 3fb0ffe1-72a6-815e-b59d-ef81c6e8eb4d)" class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem;">
-              <label style="font-size: 0.8rem; color: var(--text-muted);">Integration Token (optional if set on server):</label>
-              <input type="password" id="notion-token" value="${escapeHtml(tokenVal)}" placeholder="secret_..." class="form-input" style="font-family: monospace; font-size: 0.85rem;" />
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.75rem;">
-              <input type="checkbox" id="notion-include-photo" ${snap.has_receipt_photo ? '' : 'disabled'} />
-              <label for="notion-include-photo" style="font-size: 0.85rem; color: ${snap.has_receipt_photo ? 'var(--text-main)' : 'var(--text-dim)'}; cursor: ${snap.has_receipt_photo ? 'pointer' : 'not-allowed'}; margin: 0;">
-                Include original receipt photo in Notion report
-                ${!snap.has_receipt_photo ? '<small style="display:block; color:var(--text-dim);">(No receipt photo attached to this meal)</small>' : ''}
-              </label>
-            </div>
-            <button id="notion-export-btn" class="btn btn-primary" style="width: 100%;">
-              Export Finalized Report to Notion
-            </button>
-          </div>
+          ${isExported ? `
+            ${exportResultHtml}
+            <details style="margin-top: 0.75rem;">
+              <summary style="font-size: 0.82rem; color: var(--text-muted); cursor: pointer; padding: 4px 0;">
+                Re-export or change Notion destination ▾
+              </summary>
+              <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-subtle);">
+                ${exportControlsHtml}
+              </div>
+            </details>
+          ` : `
+            ${exportControlsHtml}
+            ${exportResultHtml}
+          `}
 
           <div id="notion-export-spinner" style="display: none; text-align: center; padding: 1rem; color: var(--text-muted);">
             ⏳ Creating structured Notion page...
           </div>
-
-          ${exportResultHtml}
         </div>
-      ` : ''}
+      ` : `
+        ${(snap.notion_export_status === 'completed' || state.notionExport?.status === 'completed' || state.notionExport?.status === 'already_exported') ? `
+          <div class="card" id="diner-notion-card" style="margin-top: 1.5rem; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04);">
+            <div class="card-title" style="color: #6ee7b7; display: flex; justify-content: space-between; align-items: center;">
+              <span>📤 Notion Report</span>
+              <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-size: 0.72rem;">${snap.notion_public_url || state.notionExport?.public_url ? 'View-Only' : 'Archived'}</span>
+            </div>
+            ${(snap.notion_public_url || state.notionExport?.public_url) ? `
+              <p class="card-desc" style="margin-bottom: 8px;">The organizer has shared a view-only Notion report for this meal:</p>
+              <a href="${escapeHtml(snap.notion_public_url || state.notionExport?.public_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display: inline-block; color: #6ee7b7; font-weight: 700; text-decoration: none;">
+                Open Published Report ↗
+              </a>
+            ` : `
+              <p class="card-desc" style="margin-bottom: 0;">This finalized meal was archived to the organizer's private Notion workspace.</p>
+              <small style="color: var(--text-dim); display: block; margin-top: 4px;">Private Archive. Contact the organizer if you need a shared web link.</small>
+            `}
+          </div>
+        ` : (snap.notion_export_status === 'in_progress' || state.notionExport?.status === 'in_progress') ? `
+          <div class="card" id="diner-notion-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.2); background: rgba(99, 102, 241, 0.03);">
+            <div class="card-title" style="color: #818cf8;">📤 Notion Archive</div>
+            <p class="card-desc" style="margin-bottom: 0;">The organizer is currently archiving this meal to Notion...</p>
+          </div>
+        ` : ''}
+      `}
     </div>
   `;
 }
@@ -3127,6 +3250,11 @@ function renderRestaurantFundingCard(snap) {
             ✓ <strong>Restaurant bill is 100% funded.</strong> Net balances are fully balanced (sum = RM 0.00).
           </p>
         `}
+        ${!snap.is_organizer ? `
+          <div style="margin-top: 0.75rem; padding: 0.6rem 0.85rem; background: rgba(59, 130, 246, 0.08); border-left: 3px solid #60a5fa; border-radius: 4px; font-size: 0.82rem; color: var(--text-muted);">
+            ℹ️ <strong>Organizer-Attested Ledger:</strong> Payments made directly to the restaurant counter are verified and recorded by the organizer. If you paid part of the bill at the counter, let the organizer know so it can be recorded.
+          </div>
+        ` : ''}
       </div>
 
       <!-- Organizer Record Payment Form -->
@@ -3404,6 +3532,69 @@ function renderPeerSettlementCard(snap) {
     `;
   }
 
+  // Diner personalized settlement summary card
+  let dinerPersonalCardHtml = '';
+  if (!snap.is_organizer) {
+    const myRec = outstandingList.find(b => b.participant_id === state.currentUserId);
+    if (myRec) {
+      const myNet = myRec.outstanding_net_balance_sen;
+      if (myNet < 0) {
+        // Debtor
+        const oweSen = -myNet;
+        const myTransfers = suggestedTransfers.filter(st => st.sender_id === state.currentUserId);
+        const transferLines = myTransfers.map(st => {
+          const recObj = outstandingList.find(b => b.participant_id === st.receiver_id);
+          const rName = recObj ? recObj.name : st.receiver_id;
+          return `<div style="padding: 4px 0; font-weight: 600; color: var(--text-main);">👉 Pay <strong>${escapeHtml(rName)}</strong>: <span style="color: #6ee7b7; font-size: 1.05rem;">${formatSen(st.amount_sen)}</span></div>`;
+        }).join('');
+
+        dinerPersonalCardHtml = `
+          <div class="card" id="diner-personal-settlement-card" style="margin-bottom: 12px; padding: 12px 14px; background: rgba(239, 68, 68, 0.07); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+              <span style="font-weight: 700; color: #f87171;">💰 Your Settlement Action</span>
+              <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">You Owe ${formatSen(oweSen)}</span>
+            </div>
+            ${transferLines ? `<div style="margin: 6px 0;">${transferLines}</div>` : ''}
+            ${unfundedBlocker > 0 ? `<div style="font-size: 0.8rem; color: #f59e0b; margin-top: 4px;">⚠️ ${formatSen(unfundedBlocker)} of the restaurant bill remains unfunded. Direct peer settlement is pending cashier funding.</div>` : ''}
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(239, 68, 68, 0.15);">
+              ℹ️ Transfer your share to the recipient(s) above (via DuitNow QR, online banking, or cash), then notify the organizer to record your payment on the official ledger.
+            </div>
+          </div>
+        `;
+      } else if (myNet > 0) {
+        // Creditor
+        const recoverSen = myNet;
+        const incomingTransfers = suggestedTransfers.filter(st => st.receiver_id === state.currentUserId);
+        const incomingLines = incomingTransfers.map(st => {
+          const sndObj = outstandingList.find(b => b.participant_id === st.sender_id);
+          const sName = sndObj ? sndObj.name : st.sender_id;
+          return `<div style="padding: 4px 0; font-weight: 600; color: var(--text-main);">👉 <strong>${escapeHtml(sName)}</strong> pays you: <span style="color: #6ee7b7; font-size: 1.05rem;">${formatSen(st.amount_sen)}</span></div>`;
+        }).join('');
+
+        dinerPersonalCardHtml = `
+          <div class="card" id="diner-personal-settlement-card" style="margin-bottom: 12px; padding: 12px 14px; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+              <span style="font-weight: 700; color: #10b981;">💰 Your Reimbursement Summary</span>
+              <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">To Recover ${formatSen(recoverSen)}</span>
+            </div>
+            ${incomingLines ? `<div style="margin: 6px 0;">${incomingLines}</div>` : ''}
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(16, 185, 129, 0.15);">
+              ℹ️ Once you receive repayment from peers, notify the organizer so the reimbursement can be attested and marked complete on the ledger.
+            </div>
+          </div>
+        `;
+      } else {
+        // Settled
+        dinerPersonalCardHtml = `
+          <div class="card" id="diner-personal-settlement-card" style="margin-bottom: 12px; padding: 12px 14px; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; text-align: center;">
+            <span style="font-weight: 700; color: #10b981; font-size: 0.95rem;">🎉 You're All Settled!</span>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">Your share of this meal is fully balanced. No further action needed.</div>
+          </div>
+        `;
+      }
+    }
+  }
+
   return `
     <div class="card" id="peer-settlement-card" style="margin-top: 1.5rem;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
@@ -3422,6 +3613,8 @@ function renderPeerSettlementCard(snap) {
       <div class="settlement-attestation-notice" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 0.83rem; color: var(--text-muted); line-height: 1.45;">
         ℹ️ <strong>Organizer-recorded settlements:</strong> SettleTable calculates suggested peer transfers and tracks reimbursements recorded by the organizer. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.
       </div>
+
+      ${dinerPersonalCardHtml}
 
       ${unfundedWarningHtml}
 
@@ -4740,57 +4933,15 @@ function bindEvents(snap) {
             resultDiv.style.color = 'var(--accent-indigo)';
             resultDiv.innerHTML = '<strong>⏳ Archiving to Notion...</strong><br/><span style="font-size:0.8rem;">Export running asynchronously in background. Live dining updates continue uninterrupted.</span>';
           }
-          let pollAttempts = 0;
-          const pollInterval = setInterval(async () => {
-            pollAttempts++;
-            try {
-              const pollRes = await fetch(`/api/meals/${state.mealId}/export/notion`);
-              const pollData = await pollRes.json();
-              if (pollData.ok && pollData.export && (pollData.export.status === 'completed' || pollData.export.status === 'already_exported')) {
-                clearInterval(pollInterval);
-                const pollExp = pollData.export;
-                state.notionExport = pollExp;
-                const targetRes = document.getElementById('notion-export-result');
-                if (targetRes) {
-                  targetRes.outerHTML = formatNotionSuccessHtml(pollExp);
-                }
-                showAlert('Report exported to Notion successfully!', 'success');
-                notionBtn.disabled = false;
-                if (spinner) spinner.style.display = 'none';
-              } else if (pollData.ok && pollData.export && pollData.export.status === 'failed') {
-                clearInterval(pollInterval);
-                state.notionExport = pollData.export;
-                notionBtn.disabled = false;
-                if (spinner) spinner.style.display = 'none';
-                const errDetail = pollData.export.export_digest || 'notion_error';
-                if (resultDiv) {
-                  resultDiv.style.display = 'block';
-                  resultDiv.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
-                  resultDiv.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-                  resultDiv.style.color = 'var(--accent-rose)';
-                  resultDiv.textContent = `Export failed: ${errDetail}`;
-                }
-                showAlert(`Notion export failed: ${errDetail}`, 'error');
-              } else if (pollAttempts >= 30) {
-                clearInterval(pollInterval);
-                notionBtn.disabled = false;
-                if (spinner) spinner.style.display = 'none';
-                showAlert('Notion export is taking longer than expected. Please check back later.', 'conflict');
-              }
-            } catch (pollErr) {
-              clearInterval(pollInterval);
-              notionBtn.disabled = false;
-              if (spinner) spinner.style.display = 'none';
-              showAlert('Failed to poll Notion export status.', 'error');
-            }
-          }, 1000);
+          pollNotionExportStatus((success) => {
+            notionBtn.disabled = false;
+            if (spinner) spinner.style.display = 'none';
+          });
           return;
         }
 
-        const targetRes = document.getElementById('notion-export-result');
-        if (targetRes) {
-          targetRes.outerHTML = formatNotionSuccessHtml(exp);
-        }
+        state.notionExport = exp;
+        updateMealUI();
         showAlert('Report exported to Notion successfully!', 'success');
       } catch (err) {
         if (resultDiv) {
@@ -4804,6 +4955,73 @@ function bindEvents(snap) {
       } finally {
         notionBtn.disabled = false;
         if (spinner) spinner.style.display = 'none';
+      }
+    });
+  }
+
+  // Save Notion Public Web Link
+  const saveNotionPubBtn = document.getElementById('save-notion-public-url-btn');
+  if (saveNotionPubBtn) {
+    saveNotionPubBtn.addEventListener('click', async () => {
+      const input = document.getElementById('notion-public-url-input');
+      const val = (input?.value || '').trim();
+      if (!val) {
+        showAlert('Please paste a valid Notion web link.', 'error');
+        return;
+      }
+      saveNotionPubBtn.disabled = true;
+      try {
+        const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: val });
+        if (res?.ok) {
+          if (state.notionExport) state.notionExport.public_url = res.public_url;
+          showAlert('View-only Notion report link shared with diners!', 'success');
+          updateMealUI();
+        }
+      } catch (err) {
+        showAlert(`Failed to save Notion public link: ${err.message || 'invalid_input'}`, 'error');
+      } finally {
+        saveNotionPubBtn.disabled = false;
+      }
+    });
+  }
+
+  // Remove Notion Public Web Link
+  const clearNotionPubBtn = document.getElementById('clear-notion-public-url-btn');
+  if (clearNotionPubBtn) {
+    clearNotionPubBtn.addEventListener('click', async () => {
+      clearNotionPubBtn.disabled = true;
+      try {
+        const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: '' });
+        if (res?.ok) {
+          if (state.notionExport) state.notionExport.public_url = null;
+          showAlert('Public Notion report link removed.', 'success');
+          updateMealUI();
+        }
+      } catch (err) {
+        showAlert('Failed to remove Notion public link.', 'error');
+      } finally {
+        clearNotionPubBtn.disabled = false;
+      }
+    });
+  }
+
+  // Toggle Receipt Photo Sharing (Organizer only)
+  const sharePhotoCheckbox = document.getElementById('share-receipt-photo-checkbox');
+  if (sharePhotoCheckbox) {
+    sharePhotoCheckbox.addEventListener('change', async (e) => {
+      const shareVal = e.target.checked;
+      sharePhotoCheckbox.disabled = true;
+      try {
+        const res = await apiCall(`/api/meals/${state.mealId}/receipt/photo/share`, 'POST', { share: shareVal });
+        if (res?.ok) {
+          if (state.snapshot) state.snapshot.receipt_photo_shared = shareVal;
+          showAlert(shareVal ? 'Receipt photo sharing enabled for diners.' : 'Receipt photo sharing disabled.', 'success');
+        }
+      } catch (err) {
+        sharePhotoCheckbox.checked = !shareVal;
+        showAlert('Failed to update receipt photo sharing setting.', 'error');
+      } finally {
+        sharePhotoCheckbox.disabled = false;
       }
     });
   }

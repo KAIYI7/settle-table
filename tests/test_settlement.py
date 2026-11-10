@@ -228,6 +228,17 @@ class TestAuthoritySettlement(unittest.TestCase):
             self.auth.apply(self.bob_cred, self.meal_id, cmd)
         self.assertEqual(ctx.exception.code, 'forbidden')
 
+        # Organizer records a transfer
+        cmd_xfer = RecordTransfer('cmd-org-xfer', snap.revision, 'bob', 'alice', 1000)
+        res_xfer = self.auth.apply(self.alice_cred, self.meal_id, cmd_xfer)
+        snap2 = self.auth.snapshot(self.alice_cred, self.meal_id)
+
+        # Bob (diner) attempts to reverse transfer
+        cmd_rev = ReverseTransfer('cmd-diner-rev', snap2.revision, res_xfer.transfer_id, 'Diner trying to reverse')
+        with self.assertRaises(AuthorityError) as ctx2:
+            self.auth.apply(self.bob_cred, self.meal_id, cmd_rev)
+        self.assertEqual(ctx2.exception.code, 'forbidden')
+
     def test_transfer_reversal_lifecycle(self):
         self._setup_finalized_and_funded_meal()
         snap = self.auth.snapshot(self.alice_cred, self.meal_id)
@@ -369,6 +380,7 @@ class TestTransportSettlement(unittest.TestCase):
         p2 = Participant('bob', 'Bob', False)
         res = self.auth.bootstrap(self.meal_id, (p1, p2))
         self.alice_cred = res.sessions[0].credential
+        self.bob_cred = res.sessions[1].credential
 
         # Finalize meal & fund
         snap = self.auth.snapshot(self.alice_cred, self.meal_id)
@@ -427,7 +439,42 @@ class TestTransportSettlement(unittest.TestCase):
         settle2 = snap_res2['data']['settlement']
         self.assertEqual(settle2['suggested_transfers'][0]['amount_sen'], 5000)
 
-    def _post(self, path, body):
+    def test_transport_diner_record_and_reverse_transfer_forbidden(self):
+        snap = self.auth.snapshot(self.alice_cred, self.meal_id)
+
+        # 1. Diner attempts RecordTransfer via transport -> 403
+        body_rec = {
+            'command_id': 'cmd-diner-wire-xfer',
+            'kind': 'RecordTransfer',
+            'expected_revision': snap.revision,
+            'sender_id': 'bob',
+            'receiver_id': 'alice',
+            'amount_sen': 2000,
+        }
+        res_rec = self._post(f'/api/meals/{self.meal_id}/apply', body_rec, cred=self.bob_cred)
+        self.assertEqual(res_rec['code'], 403)
+        self.assertEqual(res_rec['data'].get('error'), 'forbidden')
+
+        # Organizer records transfer
+        res_org = self._post(f'/api/meals/{self.meal_id}/apply', body_rec, cred=self.alice_cred)
+        self.assertEqual(res_org['code'], 200)
+        xfer_id = res_org['data']['transfer_id']
+
+        snap2 = self.auth.snapshot(self.alice_cred, self.meal_id)
+
+        # 2. Diner attempts ReverseTransfer via transport -> 403
+        body_rev = {
+            'command_id': 'cmd-diner-wire-rev',
+            'kind': 'ReverseTransfer',
+            'expected_revision': snap2.revision,
+            'transfer_id': xfer_id,
+            'reason': 'Diner reverse attempt',
+        }
+        res_rev = self._post(f'/api/meals/{self.meal_id}/apply', body_rev, cred=self.bob_cred)
+        self.assertEqual(res_rev['code'], 403)
+        self.assertEqual(res_rev['data'].get('error'), 'forbidden')
+
+    def _post(self, path, body, cred=None):
         import io
         raw = json.dumps(body).encode('utf-8')
         environ = {
@@ -436,7 +483,7 @@ class TestTransportSettlement(unittest.TestCase):
             'HTTP_HOST': '127.0.0.1:8000',
             'HTTP_ORIGIN': 'http://127.0.0.1:8000',
             'HTTP_X_SETTLETABLE_ACTION': '1',
-            'HTTP_AUTHORIZATION': f'Bearer {self.alice_cred}',
+            'HTTP_AUTHORIZATION': f'Bearer {cred or self.alice_cred}',
             'CONTENT_LENGTH': str(len(raw)),
             'CONTENT_TYPE': 'application/json',
             'wsgi.input': io.BytesIO(raw),

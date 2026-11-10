@@ -9,6 +9,7 @@ import unittest
 
 from settletable.authority import (
     Authority,
+    AuthorityError,
     Finalize,
     Participant,
     Receipt,
@@ -1010,6 +1011,193 @@ class TestNotionTransportIntegration(unittest.TestCase):
             data = json.loads(res_body.decode("utf-8"))
             self.assertTrue(data.get("ok"))
             self.assertTrue(data.get("export", {}).get("ok"))
+        finally:
+            auth.close()
+
+    def test_set_notion_public_url_organizer_and_diner_restrictions(self):
+        """Verify organizer can set/clear view-only Notion public URL, while diners and invalid formats are rejected."""
+        # 1. Export meal first so an export record exists
+        headers_org = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        body_export = {"parent_id": "11111111-2222-3333-4444-555555555555", "token": "secret_12345678901234567890"}
+        code, _, _ = self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", headers_org, body_export)
+        self.assertEqual(code, 200)
+
+        # 2. Diner attempting to set public URL via transport returns 403
+        headers_diner = {
+            "Authorization": f"Bearer {self.diner_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        code_diner, _, res_diner = self._call(
+            "POST",
+            "/api/meals/meal-notion-test/export/notion/public-url",
+            headers_diner,
+            {"public_url": "https://notion.site/shared-page"},
+        )
+        self.assertEqual(code_diner, 403)
+        data_diner = json.loads(res_diner.decode("utf-8"))
+        self.assertEqual(data_diner["error"], "forbidden")
+
+        # 3. Diner attempting at authority level raises forbidden
+        auth = Authority(str(self.db_path))
+        try:
+            with self.assertRaises(AuthorityError) as ctx:
+                auth.set_notion_public_url(self.diner_cred, "meal-notion-test", "https://notion.site/shared-page")
+            self.assertEqual(ctx.exception.code, "forbidden")
+        finally:
+            auth.close()
+
+        # 4. Invalid URLs rejected with 400
+        invalid_urls = [
+            "http://subdomain.notion.site/unencrypted",  # unencrypted http
+            "javascript:alert(1)",  # XSS scheme
+            "https://evil.phishing-site.com/fake",  # unauthorized domain
+            "https://notion.site.evil.com/fake",  # prefix domain bypass attempt
+            "https://notion.site/" + "a" * 520,  # exceeds 512 chars
+        ]
+        for bad_url in invalid_urls:
+            code_bad, _, res_bad = self._call(
+                "POST",
+                "/api/meals/meal-notion-test/export/notion/public-url",
+                headers_org,
+                {"public_url": bad_url},
+            )
+            self.assertEqual(code_bad, 400, f"Expected 400 for bad URL: {bad_url}")
+            data_bad = json.loads(res_bad.decode("utf-8"))
+            self.assertEqual(data_bad["error"], "invalid_input")
+
+        # 5. Valid notion.site and notion.so URLs accepted
+        valid_urls = [
+            "https://table-123.notion.site/Dinner-Report-xyz",
+            "https://notion.so/my-org/Dinner-Report-xyz",
+            "https://www.notion.so/my-org/Dinner-Report-xyz",
+        ]
+        for good_url in valid_urls:
+            code_good, _, res_good = self._call(
+                "POST",
+                "/api/meals/meal-notion-test/export/notion/public-url",
+                headers_org,
+                {"public_url": good_url},
+            )
+            self.assertEqual(code_good, 200, f"Expected 200 for good URL: {good_url}")
+            data_good = json.loads(res_good.decode("utf-8"))
+            self.assertTrue(data_good["ok"])
+            self.assertEqual(data_good["public_url"], good_url)
+
+        # 6. Clearing the public URL via empty string or None
+        code_clear, _, res_clear = self._call(
+            "POST",
+            "/api/meals/meal-notion-test/export/notion/public-url",
+            headers_org,
+            {"public_url": ""},
+        )
+        self.assertEqual(code_clear, 200)
+        data_clear = json.loads(res_clear.decode("utf-8"))
+        self.assertTrue(data_clear["ok"])
+        self.assertIsNone(data_clear["public_url"])
+
+    def test_diner_export_status_sanitization_and_privacy(self):
+        """Verify diners can check Notion status and see public_url, but never receive private page_id or page_url."""
+        headers_org = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        headers_diner = {
+            "Authorization": f"Bearer {self.diner_cred}",
+        }
+
+        # 1. Before export: both get not_started export
+        code_before, _, res_before = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers_diner)
+        self.assertEqual(code_before, 200)
+        self.assertEqual(json.loads(res_before.decode("utf-8"))["export"], {"status": "not_started"})
+
+        # 2. Export meal as organizer
+        body_export = {"parent_id": "11111111-2222-3333-4444-555555555555", "token": "secret_12345678901234567890"}
+        code, _, _ = self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", headers_org, body_export)
+        self.assertEqual(code, 200)
+
+        # 3. Set a published public URL as organizer
+        pub_link = "https://settletable.notion.site/dinner-share-link"
+        self._call("POST", "/api/meals/meal-notion-test/export/notion/public-url", headers_org, {"public_url": pub_link})
+
+        # 4. Organizer GET export receives full internal record
+        code_org_get, _, res_org_get = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers_org)
+        self.assertEqual(code_org_get, 200)
+        org_data = json.loads(res_org_get.decode("utf-8"))["export"]
+        self.assertEqual(org_data["status"], "completed")
+        self.assertTrue(org_data["page_id"])
+        self.assertTrue(org_data["page_url"])
+        self.assertEqual(org_data["public_url"], pub_link)
+
+        # 5. Diner GET export receives strictly sanitized record
+        code_diner_get, _, res_diner_get = self._call("GET", "/api/meals/meal-notion-test/export/notion", headers_diner)
+        self.assertEqual(code_diner_get, 200)
+        diner_data = json.loads(res_diner_get.decode("utf-8"))["export"]
+        self.assertEqual(diner_data["status"], "completed")
+        self.assertEqual(diner_data["public_url"], pub_link)
+
+        # Zero leakage of private fields
+        for private_key in ("page_id", "page_url", "parent_id", "token", "export_digest", "exported_at", "finalized_revision"):
+            self.assertNotIn(private_key, diner_data, f"Private key '{private_key}' must NOT be leaked to diner!")
+
+    def test_snapshot_includes_notion_export_fields(self):
+        """Verify snapshot includes notion_export_status and notion_public_url for both organizer and diner."""
+        headers_org = {
+            "Authorization": f"Bearer {self.org_cred}",
+            "X-SettleTable-Action": "1",
+        }
+        # Sync export and set public link
+        body_export = {"parent_id": "11111111-2222-3333-4444-555555555555", "token": "secret_12345678901234567890"}
+        self._call("POST", "/api/meals/meal-notion-test/export/notion?sync=1", headers_org, body_export)
+        pub_link = "https://settletable.notion.site/dinner-share-snapshot-test"
+        self._call("POST", "/api/meals/meal-notion-test/export/notion/public-url", headers_org, {"public_url": pub_link})
+
+        auth = Authority(str(self.db_path))
+        try:
+            org_snap = auth.snapshot(self.org_cred, "meal-notion-test")
+            diner_snap = auth.snapshot(self.diner_cred, "meal-notion-test")
+
+            self.assertEqual(org_snap.notion_export_status, "completed")
+            self.assertEqual(org_snap.notion_public_url, pub_link)
+
+            self.assertEqual(diner_snap.notion_export_status, "completed")
+            self.assertEqual(diner_snap.notion_public_url, pub_link)
+        finally:
+            auth.close()
+
+    def test_in_progress_export_75s_timeout(self):
+        """Verify in_progress exports time out and transition to failed after 75 seconds."""
+        auth = Authority(str(self.db_path))
+        try:
+            snap = auth.snapshot(self.org_cred, "meal-notion-test")
+            fin_rev = snap.finalized_revision or snap.revision
+
+            # Record in-progress export started 30 seconds ago (< 75s)
+            now = time.time()
+            auth._db.execute(
+                "INSERT OR REPLACE INTO notion_exports (meal_id, finalized_revision, page_id, page_url, exported_at, export_digest, status) "
+                "VALUES (?, ?, '', '', ?, 'pending', 'in_progress')",
+                ("meal-notion-test", fin_rev, now - 30.0),
+            )
+            auth._db.commit()
+
+            rec = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertIsNotNone(rec)
+            self.assertEqual(rec["status"], "in_progress")
+
+            # Update exported_at to 76 seconds ago (> 75s)
+            auth._db.execute(
+                "UPDATE notion_exports SET exported_at = ? WHERE meal_id = ? AND finalized_revision = ?",
+                (now - 76.0, "meal-notion-test", fin_rev),
+            )
+            auth._db.commit()
+
+            rec_timeout = auth.get_notion_export("meal-notion-test", fin_rev)
+            self.assertIsNotNone(rec_timeout)
+            self.assertEqual(rec_timeout["status"], "failed")
+            self.assertEqual(rec_timeout["export_digest"], "timeout")
         finally:
             auth.close()
 
