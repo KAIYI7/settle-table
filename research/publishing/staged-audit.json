@@ -1,7 +1,7 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 4,
-  "staged_bytes_excluding_report": 378454,
+  "staged_files": 2,
+  "staged_bytes_excluding_report": 397924,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 360,
   "untracked_files": 0,
@@ -10,24 +10,14 @@
   "findings": [],
   "files": [
     {
-      "path": "settletable/public_creation.py",
-      "bytes": 20207,
-      "sha256": "b8e61e833fbc2775da8a5b6a55ccc74b958fd6b45fea8c7491cd8e50b06571a8"
+      "path": "PROJECT_STATUS.md",
+      "bytes": 187208,
+      "sha256": "f017e7baa90264180817e39711d190b2382e391bc9f3214710c7554ab4bb94a0"
     },
     {
-      "path": "settletable/static/app.js",
-      "bytes": 246383,
-      "sha256": "fa0ed640b70abb242b19766fe8b63a1d94902b9f98307804daf33f151b6235f4"
-    },
-    {
-      "path": "settletable/transport.py",
-      "bytes": 86662,
-      "sha256": "035a55458a6b70d3200713b4c5d3e727afb8efddce0362f8f78d8adbaf06dcca"
-    },
-    {
-      "path": "tests/test_public_creation.py",
-      "bytes": 25202,
-      "sha256": "23d5d648ddd8457eb175ff4c87fdc7995be04c539d4bb346b426a7752ba30b2b"
+      "path": "docs/agents/phase-transitions.md",
+      "bytes": 210716,
+      "sha256": "7d3c421b8494d6fcb859476f2f68aa4b2b5bca42522236eb39e415c4e639ba7b"
     }
   ]
 }
