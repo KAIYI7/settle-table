@@ -821,7 +821,8 @@ class SettleTableApp:
             cap_ok, cap_err = self.public_creation_gate.check_capacity(authority)
             if not cap_ok:
                 self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
-                raise TransportError(cap_err or 'capacity_exceeded', 507 if cap_err == 'capacity_exceeded' else 500)
+                status_code = 429 if cap_err == 'daily_capacity_exceeded' else (507 if cap_err == 'capacity_exceeded' else 500)
+                raise TransportError(cap_err or 'capacity_exceeded', status_code)
 
             # 5. Input Validation & Bounds
             raw_title = (body_data or {}).get('meal_title')
@@ -855,7 +856,13 @@ class SettleTableApp:
 
             session_ttl = self._get_session_ttl()
             try:
-                b_res = authority.bootstrap(meal_id, tuple(parts), session_ttl=session_ttl)
+                b_res = authority.bootstrap(
+                    meal_id,
+                    tuple(parts),
+                    session_ttl=session_ttl,
+                    max_total_meals=self.public_creation_gate.config.max_total_meals,
+                    max_meals_per_day=self.public_creation_gate.config.max_meals_per_day,
+                )
             except Exception:
                 self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
                 raise

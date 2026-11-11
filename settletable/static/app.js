@@ -37,6 +37,8 @@ const state = {
   selectedSplitDiners: new Map(),
   publicConfig: null,
   turnstileWidgetId: undefined,
+  emergencyRecoveryUrl: null,
+  emergencyRecoveryMealId: null,
 };
 
 // The allocation sheet is rebuilt on each snapshot, so retain descriptors rather
@@ -1193,7 +1195,6 @@ async function renderWelcome() {
           </div>
           <div class="recent-meal-actions">
             <button type="button" class="btn btn-secondary btn-sm recent-meal-open-btn" data-meal="${escapeHtml(m.meal_id)}">Open Room</button>
-            ${isOrg && m.claim_url ? `<button type="button" class="btn btn-primary btn-sm recent-meal-restore-btn" data-claim="${escapeHtml(m.claim_url)}" title="Restore active organizer cookie on this browser">Restore Access</button>` : ''}
             <button type="button" class="btn-remove-recent" data-remove="${escapeHtml(m.meal_id)}" title="Remove from device list" aria-label="Remove ${escapeHtml(m.title || m.meal_id)} from list">✕</button>
           </div>
         </div>
@@ -1207,6 +1208,9 @@ async function renderWelcome() {
         <div class="recent-meals-list">
           ${rows}
         </div>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin: 10px 0 0 0; line-height: 1.4;">
+          Rooms open using this browser's active session cookie. SettleTable does not store passwords or accounts.
+        </p>
       </div>
     `;
   }
@@ -1240,20 +1244,6 @@ async function renderWelcome() {
     btn.addEventListener('click', () => {
       const mealId = btn.getAttribute('data-meal');
       if (mealId) window.location.hash = `#/meal/${mealId}`;
-    });
-  });
-
-  document.querySelectorAll('.recent-meal-restore-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const claimUrl = btn.getAttribute('data-claim');
-      if (claimUrl) {
-        const hashIdx = claimUrl.indexOf('#');
-        if (hashIdx !== -1) {
-          window.location.hash = claimUrl.substring(hashIdx);
-        } else if (claimUrl.startsWith('/') || claimUrl.startsWith(window.location.origin + '/')) {
-          window.location.href = claimUrl;
-        }
-      }
     });
   });
 
@@ -1313,9 +1303,14 @@ async function renderWelcome() {
       }
     }
 
-    const idempotencyKey = (window.crypto && window.crypto.randomUUID)
-      ? window.crypto.randomUUID()
-      : 'idem-' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    let idempotencyKey;
+    if (window.crypto && window.crypto.getRandomValues) {
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      idempotencyKey = 'idemp-' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    } else {
+      idempotencyKey = 'idem-' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    }
 
     const submitBtn = document.getElementById('create-meal-submit-btn');
     try {
@@ -1340,9 +1335,12 @@ async function renderWelcome() {
           meal_id: res.meal_id,
           title: res.meal_title || title,
           role: 'organizer',
-          claim_url: res.organizer_claim?.claim_url || null,
           created_at: Date.now(),
         });
+        if (res.organizer_claim?.claim_url) {
+          state.emergencyRecoveryUrl = res.organizer_claim.claim_url;
+          state.emergencyRecoveryMealId = res.meal_id;
+        }
         showAlert('Meal room created! Establishing your organizer session...', 'success');
         window.location.hash = `#/meal/${res.meal_id}`;
       } else {
@@ -1944,6 +1942,25 @@ function updateMealUI() {
       </div>
     </div>
   `;
+
+  if (state.emergencyRecoveryUrl && state.emergencyRecoveryMealId === (state.mealId || snap.meal_id)) {
+    html += `
+      <div class="alert alert-warning" id="organizer-emergency-banner" style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+          <div style="font-weight: 600;">⚠️ One-Time Organizer Recovery Link</div>
+          <button type="button" id="dismiss-emergency-claim-btn" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 0.75rem;">Dismiss</button>
+        </div>
+        <p style="margin: 0 0 8px 0; font-size: 0.85rem; line-height: 1.4;">
+          SettleTable has no accounts or passwords. Your session cookie is active now.
+          Save this <strong>one-time disaster recovery link</strong> in your notes before switching devices or clearing cookies:
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <input type="text" readonly value="${escapeHtml(state.emergencyRecoveryUrl)}" id="emergency-claim-url-input" style="flex: 1; min-width: 220px; font-size: 0.8rem; background: var(--surface-bg); padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 4px;" />
+          <button type="button" class="btn btn-secondary btn-sm" id="copy-emergency-claim-btn">Copy Link</button>
+        </div>
+      </div>
+    `;
+  }
 
   // 2. Finalized View: Apportionment Breakdown, Restaurant Funding & Peer Settlements
   if (finalized && snap.calculation) {
@@ -3886,6 +3903,26 @@ function renderPeerSettlementCard(snap) {
 
 // --- Event Binding ---
 function bindEvents(snap) {
+  // Emergency Recovery Link Banner Actions
+  document.getElementById('copy-emergency-claim-btn')?.addEventListener('click', async () => {
+    const input = document.getElementById('emergency-claim-url-input');
+    if (input) {
+      input.select();
+      try {
+        await navigator.clipboard.writeText(input.value);
+        showAlert('Emergency recovery link copied to clipboard!', 'success');
+      } catch {
+        showAlert('Please copy the recovery link manually.', 'info');
+      }
+    }
+  });
+
+  document.getElementById('dismiss-emergency-claim-btn')?.addEventListener('click', () => {
+    state.emergencyRecoveryUrl = null;
+    state.emergencyRecoveryMealId = null;
+    document.getElementById('organizer-emergency-banner')?.remove();
+  });
+
   // --- Receipt Photo Modal & Lifecycle Actions ---
   initReceiptModalEvents();
 
@@ -4725,7 +4762,6 @@ function bindEvents(snap) {
             meal_id: state.mealId,
             title: state.snapshot?.meal_id || state.mealId,
             role: 'organizer',
-            claim_url: res.claim_url,
             created_at: Date.now(),
           });
           genRecBtn.disabled = false;

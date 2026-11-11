@@ -34,6 +34,26 @@ CF_TEST_SECRET_ALWAYS_PASS = "1x0000000000000000000000000000000AA"
 CF_TEST_SECRET_ALWAYS_FAIL = "2x0000000000000000000000000000000AA"
 CF_TEST_SECRET_DUPLICATE = "3x0000000000000000000000000000000AA"
 
+CF_TEST_KEYS = {
+    CF_TEST_SECRET_ALWAYS_PASS,
+    CF_TEST_SECRET_ALWAYS_FAIL,
+    CF_TEST_SECRET_DUPLICATE,
+    "1x00000000000000000000AA",
+    "2x00000000000000000000AA",
+    "3x00000000000000000000AA",
+    "1x00000000000000000000BB",
+    "2x00000000000000000000BB",
+    "3x00000000000000000000BB",
+}
+
+
+def is_cloudflare_test_key(key: str | None) -> bool:
+    """Check if the provided key is an official Cloudflare Turnstile dummy test key."""
+    if not key:
+        return False
+    k = key.strip()
+    return k in CF_TEST_KEYS or (k.startswith(("1x00", "2x00", "3x00")) and len(k) in (22, 33))
+
 
 def extract_client_ip(environ: dict) -> str:
     """Extract and validate visitor IP from trusted headers or socket address.
@@ -98,14 +118,63 @@ class PublicCreationConfig:
     @classmethod
     def from_env(cls, server_origin: str = "") -> "PublicCreationConfig":
         enabled = os.environ.get("SETTLETABLE_PUBLIC_CREATION_ENABLED", "0").lower() in ("1", "true", "yes")
-        secret_key = os.environ.get("SETTLETABLE_TURNSTILE_SECRET_KEY")
+        secret_key = (
+            os.environ.get("SETTLETABLE_TURNSTILE_SECRET_KEY")
+            or os.environ.get("SETTLETABLE_TURNSTILE_SECRET")
+        )
         sitekey = os.environ.get("SETTLETABLE_TURNSTILE_SITEKEY")
-        expected_action = os.environ.get("SETTLETABLE_TURNSTILE_ACTION", "public_create_meal")
 
-        expected_hostname = os.environ.get("SETTLETABLE_TURNSTILE_HOSTNAME")
+        # Support both documented naming conventions: EXPECTED_* and unadorned
+        expected_action = (
+            os.environ.get("SETTLETABLE_TURNSTILE_EXPECTED_ACTION")
+            or os.environ.get("SETTLETABLE_TURNSTILE_ACTION")
+            or "public_create_meal"
+        )
+
+        expected_hostname = (
+            os.environ.get("SETTLETABLE_TURNSTILE_EXPECTED_HOSTNAME")
+            or os.environ.get("SETTLETABLE_TURNSTILE_HOSTNAME")
+        )
         if not expected_hostname and server_origin:
             parsed = urllib.parse.urlparse(server_origin)
             expected_hostname = parsed.hostname
+
+        # Production safety validation
+        is_production = (
+            os.environ.get("SETTLETABLE_ENV", "").lower() in ("production", "prod")
+            or (
+                bool(server_origin)
+                and server_origin.startswith("https://")
+                and not any(h in server_origin for h in ("localhost", "127.0.0.1", "testclient"))
+            )
+        )
+        allow_insecure = os.environ.get("SETTLETABLE_ALLOW_INSECURE_PUBLIC_CREATION", "0").lower() in ("1", "true", "yes")
+
+        clean_secret = secret_key.strip() if secret_key else None
+        clean_sitekey = sitekey.strip() if sitekey else None
+
+        if enabled:
+            # 1. Reject partial Turnstile credentials (one provided but not the other)
+            if (clean_secret and not clean_sitekey) or (clean_sitekey and not clean_secret):
+                raise RuntimeError(
+                    "Incomplete Cloudflare Turnstile configuration: both SETTLETABLE_TURNSTILE_SITEKEY "
+                    "and SETTLETABLE_TURNSTILE_SECRET_KEY must be provided together."
+                )
+
+            # 2. In public production deployments, Turnstile is strictly required
+            if is_production and not allow_insecure:
+                if not clean_secret or not clean_sitekey:
+                    raise RuntimeError(
+                        f"Production safety violation: SETTLETABLE_PUBLIC_CREATION_ENABLED=1 is set for public origin "
+                        f"'{server_origin}', but Cloudflare Turnstile credentials are missing. "
+                        "Configure SETTLETABLE_TURNSTILE_SITEKEY and SETTLETABLE_TURNSTILE_SECRET_KEY, "
+                        "or set SETTLETABLE_ALLOW_INSECURE_PUBLIC_CREATION=1 to explicitly override."
+                    )
+                if is_cloudflare_test_key(clean_secret) or is_cloudflare_test_key(clean_sitekey):
+                    raise RuntimeError(
+                        f"Production safety violation: Cloudflare Turnstile dummy test keys cannot be used in a "
+                        f"production deployment ('{server_origin}'). Configure legitimate production Turnstile keys."
+                    )
 
         def _int_env(key: str, default: int) -> int:
             val = os.environ.get(key)
@@ -118,8 +187,8 @@ class PublicCreationConfig:
 
         return cls(
             enabled=enabled,
-            turnstile_secret_key=secret_key.strip() if secret_key else None,
-            turnstile_sitekey=sitekey.strip() if sitekey else None,
+            turnstile_secret_key=clean_secret,
+            turnstile_sitekey=clean_sitekey,
             turnstile_expected_action=expected_action,
             turnstile_expected_hostname=expected_hostname,
             max_total_meals=_int_env("SETTLETABLE_MAX_TOTAL_MEALS", 100),
@@ -382,7 +451,7 @@ class PublicCreationGate:
             self._idempotency_cache.pop(cache_key, None)
 
     def check_capacity(self, authority: Any) -> tuple[bool, str | None]:
-        """Check whether the server has reached maximum meal capacity."""
+        """Check whether the server has reached maximum meal capacity (total or 24-hour limit)."""
         try:
             total_count = authority.get_meals_count()
         except Exception as e:
@@ -392,6 +461,16 @@ class PublicCreationGate:
         if total_count >= self.config.max_total_meals:
             logger.warning("Public meal creation rejected: capacity limit reached (%d >= %d)", total_count, self.config.max_total_meals)
             return False, "capacity_exceeded"
+
+        if hasattr(authority, "get_daily_meals_count"):
+            try:
+                daily_count = authority.get_daily_meals_count()
+                if daily_count >= self.config.max_meals_per_day:
+                    logger.warning("Public meal creation rejected: daily capacity reached (%d >= %d)", daily_count, self.config.max_meals_per_day)
+                    return False, "daily_capacity_exceeded"
+            except Exception as e:
+                logger.error("Failed to query daily meals count from authority: %s", e)
+                return False, "storage_error"
 
         return True, None
 

@@ -357,7 +357,11 @@ httpd.serve_forever()
     if (storedMeals.length !== 1 || storedMeals[0].meal_id !== createdMealId) {
       throw new Error(`Expected recent meal in localStorage, got ${JSON.stringify(storedMeals)}`);
     }
+    if (storedMeals[0].claim_url || storedMeals[0].credential) {
+      throw new Error('Security violation: bearer claim_url or credential must not be stored in localStorage');
+    }
     console.log(`✓ Local storage recent meals registry updated: ${storedMeals[0].title} (${storedMeals[0].role})`);
+    console.log('✓ Verified no bearer credentials or claim tokens stored in localStorage');
 
     // 8. Navigate back to Home Screen
     console.log('Navigating back to Home Screen (#/)...');
