@@ -686,6 +686,61 @@ class TestPublicCreation(unittest.TestCase):
         }
         self.assertEqual(extract_client_ip(env3), "192.0.2.1")
 
+    def test_daily_capacity_limit_returns_429(self):
+        self.config.rate_limit_burst = 20
+        self.config.rate_limit_hourly = 20
+        self.config.rate_limit_daily = 20
+        self.config.max_total_meals = 100
+        self.config.max_meals_per_day = 2
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-SettleTable-Action": "1",
+            "Origin": "https://settle.kybuilds.com",
+            "CF-Connecting-IP": "203.0.113.88",
+        }
+
+        for i in range(2):
+            payload = json.dumps({"meal_title": f"Daily {i}", "organizer_name": "Host"}).encode("utf-8")
+            code, _, _ = self._call("POST", "/api/meals/public-create", headers=headers, body=payload)
+            self.assertEqual(code, 201)
+
+        # Clear in-memory creations to simulate process restart and verify persistent capacity check
+        self.gate._global_creations.clear()
+
+        payload = json.dumps({"meal_title": "Daily 3", "organizer_name": "Host"}).encode("utf-8")
+        code, _, body = self._call("POST", "/api/meals/public-create", headers=headers, body=payload)
+        self.assertEqual(code, 429)
+        self.assertEqual(json.loads(body.decode("utf-8")).get("error"), "daily_capacity_exceeded")
+
+    def test_recovery_link_generation_does_not_increment_daily_capacity(self):
+        auth = Authority(self.db_path, storage_dir=self.storage_dir, clock=lambda: self.sim_clock_time)
+        try:
+            parts = (Participant("O", "Host", True),)
+            b_res = auth.bootstrap("meal-gen-test", parts, max_meals_per_day=5)
+            self.assertEqual(auth.get_daily_meals_count(), 1)
+
+            org_grant = next(g for g in b_res.sessions if g.participant_id == "O")
+
+            rec1 = auth.issue_organizer_recovery(org_grant.credential, "meal-gen-test")
+            self.assertEqual(auth.get_daily_meals_count(), 1, "Recovery claim must NOT increment daily meals count")
+
+            rec2 = auth.issue_organizer_recovery(org_grant.credential, "meal-gen-test")
+            self.assertEqual(auth.get_daily_meals_count(), 1, "Multiple recovery claims must NOT increment daily meals count")
+
+            import sqlite3
+            con = sqlite3.connect(self.db_path)
+            try:
+                rows = con.execute("SELECT issue_id, generation FROM organizer_claims WHERE meal_id='meal-gen-test' ORDER BY generation ASC").fetchall()
+                self.assertEqual(len(rows), 3)
+                self.assertEqual(rows[0][1], 1)
+                self.assertEqual(rows[1][1], 2)
+                self.assertEqual(rows[2][1], 3)
+            finally:
+                con.close()
+        finally:
+            auth.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,8 +3,12 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import tempfile
 import unittest
+import urllib.error
+import urllib.request
+from unittest.mock import patch
 
 from settletable import authority as auth
 from tools.backup_restore import (
@@ -16,6 +20,11 @@ from tools.backup_restore import (
 
 class BackupRestoreTests(unittest.TestCase):
     def setUp(self):
+        self.patcher_url = patch('tools.backup_restore.urllib.request.urlopen', side_effect=urllib.error.URLError('connection refused'))
+        self.patcher_url.start()
+        self.patcher_docker = patch('tools.backup_restore.shutil.which', return_value=None)
+        self.patcher_docker.start()
+
         scratch = Path('.local/tests')
         scratch.mkdir(parents=True, exist_ok=True)
         self.temp_dir = tempfile.TemporaryDirectory(dir=scratch)
@@ -41,6 +50,8 @@ class BackupRestoreTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        self.patcher_docker.stop()
+        self.patcher_url.stop()
         self.authority.close()
         self.temp_dir.cleanup()
 
@@ -128,7 +139,7 @@ class BackupRestoreTests(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status = 200
         mock_resp.__enter__.return_value = mock_resp
-        with patch('urllib.request.urlopen', return_value=mock_resp):
+        with patch('tools.backup_restore.urllib.request.urlopen', return_value=mock_resp):
             with self.assertRaises(RuntimeError) as ctx:
                 perform_verified_restore(
                     manifest_path, self.restore_db, self.restore_photos,

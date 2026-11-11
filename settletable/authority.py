@@ -871,10 +871,13 @@ class Authority:
             (meal_id, now)
         )
 
+        cur = self._db.execute('SELECT COALESCE(MAX(generation), 0) + 1 FROM organizer_claims WHERE meal_id=?', (meal_id,))
+        gen = cur.fetchone()[0]
+
         self._db.execute(
             '''INSERT INTO organizer_claims (verifier, meal_id, issuer_id, issue_id, created_at, expires, consumed, revoked, generation)
-               VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1)''',
-            (claim_verifier, meal_id, actor, issue_id, now, expires)
+               VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)''',
+            (claim_verifier, meal_id, actor, issue_id, now, expires, gen)
         )
         return OrganizerClaimGrant(meal_id, token, expires, issue_id)
 

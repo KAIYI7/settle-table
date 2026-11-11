@@ -37,6 +37,8 @@ const state = {
   selectedSplitDiners: new Map(),
   publicConfig: null,
   turnstileWidgetId: undefined,
+  emergencyRecoveryUrl: null,
+  emergencyRecoveryMealId: null,
 };
 
 // The allocation sheet is rebuilt on each snapshot, so retain descriptors rather
@@ -1337,6 +1339,7 @@ async function renderWelcome() {
         });
         if (res.organizer_claim?.claim_url) {
           state.emergencyRecoveryUrl = res.organizer_claim.claim_url;
+          state.emergencyRecoveryMealId = res.meal_id;
         }
         showAlert('Meal room created! Establishing your organizer session...', 'success');
         window.location.hash = `#/meal/${res.meal_id}`;
@@ -1940,7 +1943,7 @@ function updateMealUI() {
     </div>
   `;
 
-  if (state.emergencyRecoveryUrl) {
+  if (state.emergencyRecoveryUrl && state.emergencyRecoveryMealId === (state.mealId || snap.meal_id)) {
     html += `
       <div class="alert alert-warning" id="organizer-emergency-banner" style="margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
@@ -3916,6 +3919,7 @@ function bindEvents(snap) {
 
   document.getElementById('dismiss-emergency-claim-btn')?.addEventListener('click', () => {
     state.emergencyRecoveryUrl = null;
+    state.emergencyRecoveryMealId = null;
     document.getElementById('organizer-emergency-banner')?.remove();
   });
 
@@ -4758,7 +4762,6 @@ function bindEvents(snap) {
             meal_id: state.mealId,
             title: state.snapshot?.meal_id || state.mealId,
             role: 'organizer',
-            claim_url: res.claim_url,
             created_at: Date.now(),
           });
           genRecBtn.disabled = false;

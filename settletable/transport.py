@@ -821,7 +821,8 @@ class SettleTableApp:
             cap_ok, cap_err = self.public_creation_gate.check_capacity(authority)
             if not cap_ok:
                 self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
-                raise TransportError(cap_err or 'capacity_exceeded', 507 if cap_err == 'capacity_exceeded' else 500)
+                status_code = 429 if cap_err == 'daily_capacity_exceeded' else (507 if cap_err == 'capacity_exceeded' else 500)
+                raise TransportError(cap_err or 'capacity_exceeded', status_code)
 
             # 5. Input Validation & Bounds
             raw_title = (body_data or {}).get('meal_title')
