@@ -1057,7 +1057,9 @@ async function handleLeaveRoom() {
 function getRecentMeals() {
   try {
     const raw = localStorage.getItem('settletable_recent_meals');
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
@@ -1248,7 +1250,7 @@ async function renderWelcome() {
         const hashIdx = claimUrl.indexOf('#');
         if (hashIdx !== -1) {
           window.location.hash = claimUrl.substring(hashIdx);
-        } else {
+        } else if (claimUrl.startsWith('/') || claimUrl.startsWith(window.location.origin + '/')) {
           window.location.href = claimUrl;
         }
       }

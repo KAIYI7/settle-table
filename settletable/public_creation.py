@@ -36,7 +36,15 @@ CF_TEST_SECRET_DUPLICATE = "3x0000000000000000000000000000000AA"
 
 
 def extract_client_ip(environ: dict) -> str:
-    """Extract and validate visitor IP from trusted headers or socket address."""
+    """Extract and validate visitor IP from trusted headers or socket address.
+
+    Precedence:
+    1. HTTP_CF_CONNECTING_IP: In SettleTable's production deployment, ingress is
+       strictly routed via Cloudflare Tunnel where Cloudflare edge sanitizes and
+       overwrites this header with the client's validated IP.
+    2. HTTP_X_FORWARDED_FOR (leftmost IP): Fallback for standard reverse proxies.
+    3. REMOTE_ADDR: Direct socket address.
+    """
     # 1. Cloudflare connecting IP (set by Cloudflare Edge / Tunnel)
     cf_ip = environ.get("HTTP_CF_CONNECTING_IP", "").strip()
     if cf_ip:
@@ -170,7 +178,10 @@ class PublicCreationGate:
             timestamps = self._ip_creations.get(client_ip, [])
             # Prune older than 24 hours
             timestamps = [t for t in timestamps if t > cutoff_daily]
-            self._ip_creations[client_ip] = timestamps
+            if not timestamps:
+                self._ip_creations.pop(client_ip, None)
+            else:
+                self._ip_creations[client_ip] = timestamps
 
             # 1. Burst limit (e.g. 2 in 120s)
             cutoff_burst = now - self.config.burst_window_seconds
@@ -256,14 +267,14 @@ class PublicCreationGate:
         # Verify action if expected
         if self.config.turnstile_expected_action:
             action = res.get("action")
-            if action and action != self.config.turnstile_expected_action:
+            if action != self.config.turnstile_expected_action:
                 logger.warning("Turnstile action mismatch: expected '%s', got '%s'", self.config.turnstile_expected_action, action)
                 return False, "turnstile_action_mismatch"
 
         # Verify hostname if expected
         if self.config.turnstile_expected_hostname:
             hostname = res.get("hostname")
-            if hostname and hostname != self.config.turnstile_expected_hostname:
+            if hostname != self.config.turnstile_expected_hostname:
                 logger.warning("Turnstile hostname mismatch: expected '%s', got '%s'", self.config.turnstile_expected_hostname, hostname)
                 return False, "turnstile_hostname_mismatch"
 

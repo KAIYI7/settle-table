@@ -467,5 +467,84 @@ class TestPublicCreation(unittest.TestCase):
         self.assertEqual(code, 403)
 
 
+    # --------------------------------------------------------------------------
+    # 10. Regression Tests: CSP Turnstile, Idempotency Retry vs Rate Limit, Turnstile Action Matching
+    # --------------------------------------------------------------------------
+    def test_csp_allows_cloudflare_turnstile(self):
+        code, headers, _ = self._call("GET", "/")
+        self.assertEqual(code, 200)
+        csp = headers.get("Content-Security-Policy", "")
+        self.assertIn("script-src 'self' https://challenges.cloudflare.com", csp)
+        self.assertIn("frame-src 'self' https://challenges.cloudflare.com", csp)
+        self.assertIn("connect-src 'self' https://challenges.cloudflare.com", csp)
+
+    def test_idempotency_bypasses_rate_limit_on_retry(self):
+        headers = {
+            "Content-Type": "application/json",
+            "X-SettleTable-Action": "1",
+            "Origin": "https://settle.kybuilds.com",
+            "CF-Connecting-IP": "203.0.113.140",
+        }
+        # First request creates meal with idempotency key
+        payload1 = json.dumps({
+            "meal_title": "First Meal",
+            "organizer_name": "Host",
+            "idempotency_key": "retry-key-999",
+        }).encode("utf-8")
+        code1, _, body1 = self._call("POST", "/api/meals/public-create", headers=headers, body=payload1)
+        self.assertEqual(code1, 201)
+        meal_id1 = json.loads(body1.decode("utf-8"))["meal_id"]
+
+        # Second request consumes the burst rate limit (rate_limit_burst is 2)
+        payload2 = json.dumps({
+            "meal_title": "Second Meal",
+            "organizer_name": "Host",
+        }).encode("utf-8")
+        code2, _, _ = self._call("POST", "/api/meals/public-create", headers=headers, body=payload2)
+        self.assertEqual(code2, 201)
+
+        # Third new request gets 429
+        payload3 = json.dumps({
+            "meal_title": "Third Meal",
+            "organizer_name": "Host",
+        }).encode("utf-8")
+        code3, _, body3 = self._call("POST", "/api/meals/public-create", headers=headers, body=payload3)
+        self.assertEqual(code3, 429)
+
+        # Retrying the first request with completed idempotency key succeeds with 201 despite rate limit
+        code_retry, _, body_retry = self._call("POST", "/api/meals/public-create", headers=headers, body=payload1)
+        self.assertEqual(code_retry, 201)
+        self.assertEqual(json.loads(body_retry.decode("utf-8"))["meal_id"], meal_id1)
+
+    def test_turnstile_missing_action_or_hostname_rejected(self):
+        gate = PublicCreationGate(
+            PublicCreationConfig(
+                enabled=True,
+                turnstile_secret_key="secret-key",
+                turnstile_expected_action="public_create_meal",
+                turnstile_expected_hostname="settle.kybuilds.com",
+            )
+        )
+        # Mock siteverify returning no action
+        gate._call_siteverify = lambda token, ip, key: {
+            "success": True,
+            "action": None,
+            "hostname": "settle.kybuilds.com",
+        }
+        valid, err = gate.verify_turnstile("dummy-token", "203.0.113.1", None)
+        self.assertFalse(valid)
+        self.assertEqual(err, "turnstile_action_mismatch")
+
+        # Mock siteverify returning no hostname
+        gate._call_siteverify = lambda token, ip, key: {
+            "success": True,
+            "action": "public_create_meal",
+            "hostname": None,
+        }
+        valid, err = gate.verify_turnstile("dummy-token", "203.0.113.1", None)
+        self.assertFalse(valid)
+        self.assertEqual(err, "turnstile_hostname_mismatch")
+
+
 if __name__ == "__main__":
     unittest.main()

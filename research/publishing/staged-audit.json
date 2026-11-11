@@ -1,63 +1,33 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 11,
-  "staged_bytes_excluding_report": 611904,
+  "staged_files": 4,
+  "staged_bytes_excluding_report": 378454,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 360,
   "untracked_files": 0,
   "ignored_files": 27911,
-  "valid_json_files": 1,
+  "valid_json_files": 0,
   "findings": [],
   "files": [
     {
-      "path": "settletable/authority.py",
-      "bytes": 130345,
-      "sha256": "5a9013708be19e4df126a5148d2271887a3b912b930cb26395e9382532d6df9c"
-    },
-    {
       "path": "settletable/public_creation.py",
-      "bytes": 19751,
-      "sha256": "e5468e1d883470ddf680a301d5ac2c3d87b510736718638d645d1f92e1a2d7c6"
+      "bytes": 20207,
+      "sha256": "b8e61e833fbc2775da8a5b6a55ccc74b958fd6b45fea8c7491cd8e50b06571a8"
     },
     {
       "path": "settletable/static/app.js",
-      "bytes": 246230,
-      "sha256": "f2816b5368e6218284dc38a8affd39f5f5144117d9cb79de5024e0850bf26ffc"
-    },
-    {
-      "path": "settletable/static/style.css",
-      "bytes": 58107,
-      "sha256": "a1beb76bc9e31fa4dcbbc09071c6fcc785bf80de093a26ca4f6ede464779def7"
+      "bytes": 246383,
+      "sha256": "fa0ed640b70abb242b19766fe8b63a1d94902b9f98307804daf33f151b6235f4"
     },
     {
       "path": "settletable/transport.py",
-      "bytes": 86287,
-      "sha256": "229a8c8d6213f7cd5f54ea54f002346ea95aeb2a3a79a02d42ddc5299ec2feef"
-    },
-    {
-      "path": "settletable/wsgi.py",
-      "bytes": 6192,
-      "sha256": "b471922094d26a5a729a3831915c516433e93ed94e414c0397ab6755e0b9a8ac"
+      "bytes": 86662,
+      "sha256": "035a55458a6b70d3200713b4c5d3e727afb8efddce0362f8f78d8adbaf06dcca"
     },
     {
       "path": "tests/test_public_creation.py",
-      "bytes": 21591,
-      "sha256": "5c87573e055d5fb6be5d60314ea879636ce7a2f1441a191edb5c0fdaba88c82c"
-    },
-    {
-      "path": "tests/test_reverse_proxy_ingress.py",
-      "bytes": 23047,
-      "sha256": "a8ae1cf7b3a17d1e9c35f0f646b00f4c83f29a75cf5cb968c72e8947f4c05529"
-    },
-    {
-      "path": "tools/run_demo.py",
-      "bytes": 4749,
-      "sha256": "f0780e8e8fb0c33e745aaaee77b852151ccc72e59f218fb799e7a5b1b2988912"
-    },
-    {
-      "path": "tools/verify_public_creation_flow.mjs",
-      "bytes": 15605,
-      "sha256": "3647662edda16f794d1aac5a77aeece54fa4937a5996c58ab00a4bae2a5ac823"
+      "bytes": 25202,
+      "sha256": "23d5d648ddd8457eb175ff4c87fdc7995be04c539d4bb346b426a7752ba30b2b"
     }
   ]
 }

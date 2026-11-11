@@ -409,7 +409,15 @@ class SettleTableApp:
     def _static_headers(self, content_type, cache_control='no-cache'):
         return [
             ('Content-Type', content_type),
-            ('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+            ('Content-Security-Policy', (
+                "default-src 'self'; "
+                "script-src 'self' https://challenges.cloudflare.com; "
+                "frame-src 'self' https://challenges.cloudflare.com; "
+                "connect-src 'self' https://challenges.cloudflare.com; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; font-src 'self'; "
+                "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+            )),
             ('X-Content-Type-Options', 'nosniff'),
             ('Referrer-Policy', 'no-referrer'),
             ('Cache-Control', cache_control),
@@ -773,20 +781,7 @@ class SettleTableApp:
 
             client_ip = self.public_creation_gate.get_client_ip(environ)
 
-            # 1. IP Rate Limiting
-            allowed, retry_after = self.public_creation_gate.check_rate_limit(client_ip)
-            if not allowed:
-                headers = self._default_headers()
-                headers.append(('Retry-After', str(retry_after)))
-                out = {
-                    'ok': False,
-                    'error': 'rate_limit_exceeded',
-                    'retry_after': retry_after,
-                    'message': 'Rate limit exceeded. Please wait before creating another meal.',
-                }
-                return 429, headers, serialize_json(out)
-
-            # 2. Idempotency Check
+            # 1. Idempotency Cache Lookup (bypass rate limiter for completed retries)
             idempotency_key = (body_data or {}).get('idempotency_key')
             if idempotency_key is not None:
                 if not isinstance(idempotency_key, str) or len(idempotency_key) > 64 or not re.fullmatch(r'[A-Za-z0-9_-]+', idempotency_key):
@@ -801,6 +796,19 @@ class SettleTableApp:
                     return 201, headers, serialize_json(cached_res)
                 elif status == 'in_progress':
                     raise TransportError('creation_in_progress', 409)
+
+            # 2. IP Rate Limiting (evaluated for new requests or retries before completion)
+            allowed, retry_after = self.public_creation_gate.check_rate_limit(client_ip)
+            if not allowed:
+                headers = self._default_headers()
+                headers.append(('Retry-After', str(retry_after)))
+                out = {
+                    'ok': False,
+                    'error': 'rate_limit_exceeded',
+                    'retry_after': retry_after,
+                    'message': 'Rate limit exceeded. Please wait before creating another meal.',
+                }
+                return 429, headers, serialize_json(out)
 
             # 3. Turnstile Bot Verification
             turnstile_token = (body_data or {}).get('turnstile_token')
