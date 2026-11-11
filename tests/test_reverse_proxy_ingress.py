@@ -484,6 +484,68 @@ class TestReverseProxyIngress(unittest.TestCase):
             )
             self.assertEqual(json.loads(body).get("error"), "invalid_host")
 
+    # --------------------------------------------------------------------------
+    # 10. Public Self-Service Creation Ingress Validation
+    # --------------------------------------------------------------------------
+    def test_public_creation_through_reverse_proxy_ingress(self):
+        # Enable public creation on the test app gate
+        self.app.public_creation_gate.config.enabled = True
+
+        # 10a. Public config accessible through reverse proxy
+        code, _, body = self._call("GET", "/api/public-config", headers={"Host": "settle.kybuilds.com"})
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body.decode("utf-8")).get("public_creation_enabled"))
+
+        # 10b. Public create with malicious Origin rejected with 403 origin_mismatch
+        payload = json.dumps({"meal_title": "Hotpot", "organizer_name": "Alice"}).encode("utf-8")
+        code, _, body = self._call(
+            "POST",
+            "/api/meals/public-create",
+            headers={
+                "Host": "settle.kybuilds.com",
+                "Content-Type": "application/json",
+                "X-SettleTable-Action": "1",
+                "Origin": "https://evil-phishing.org",
+                "CF-Connecting-IP": "203.0.113.195",
+            },
+            body=payload,
+        )
+        self.assertEqual(code, 403)
+        self.assertEqual(json.loads(body.decode("utf-8")).get("error"), "origin_mismatch")
+
+        # 10c. Public create missing X-SettleTable-Action rejected with 400
+        code, _, body = self._call(
+            "POST",
+            "/api/meals/public-create",
+            headers={
+                "Host": "settle.kybuilds.com",
+                "Content-Type": "application/json",
+                "Origin": "https://settle.kybuilds.com",
+                "CF-Connecting-IP": "203.0.113.195",
+            },
+            body=payload,
+        )
+        self.assertEqual(code, 400)
+        self.assertEqual(json.loads(body.decode("utf-8")).get("error"), "missing_action_header")
+
+        # 10d. Valid public creation through Cloudflare Tunnel with CF-Connecting-IP succeeds
+        code, resp_headers, body = self._call(
+            "POST",
+            "/api/meals/public-create",
+            headers={
+                "Host": "settle.kybuilds.com",
+                "Content-Type": "application/json",
+                "X-SettleTable-Action": "1",
+                "Origin": "https://settle.kybuilds.com",
+                "CF-Connecting-IP": "203.0.113.195",
+            },
+            body=payload,
+        )
+        self.assertEqual(code, 201)
+        data = json.loads(body.decode("utf-8"))
+        self.assertTrue(data.get("ok"))
+        self.assertIn("settletable_session=", resp_headers.get("Set-Cookie", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

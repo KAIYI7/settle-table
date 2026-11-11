@@ -60,12 +60,21 @@ def main():
         ]
         ocr_engine = MockOcrEngine(fixtures=fixtures, default_lines=default_lines)
 
+    from settletable.public_creation import PublicCreationConfig, PublicCreationGate
+    pub_cfg = PublicCreationConfig.from_env(origin)
+    pub_cfg.enabled = True
+    pub_cfg.rate_limit_burst = 50
+    pub_cfg.rate_limit_hourly = 200
+    pub_cfg.rate_limit_daily = 500
+    pub_gate = PublicCreationGate(pub_cfg)
+
     app = SettleTableApp(
         db_path,
         server_origin=origin,
         allowed_hosts=allowed_hosts,
         notion_client=notion_client,
         ocr_engine=ocr_engine,
+        public_creation_gate=pub_gate,
     )
 
     print("=" * 60)

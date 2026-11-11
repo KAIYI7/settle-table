@@ -2780,5 +2780,63 @@ input[type=number].ocr-edit-item-qty:focus {
   color: #c7d2fe;
 }
 
+/* Recent Meals on this Device */
+.recent-meals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.recent-meal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+.recent-meal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.recent-meal-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-heading);
+}
+.recent-meal-meta {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono, monospace);
+}
+.recent-meal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-remove-recent {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+.btn-remove-recent:hover {
+  color: var(--accent-rose, #ef4444);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+
 
 
