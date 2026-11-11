@@ -132,6 +132,9 @@ def create_app() -> SettleTableApp:
         from settletable.ocr import MockOcrEngine
         ocr_engine = MockOcrEngine()
 
+    from settletable.public_creation import PublicCreationConfig
+    public_creation_config = PublicCreationConfig.from_env(server_origin)
+
     return SettleTableApp(
         db_path=db_path,
         storage_dir=storage_dir,
@@ -141,6 +144,7 @@ def create_app() -> SettleTableApp:
         ocr_engine=ocr_engine,
         allow_sync_export=allow_sync_export,
         session_ttl=session_ttl,
+        public_creation_config=public_creation_config,
     )
 
 

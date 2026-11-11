@@ -934,6 +934,31 @@ class Authority:
             self._rollback()
             raise AuthorityError('commit_uncertain' if committed else 'storage_error') from None
 
+    def meal_exists(self, meal_id):
+        _id(meal_id)
+        try:
+            _require(self._db is not None, 'storage_error')
+            row = self._db.execute('SELECT 1 FROM meals WHERE id=?', (meal_id,)).fetchone()
+            return row is not None
+        except AuthorityError:
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            raise AuthorityError('storage_error') from None
+
+    def get_meals_count(self):
+        try:
+            _require(self._db is not None, 'storage_error')
+            row = self._db.execute('SELECT COUNT(*) FROM meals').fetchone()
+            return int(row[0]) if row else 0
+        except AuthorityError:
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            raise AuthorityError('storage_error') from None
+
     def _authenticate(self, verifier, meal_id):
         row = self._db.execute('''SELECT p.id,p.organizer FROM sessions s
             JOIN participants p ON p.meal_id=s.meal_id AND p.id=s.participant_id

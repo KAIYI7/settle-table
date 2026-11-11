@@ -35,6 +35,8 @@ const state = {
   expandedHybridItemIds: new Set(),
   activeMobileSheetItemId: null,
   selectedSplitDiners: new Map(),
+  publicConfig: null,
+  turnstileWidgetId: undefined,
 };
 
 // The allocation sheet is rebuilt on each snapshot, so retain descriptors rather
@@ -1051,7 +1053,58 @@ async function handleLeaveRoom() {
   }, 50);
 }
 
-function renderWelcome() {
+// --- Local Storage & Recent Meals Registry ---
+function getRecentMeals() {
+  try {
+    const raw = localStorage.getItem('settletable_recent_meals');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentMeal(meal) {
+  try {
+    let meals = getRecentMeals();
+    meals = meals.filter(m => m.meal_id !== meal.meal_id);
+    meals.unshift(meal);
+    if (meals.length > 10) meals = meals.slice(0, 10);
+    localStorage.setItem('settletable_recent_meals', JSON.stringify(meals));
+  } catch (err) {
+    console.warn('Failed to save recent meal', err);
+  }
+}
+
+function removeRecentMeal(mealId) {
+  try {
+    let meals = getRecentMeals();
+    meals = meals.filter(m => m.meal_id !== mealId);
+    localStorage.setItem('settletable_recent_meals', JSON.stringify(meals));
+  } catch (err) {
+    console.warn('Failed to remove recent meal', err);
+  }
+  renderWelcome();
+}
+
+function loadTurnstileScript() {
+  if (window.turnstile || document.getElementById('cf-turnstile-script')) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.id = 'cf-turnstile-script';
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    s.async = true;
+    s.defer = true;
+    s.onload = () => resolve();
+    s.onerror = (e) => reject(new Error('Failed to load Turnstile script'));
+    document.head.appendChild(s);
+  });
+}
+
+async function renderWelcome() {
   stopPolling();
   state.mealId = null;
   state.snapshot = null;
@@ -1061,38 +1114,112 @@ function renderWelcome() {
   if (headerStatus) headerStatus.innerHTML = '';
   syncHeaderHeight();
 
+  // Load public config
+  if (!state.publicConfig) {
+    try {
+      const cfg = await apiCall('/api/public-config');
+      if (cfg?.ok) {
+        state.publicConfig = cfg;
+      }
+    } catch {
+      state.publicConfig = { public_creation_enabled: false };
+    }
+  }
+
+  const isCreationEnabled = Boolean(state.publicConfig?.public_creation_enabled);
+  const sitekey = state.publicConfig?.turnstile_sitekey;
+  const recentMeals = getRecentMeals();
+
   const app = document.getElementById('app');
-  app.innerHTML = `
-    <div class="card">
-      <h2 class="card-title">Create a Meal Room</h2>
-      <p class="card-desc">Set up a new meal, enter receipt items, and invite diners to claim portions.</p>
-      
-      <form id="create-meal-form">
-        <div class="form-group">
-          <label for="create-meal-id">Meal ID / Name</label>
-          <input type="text" id="create-meal-id" placeholder="e.g. dinner-friday" required pattern="[A-Za-z0-9_\\-]+" title="Letters, numbers, dashes and underscores only">
-        </div>
+
+  let createSectionHtml = '';
+  if (isCreationEnabled) {
+    createSectionHtml = `
+      <div class="card">
+        <h2 class="card-title">Create a Meal Room</h2>
+        <p class="card-desc">Set up a private room in seconds. You will receive an organizer link to manage items and invite diners.</p>
         
-        <div class="form-group">
-          <label for="create-org-name">Your Name (Organizer)</label>
-          <input type="text" id="create-org-name" placeholder="e.g. Alice" required>
+        <form id="create-meal-form">
+          <div class="form-group">
+            <label for="create-meal-id">Meal Name / Title</label>
+            <input type="text" id="create-meal-id" placeholder="e.g. Friday Hai Di Lao" required maxlength="60">
+            <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 4px;">A secure, private room URL will be generated automatically.</div>
+          </div>
+          
+          <div class="form-group">
+            <label for="create-org-name">Your Name (Organizer)</label>
+            <input type="text" id="create-org-name" placeholder="e.g. Alice" required maxlength="40">
+          </div>
+
+          <div class="form-group">
+            <label for="create-diners">Diners (Optional, comma-separated)</label>
+            <input type="text" id="create-diners" placeholder="e.g. Bob, Charlie, Dave" maxlength="200">
+            <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 4px;">You can also invite diners after creating the room.</div>
+          </div>
+
+          ${sitekey ? `<div class="form-group"><div id="turnstile-container" style="min-height: 65px; display: flex; align-items: center;"></div></div>` : ''}
+
+          <button type="submit" id="create-meal-submit-btn" class="btn btn-primary btn-block">🚀 Create Private Meal Room</button>
+        </form>
+      </div>
+    `;
+  } else {
+    createSectionHtml = `
+      <div class="card" style="border-left: 4px solid var(--accent-indigo, #6366f1);">
+        <h2 class="card-title" style="color: var(--text-heading);">Host Administrative Mode</h2>
+        <p class="card-desc">Public self-service meal room creation is currently disabled on this server.</p>
+        <div class="alert alert-info" style="margin: 0; font-size: 0.85rem; line-height: 1.45;">
+          If you have been invited to an existing meal, enter the room ID below or click the invitation link provided by your meal organizer.
         </div>
+      </div>
+    `;
+  }
 
-        <div class="form-group">
-          <label for="create-diners">Diners (Comma-separated names)</label>
-          <input type="text" id="create-diners" placeholder="e.g. Bob, Charlie, Dave">
+  let recentMealsHtml = '';
+  if (recentMeals.length > 0) {
+    const rows = recentMeals.map(m => {
+      const isOrg = m.role === 'organizer';
+      const badgeClass = isOrg ? 'badge-organizer' : 'badge-diner';
+      const roleText = isOrg ? 'Organizer' : 'Diner';
+      const dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString() : '';
+      return `
+        <div class="recent-meal-row">
+          <div class="recent-meal-info">
+            <div class="recent-meal-title-line">
+              <span>${escapeHtml(m.title || m.meal_id)}</span>
+              <span class="badge ${badgeClass}">${roleText}</span>
+            </div>
+            <div class="recent-meal-meta">${escapeHtml(m.meal_id)}${dateStr ? ` &bull; ${dateStr}` : ''}</div>
+          </div>
+          <div class="recent-meal-actions">
+            <button type="button" class="btn btn-secondary btn-sm recent-meal-open-btn" data-meal="${escapeHtml(m.meal_id)}">Open Room</button>
+            ${isOrg && m.claim_url ? `<button type="button" class="btn btn-primary btn-sm recent-meal-restore-btn" data-claim="${escapeHtml(m.claim_url)}" title="Restore active organizer cookie on this browser">Restore Access</button>` : ''}
+            <button type="button" class="btn-remove-recent" data-remove="${escapeHtml(m.meal_id)}" title="Remove from device list" aria-label="Remove ${escapeHtml(m.title || m.meal_id)} from list">✕</button>
+          </div>
         </div>
+      `;
+    }).join('');
 
-        <button type="submit" class="btn btn-primary btn-block">Create & Provision Meal</button>
-      </form>
-    </div>
+    recentMealsHtml = `
+      <div class="card" id="recent-meals-card">
+        <h2 class="card-title">Recent Meals on this Device</h2>
+        <p class="card-desc">Quickly return to meals created or joined on this browser.</p>
+        <div class="recent-meals-list">
+          ${rows}
+        </div>
+      </div>
+    `;
+  }
 
+  app.innerHTML = `
+    ${createSectionHtml}
+    ${recentMealsHtml}
     <div class="card">
       <h2 class="card-title">Open Existing Meal</h2>
       <form id="open-meal-form">
         <div class="form-group">
           <label for="open-meal-id">Meal ID</label>
-          <input type="text" id="open-meal-id" placeholder="e.g. dinner-friday" required>
+          <input type="text" id="open-meal-id" placeholder="e.g. friday-hotpot-a8f2k9b4c1" required>
         </div>
         <button type="submit" class="btn btn-secondary btn-block">Enter Meal Room</button>
       </form>
@@ -1105,52 +1232,143 @@ function renderWelcome() {
     </div>
   `;
 
+  // Attach event listeners
   document.getElementById('welcome-clear-session-btn')?.addEventListener('click', handleLeaveRoom);
 
-  document.getElementById('create-meal-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const mealId = document.getElementById('create-meal-id').value.trim();
-    const orgName = document.getElementById('create-org-name').value.trim();
-    const dinersRaw = document.getElementById('create-diners').value.trim();
-
-    const participants = [
-      { id: 'O', name: orgName, organizer: true }
-    ];
-
-    if (dinersRaw) {
-      dinersRaw.split(',').forEach((name, idx) => {
-        const clean = name.trim();
-        if (clean) {
-          participants.push({ id: `D${idx + 1}`, name: clean, organizer: false });
-        }
-      });
-    }
-
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    try {
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Creating meal...';
-      }
-      showAlert('Creating meal...', 'info');
-      const res = await apiCall(`/api/meals/${mealId}/bootstrap`, 'POST', { participants });
-      if (res?.ok) {
-        window.location.hash = `#/meal/${mealId}`;
-      }
-    } catch (err) {
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Create Meal Room';
-      }
-      showAlert(`Failed to create meal: ${err.message}`, 'error');
-    }
+  // Recent meals actions
+  document.querySelectorAll('.recent-meal-open-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mealId = btn.getAttribute('data-meal');
+      if (mealId) window.location.hash = `#/meal/${mealId}`;
+    });
   });
 
-  document.getElementById('open-meal-form').addEventListener('submit', (e) => {
+  document.querySelectorAll('.recent-meal-restore-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const claimUrl = btn.getAttribute('data-claim');
+      if (claimUrl) {
+        const hashIdx = claimUrl.indexOf('#');
+        if (hashIdx !== -1) {
+          window.location.hash = claimUrl.substring(hashIdx);
+        } else if (claimUrl.startsWith('/') || claimUrl.startsWith(window.location.origin + '/')) {
+          window.location.href = claimUrl;
+        }
+      }
+    });
+  });
+
+  document.querySelectorAll('.btn-remove-recent').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mealId = btn.getAttribute('data-remove');
+      if (mealId) removeRecentMeal(mealId);
+    });
+  });
+
+  document.getElementById('open-meal-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const mealId = document.getElementById('open-meal-id').value.trim();
     if (mealId) {
       window.location.hash = `#/meal/${mealId}`;
+    }
+  });
+
+  // Render Turnstile widget if enabled and container exists
+  if (isCreationEnabled && sitekey) {
+    loadTurnstileScript().then(() => {
+      if (window.turnstile && document.getElementById('turnstile-container')) {
+        try {
+          state.turnstileWidgetId = window.turnstile.render('#turnstile-container', {
+            sitekey: sitekey,
+            action: 'public_create_meal',
+            theme: 'dark',
+          });
+        } catch (err) {
+          console.warn('Failed to render Turnstile widget:', err);
+        }
+      }
+    }).catch(err => {
+      console.warn('Turnstile script failed to load:', err);
+    });
+  }
+
+  // Handle Create Meal submission
+  document.getElementById('create-meal-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = (document.getElementById('create-meal-id')?.value || '').trim();
+    const customMealId = title || null;
+    const orgName = document.getElementById('create-org-name').value.trim();
+    const dinersRaw = document.getElementById('create-diners').value.trim();
+
+    let diners = [];
+    if (dinersRaw) {
+      diners = dinersRaw.split(',').map(d => d.trim()).filter(Boolean);
+    }
+
+    let turnstileToken = null;
+    if (window.turnstile && state.turnstileWidgetId !== undefined) {
+      turnstileToken = window.turnstile.getResponse(state.turnstileWidgetId);
+      if (!turnstileToken && sitekey) {
+        showAlert('Please complete the anti-abuse verification before creating your room.', 'error');
+        return;
+      }
+    }
+
+    const idempotencyKey = (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : 'idem-' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+
+    const submitBtn = document.getElementById('create-meal-submit-btn');
+    try {
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating private room...';
+      }
+      showAlert('Creating your private meal room...', 'info');
+
+      const payload = {
+        meal_title: title,
+        organizer_name: orgName,
+        diners: diners,
+        turnstile_token: turnstileToken,
+        idempotency_key: idempotencyKey,
+        custom_meal_id: customMealId,
+      };
+
+      const res = await apiCall('/api/meals/public-create', 'POST', payload);
+      if (res?.ok && res.meal_id) {
+        saveRecentMeal({
+          meal_id: res.meal_id,
+          title: res.meal_title || title,
+          role: 'organizer',
+          claim_url: res.organizer_claim?.claim_url || null,
+          created_at: Date.now(),
+        });
+        showAlert('Meal room created! Establishing your organizer session...', 'success');
+        window.location.hash = `#/meal/${res.meal_id}`;
+      } else {
+        throw new Error(res?.error || 'Unknown error');
+      }
+    } catch (err) {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '🚀 Create Private Meal Room';
+      }
+      if (window.turnstile && state.turnstileWidgetId !== undefined) {
+        try { window.turnstile.reset(state.turnstileWidgetId); } catch {}
+      }
+      let msg = err.message || '';
+      if (msg.includes('rate_limit_exceeded')) {
+        msg = 'Too many rooms created recently. Please wait a moment before trying again.';
+      } else if (msg.includes('capacity_exceeded')) {
+        msg = 'Server room capacity reached. Please contact the administrator.';
+      } else if (msg.includes('public_creation_disabled')) {
+        msg = 'Public self-service meal creation is currently disabled by the host administrator.';
+      } else if (msg.includes('turnstile_verification_failed') || msg.includes('turnstile_token_reused')) {
+        msg = 'Anti-bot verification failed or expired. Please solve the challenge again.';
+      } else if (msg.includes('ambiguous_participant_name')) {
+        msg = 'Participant names must be distinct. Two diners cannot share the same name.';
+      }
+      showAlert(`Failed to create meal: ${msg}`, 'error');
     }
   });
 }
@@ -4503,6 +4721,13 @@ function bindEvents(snap) {
         const res = await apiCall(`/api/meals/${state.mealId}/organizer-claims`, 'POST', {});
         if (res?.ok && res.claim_url) {
           state.recoveryLink = res.claim_url;
+          saveRecentMeal({
+            meal_id: state.mealId,
+            title: state.snapshot?.meal_id || state.mealId,
+            role: 'organizer',
+            claim_url: res.claim_url,
+            created_at: Date.now(),
+          });
           genRecBtn.disabled = false;
           genRecBtn.textContent = 'Copied! ✓';
           navigator.clipboard.writeText(res.claim_url).then(() => {

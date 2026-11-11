@@ -24,6 +24,7 @@ from settletable.authority import (
     RecordTransfer, ReverseTransfer,
     Receipt, ReceiptItem, ReceiptAdjustment,
 )
+from settletable.public_creation import PublicCreationConfig, PublicCreationGate
 
 # Status code mappings per Section 5 of SPEC.md
 STATUS_MAP = {
@@ -58,6 +59,12 @@ STATUS_MAP = {
     'unsupported_command': 400,
     'invalid_invitation': 400,
     'invalid_organizer_claim': 400,
+    'missing_turnstile_token': 400,
+    'invalid_turnstile_token': 400,
+    'turnstile_verification_failed': 400,
+    'turnstile_token_reused': 400,
+    'turnstile_action_mismatch': 400,
+    'turnstile_hostname_mismatch': 400,
     'organizer_claim_expired': 410,
     'organizer_claim_consumed': 409,
     'organizer_claim_revoked': 409,
@@ -106,6 +113,7 @@ STATUS_MAP = {
     'retired_source': 409,
     'source_kind_conflict': 409,
     'meal_exists': 409,
+    'creation_in_progress': 409,
     # 411 Length Required
     'missing_content_length': 411,
     # 413 Payload Too Large
@@ -113,6 +121,8 @@ STATUS_MAP = {
     # 429 Too Many Requests
     'resource_limit': 429,
     'notion_rate_limited': 429,
+    'rate_limit_exceeded': 429,
+    'daily_capacity_exceeded': 429,
     # 431 Request Header Fields Too Large
     'header_too_large': 431,
     # 500 Internal Server Error
@@ -126,7 +136,10 @@ STATUS_MAP = {
     'busy': 503,
     'ocr_unavailable': 503,
     'simulation_disabled': 503,
+    'public_creation_disabled': 503,
     'notion_auth_error': 400,
+    # 507 Insufficient Storage
+    'capacity_exceeded': 507,
 }
 
 MAX_BODY_BYTES = 1_048_576  # 1 MB
@@ -272,7 +285,7 @@ class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
                  server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None,
                  notion_client=None, allow_sync_export=False, simulation_config=None, simulation_client=None,
-                 storage_dir=None, session_ttl=None):
+                 storage_dir=None, session_ttl=None, public_creation_config=None, public_creation_gate=None):
         self.db_path = str(db_path)
         self.storage_dir = Path(storage_dir) if storage_dir is not None else None
         self.allowed_hosts = set(allowed_hosts)
@@ -292,6 +305,11 @@ class SettleTableApp:
         self._export_threads = {}
         self._export_lock = threading.Lock()
         self._local = threading.local()
+        if public_creation_gate is not None:
+            self.public_creation_gate = public_creation_gate
+        else:
+            cfg = public_creation_config or PublicCreationConfig.from_env(self.server_origin)
+            self.public_creation_gate = PublicCreationGate(cfg, clock=self.clock)
 
     def _get_session_ttl(self):
         if getattr(self, 'session_ttl', None) is not None:
@@ -391,7 +409,15 @@ class SettleTableApp:
     def _static_headers(self, content_type, cache_control='no-cache'):
         return [
             ('Content-Type', content_type),
-            ('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+            ('Content-Security-Policy', (
+                "default-src 'self'; "
+                "script-src 'self' https://challenges.cloudflare.com; "
+                "frame-src 'self' https://challenges.cloudflare.com; "
+                "connect-src 'self' https://challenges.cloudflare.com; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; font-src 'self'; "
+                "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+            )),
             ('X-Content-Type-Options', 'nosniff'),
             ('Referrer-Policy', 'no-referrer'),
             ('Cache-Control', cache_control),
@@ -565,6 +591,17 @@ class SettleTableApp:
                     return 200, self._static_headers('image/svg+xml', 'no-cache'), fav.read_bytes()
                 return 204, self._default_headers(), b''
 
+            # GET /api/public-config
+            if path == '/api/public-config':
+                cfg = self.public_creation_gate.config
+                out = {
+                    'ok': True,
+                    'public_creation_enabled': bool(cfg.enabled),
+                    'turnstile_sitekey': cfg.turnstile_sitekey,
+                    'max_diners': cfg.max_public_diners,
+                }
+                return 200, self._default_headers(), serialize_json(out)
+
         # Unauthenticated invitation inspection:
         # 1. POST /api/invitations/inspect (token in JSON body to prevent URL logging)
         if path == '/api/invitations/inspect' and method == 'POST':
@@ -736,6 +773,117 @@ class SettleTableApp:
                 'status': 'claimed',
             }
             return 200, headers, serialize_json(out)
+
+        # Public Self-Service Meal Creation POST /api/meals/public-create
+        if path == '/api/meals/public-create' and method == 'POST':
+            if not self.public_creation_gate.config.enabled:
+                raise TransportError('public_creation_disabled', 503)
+
+            client_ip = self.public_creation_gate.get_client_ip(environ)
+
+            # 1. Idempotency Cache Lookup (bypass rate limiter for completed retries)
+            idempotency_key = (body_data or {}).get('idempotency_key')
+            if idempotency_key is not None:
+                if not isinstance(idempotency_key, str) or len(idempotency_key) > 64 or not re.fullmatch(r'[A-Za-z0-9_-]+', idempotency_key):
+                    raise TransportError('invalid_input', 400)
+                status, cached_res = self.public_creation_gate.check_idempotency(client_ip, idempotency_key)
+                if status == 'completed' and cached_res:
+                    headers = self._default_headers()
+                    session_ttl = self._get_session_ttl()
+                    org_cred = cached_res.get('sessions', [{}])[0].get('credential')
+                    if org_cred:
+                        headers.append(('Set-Cookie', f'settletable_session={org_cred}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={session_ttl}'))
+                    return 201, headers, serialize_json(cached_res)
+                elif status == 'in_progress':
+                    raise TransportError('creation_in_progress', 409)
+
+            # 2. IP Rate Limiting (evaluated for new requests or retries before completion)
+            allowed, retry_after = self.public_creation_gate.check_rate_limit(client_ip)
+            if not allowed:
+                headers = self._default_headers()
+                headers.append(('Retry-After', str(retry_after)))
+                out = {
+                    'ok': False,
+                    'error': 'rate_limit_exceeded',
+                    'retry_after': retry_after,
+                    'message': 'Rate limit exceeded. Please wait before creating another meal.',
+                }
+                return 429, headers, serialize_json(out)
+
+            # 3. Turnstile Bot Verification
+            turnstile_token = (body_data or {}).get('turnstile_token')
+            valid, err_code = self.public_creation_gate.verify_turnstile(turnstile_token, client_ip, idempotency_key)
+            if not valid:
+                self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
+                raise TransportError(err_code or 'turnstile_verification_failed', 400)
+
+            # 4. Global Capacity Check
+            cap_ok, cap_err = self.public_creation_gate.check_capacity(authority)
+            if not cap_ok:
+                self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
+                raise TransportError(cap_err or 'capacity_exceeded', 507 if cap_err == 'capacity_exceeded' else 500)
+
+            # 5. Input Validation & Bounds
+            raw_title = (body_data or {}).get('meal_title')
+            raw_org = (body_data or {}).get('organizer_name')
+            raw_diners = (body_data or {}).get('diners')
+            try:
+                title, org_name, diner_names = self.public_creation_gate.validate_inputs(raw_title, raw_org, raw_diners)
+            except ValueError as ve:
+                self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
+                err_str = str(ve)
+                raise TransportError(err_str, 409 if err_str == 'ambiguous_participant_name' else 400)
+
+            # 6. Generate Unguessable Meal ID
+            raw_custom_id = (body_data or {}).get('custom_meal_id')
+            is_loopback = (
+                environ.get('REMOTE_ADDR') in ('127.0.0.1', '::1', 'localhost', 'testclient')
+                and not any(h in environ for h in (
+                    'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED_HOST', 'HTTP_X_FORWARDED_PROTO',
+                    'HTTP_FORWARDED', 'HTTP_X_REAL_IP', 'HTTP_CF_CONNECTING_IP',
+                    'HTTP_TRUE_CLIENT_IP', 'HTTP_X_CLUSTER_CLIENT_IP'
+                ))
+            )
+            meal_id = self.public_creation_gate.generate_meal_id(
+                title, authority, custom_meal_id=raw_custom_id, is_loopback=is_loopback
+            )
+
+            # 7. Construct Participants & Provision Meal
+            parts = [Participant('O', org_name, True)]
+            for idx, d_name in enumerate(diner_names):
+                parts.append(Participant(f"D{idx+1}", d_name, False))
+
+            session_ttl = self._get_session_ttl()
+            try:
+                b_res = authority.bootstrap(meal_id, tuple(parts), session_ttl=session_ttl)
+            except Exception:
+                self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
+                raise
+
+            # 8. Record Creation Success in Rate Tracking
+            self.public_creation_gate.record_creation_success(client_ip)
+
+            # 9. Format Response & Set-Cookie
+            organizer_session = next(s for s, p in zip(b_res.sessions, parts) if p.organizer)
+            headers = self._default_headers()
+            headers.append(('Set-Cookie', f'settletable_session={organizer_session.credential}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={session_ttl}'))
+            out = {
+                'ok': True,
+                'meal_id': b_res.meal_id,
+                'meal_title': title,
+                'organizer_id': organizer_session.participant_id,
+                'organizer_name': org_name,
+                'sessions': [{'participant_id': organizer_session.participant_id, 'credential': organizer_session.credential}],
+            }
+            if b_res.organizer_claim:
+                out['organizer_claim'] = {
+                    'token': b_res.organizer_claim.token,
+                    'expires': b_res.organizer_claim.expires,
+                    'claim_url': f"{self.server_origin}/#/claim-organizer/{b_res.organizer_claim.token}",
+                }
+
+            self.public_creation_gate.store_idempotency_result(client_ip, idempotency_key, out)
+            return 201, headers, serialize_json(out)
 
         # Bootstrap POST /api/meals/{meal_id}/bootstrap
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/bootstrap', path)
