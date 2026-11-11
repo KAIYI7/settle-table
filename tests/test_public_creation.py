@@ -545,6 +545,147 @@ class TestPublicCreation(unittest.TestCase):
         self.assertFalse(valid)
         self.assertEqual(err, "turnstile_hostname_mismatch")
 
+    # --------------------------------------------------------------------------
+    # 11. Configuration Propagation, Production Safety & ACID Capacity Regressions
+    # --------------------------------------------------------------------------
+    def test_docker_compose_environment_propagation(self):
+        compose_path = Path(__file__).resolve().parents[1] / "docker-compose.yml"
+        self.assertTrue(compose_path.exists())
+        content = compose_path.read_text(encoding="utf-8")
+
+        expected_vars = [
+            "SETTLETABLE_PUBLIC_CREATION_ENABLED",
+            "SETTLETABLE_TURNSTILE_SITEKEY",
+            "SETTLETABLE_TURNSTILE_SECRET_KEY",
+            "SETTLETABLE_TURNSTILE_EXPECTED_ACTION",
+            "SETTLETABLE_TURNSTILE_EXPECTED_HOSTNAME",
+            "SETTLETABLE_MAX_TOTAL_MEALS",
+            "SETTLETABLE_MAX_MEALS_PER_DAY",
+            "SETTLETABLE_MAX_PUBLIC_DINERS",
+            "SETTLETABLE_RATE_LIMIT_BURST",
+            "SETTLETABLE_RATE_LIMIT_HOURLY",
+            "SETTLETABLE_RATE_LIMIT_DAILY",
+        ]
+        for var in expected_vars:
+            self.assertIn(var, content, f"Variable {var} missing from docker-compose.yml environment list")
+
+    def test_production_origin_requires_turnstile_keys(self):
+        import os
+        orig_env = os.environ.copy()
+        try:
+            os.environ["SETTLETABLE_PUBLIC_CREATION_ENABLED"] = "1"
+            os.environ.pop("SETTLETABLE_TURNSTILE_SITEKEY", None)
+            os.environ.pop("SETTLETABLE_TURNSTILE_SECRET_KEY", None)
+            os.environ.pop("SETTLETABLE_ALLOW_INSECURE_PUBLIC_CREATION", None)
+
+            # Public production origin without Turnstile keys must raise RuntimeError
+            with self.assertRaises(RuntimeError) as ctx:
+                PublicCreationConfig.from_env("https://settle.kybuilds.com")
+            self.assertIn("Production safety violation", str(ctx.exception))
+            self.assertIn("credentials are missing", str(ctx.exception))
+
+            # Partial configuration (sitekey only) must raise RuntimeError
+            os.environ["SETTLETABLE_TURNSTILE_SITEKEY"] = "0x4AAAAAAtestsitekey"
+            with self.assertRaises(RuntimeError) as ctx:
+                PublicCreationConfig.from_env("https://settle.kybuilds.com")
+            self.assertIn("Incomplete Cloudflare Turnstile configuration", str(ctx.exception))
+        finally:
+            os.environ.clear()
+            os.environ.update(orig_env)
+
+    def test_production_origin_rejects_test_keys(self):
+        import os
+        orig_env = os.environ.copy()
+        try:
+            os.environ["SETTLETABLE_PUBLIC_CREATION_ENABLED"] = "1"
+            os.environ["SETTLETABLE_TURNSTILE_SITEKEY"] = "1x00000000000000000000AA"
+            os.environ["SETTLETABLE_TURNSTILE_SECRET_KEY"] = "1x0000000000000000000000000000000AA"
+            os.environ.pop("SETTLETABLE_ALLOW_INSECURE_PUBLIC_CREATION", None)
+
+            # Public production origin with test keys must raise RuntimeError
+            with self.assertRaises(RuntimeError) as ctx:
+                PublicCreationConfig.from_env("https://settle.kybuilds.com")
+            self.assertIn("Production safety violation", str(ctx.exception))
+            self.assertIn("dummy test keys cannot be used in a production deployment", str(ctx.exception))
+
+            # Local dev origin with test keys succeeds cleanly
+            cfg_local = PublicCreationConfig.from_env("http://localhost:8000")
+            self.assertTrue(cfg_local.enabled)
+            self.assertEqual(cfg_local.turnstile_sitekey, "1x00000000000000000000AA")
+        finally:
+            os.environ.clear()
+            os.environ.update(orig_env)
+
+    def test_transactional_capacity_limits(self):
+        # Create authority with test SQLite
+        auth = Authority(self.db_path, storage_dir=self.storage_dir, clock=lambda: self.sim_clock_time)
+        try:
+            parts = (Participant("O", "Host", True),)
+
+            # 1. First meal succeeds
+            auth.bootstrap("meal-cap-1", parts, max_total_meals=2)
+
+            # 2. Second meal succeeds (count now 2)
+            auth.bootstrap("meal-cap-2", parts, max_total_meals=2)
+
+            # 3. Third meal rejected transactionally by SQLite under BEGIN IMMEDIATE
+            from settletable.authority import AuthorityError
+            with self.assertRaises(AuthorityError) as ctx:
+                auth.bootstrap("meal-cap-3", parts, max_total_meals=2)
+            self.assertEqual(ctx.exception.code, "capacity_exceeded")
+        finally:
+            auth.close()
+
+    def test_persistent_daily_capacity_limit(self):
+        auth = Authority(self.db_path, storage_dir=self.storage_dir, clock=lambda: self.sim_clock_time)
+        try:
+            parts = (Participant("O", "Host", True),)
+
+            auth.bootstrap("meal-daily-1", parts, max_meals_per_day=2)
+            auth.bootstrap("meal-daily-2", parts, max_meals_per_day=2)
+
+            self.assertEqual(auth.get_daily_meals_count(), 2)
+
+            # Third creation exceeding daily limit is rejected
+            from settletable.authority import AuthorityError
+            with self.assertRaises(AuthorityError) as ctx:
+                auth.bootstrap("meal-daily-3", parts, max_meals_per_day=2)
+            self.assertEqual(ctx.exception.code, "daily_capacity_exceeded")
+        finally:
+            auth.close()
+
+        # Simulate process restart by opening a new authority pointing to same SQLite
+        auth2 = Authority(self.db_path, storage_dir=self.storage_dir, clock=lambda: self.sim_clock_time)
+        try:
+            self.assertEqual(auth2.get_daily_meals_count(), 2)
+        finally:
+            auth2.close()
+
+    def test_client_ip_extraction_boundaries(self):
+        # 1. Valid CF-Connecting-IP takes precedence
+        env1 = {
+            "HTTP_CF_CONNECTING_IP": "198.51.100.22",
+            "HTTP_X_FORWARDED_FOR": "203.0.113.1, 10.0.0.1",
+            "REMOTE_ADDR": "172.18.0.2",
+        }
+        self.assertEqual(extract_client_ip(env1), "198.51.100.22")
+
+        # 2. Malformed CF-Connecting-IP falls back to X-Forwarded-For
+        env2 = {
+            "HTTP_CF_CONNECTING_IP": "invalid-ip-string",
+            "HTTP_X_FORWARDED_FOR": "203.0.113.1, 10.0.0.1",
+            "REMOTE_ADDR": "172.18.0.2",
+        }
+        self.assertEqual(extract_client_ip(env2), "203.0.113.1")
+
+        # 3. Malformed XFF falls back to REMOTE_ADDR
+        env3 = {
+            "HTTP_CF_CONNECTING_IP": "",
+            "HTTP_X_FORWARDED_FOR": "not-an-ip",
+            "REMOTE_ADDR": "192.0.2.1",
+        }
+        self.assertEqual(extract_client_ip(env3), "192.0.2.1")
+
 
 if __name__ == "__main__":
     unittest.main()

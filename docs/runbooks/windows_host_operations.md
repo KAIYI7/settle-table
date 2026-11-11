@@ -405,6 +405,34 @@ python tools/verify_volume_target.py --mode synthetic
 - **NEVER** run `docker compose down -v` or `docker volume prune -f` in production. The `-v` flag instructs Docker to permanently delete persistent volumes.
 - To safely stop the application without touching volumes, use `docker compose stop` or `docker compose down` (without `-v`).
 
+#### 6.4.4 Public Self-Service Meal Creation Configuration & Security Invariants
+When enabling browser-based self-service meal room creation (`POST /api/meals/public-create`) on the public site (`https://settle.kybuilds.com`), configure the following variables in `.env`:
+
+```bash
+# Master server-side switch (0 = disabled fail-closed, 1 = enabled)
+SETTLETABLE_PUBLIC_CREATION_ENABLED=1
+
+# Cloudflare Turnstile Bot Verification (Mandatory in production HTTPS)
+SETTLETABLE_TURNSTILE_SITEKEY=0x4AAAAAA...
+SETTLETABLE_TURNSTILE_SECRET_KEY=0x4AAAAAA...
+SETTLETABLE_TURNSTILE_EXPECTED_ACTION=public_create_meal
+SETTLETABLE_TURNSTILE_EXPECTED_HOSTNAME=settle.kybuilds.com
+
+# Resource bounds (defaults shown)
+SETTLETABLE_MAX_TOTAL_MEALS=100
+SETTLETABLE_MAX_MEALS_PER_DAY=25
+SETTLETABLE_MAX_PUBLIC_DINERS=20
+SETTLETABLE_RATE_LIMIT_BURST=2
+SETTLETABLE_RATE_LIMIT_HOURLY=5
+SETTLETABLE_RATE_LIMIT_DAILY=10
+```
+
+**Security Invariants**:
+1. **Production Fail-Closed Requirement**: On a public HTTPS domain (such as `settle.kybuilds.com`), the application strictly refuses to start if `SETTLETABLE_PUBLIC_CREATION_ENABLED=1` is set without valid Cloudflare Turnstile credentials. Dummy test keys are rejected in production.
+2. **Hard Transactional Bounds**: Room limits (`max_total_meals=100` and `max_meals_per_day=25`) are enforced within SQLite `BEGIN IMMEDIATE` transactions, making it impossible for concurrent bursts to exceed capacity. Daily limits persist across container restarts.
+3. **Loopback Bootstrap Isolation**: Administrative `POST /api/meals/{meal_id}/bootstrap` remains strictly loopback-only and rejects any request containing reverse-proxy headers (`CF-Connecting-IP`, `X-Forwarded-For`).
+4. **Non-Secret Device Storage**: The browser's `localStorage` registry retains only non-sensitive meal metadata (`meal_id`, `title`, `role`, and timestamps). Bearer tokens and session credentials are never persisted in client storage. Single-use organizer claim tokens provide one-time emergency disaster recovery, not persistent session switching.
+
 ### 6.5 Safe Production Application Image Rebuild & Schema Upgrade Procedure
 
 When upgrading the production container to a newer reviewed checkpoint that includes schema migrations or code changes:

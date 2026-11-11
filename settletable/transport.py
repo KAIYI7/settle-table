@@ -855,7 +855,13 @@ class SettleTableApp:
 
             session_ttl = self._get_session_ttl()
             try:
-                b_res = authority.bootstrap(meal_id, tuple(parts), session_ttl=session_ttl)
+                b_res = authority.bootstrap(
+                    meal_id,
+                    tuple(parts),
+                    session_ttl=session_ttl,
+                    max_total_meals=self.public_creation_gate.config.max_total_meals,
+                    max_meals_per_day=self.public_creation_gate.config.max_meals_per_day,
+                )
             except Exception:
                 self.public_creation_gate.clear_idempotency_entry(client_ip, idempotency_key)
                 raise

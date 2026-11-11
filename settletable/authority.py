@@ -878,7 +878,7 @@ class Authority:
         )
         return OrganizerClaimGrant(meal_id, token, expires, issue_id)
 
-    def bootstrap(self, meal_id, participants, *, session_ttl=3600):
+    def bootstrap(self, meal_id, participants, *, session_ttl=3600, max_total_meals=None, max_meals_per_day=None):
         _id(meal_id)
         _tuple(participants, 100, 1)
         seen = set()
@@ -899,6 +899,19 @@ class Authority:
             grants = tuple(SessionGrant(p.id, secrets.token_urlsafe(32)) for p in participants)
             _require(self._db is not None, 'storage_error')
             self._db.execute('BEGIN IMMEDIATE')
+
+            # ACID transactional capacity checks
+            if max_total_meals is not None:
+                current_total = self._db.execute('SELECT COUNT(*) FROM meals').fetchone()[0]
+                _require(current_total < max_total_meals, 'capacity_exceeded')
+            if max_meals_per_day is not None:
+                cutoff_day = self._now() - 86400.0
+                daily_total = self._db.execute(
+                    'SELECT COUNT(*) FROM organizer_claims WHERE generation=1 AND created_at >= ?',
+                    (cutoff_day,)
+                ).fetchone()[0]
+                _require(daily_total < max_meals_per_day, 'daily_capacity_exceeded')
+
             _require(self._db.execute('SELECT 1 FROM meals WHERE id=?', (meal_id,)).fetchone() is None, 'meal_exists')
             self._db.execute('INSERT INTO meals VALUES (?,?)', (meal_id, _wire(state)))
             expires = self._now() + session_ttl
@@ -951,6 +964,22 @@ class Authority:
         try:
             _require(self._db is not None, 'storage_error')
             row = self._db.execute('SELECT COUNT(*) FROM meals').fetchone()
+            return int(row[0]) if row else 0
+        except AuthorityError:
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            raise AuthorityError('storage_error') from None
+
+    def get_daily_meals_count(self, since_timestamp=None):
+        try:
+            _require(self._db is not None, 'storage_error')
+            cutoff = since_timestamp if since_timestamp is not None else (self._now() - 86400.0)
+            row = self._db.execute(
+                'SELECT COUNT(*) FROM organizer_claims WHERE generation=1 AND created_at >= ?',
+                (cutoff,)
+            ).fetchone()
             return int(row[0]) if row else 0
         except AuthorityError:
             raise

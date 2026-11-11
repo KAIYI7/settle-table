@@ -55,6 +55,12 @@ In real-world social dining, people participate in meals frequently (e.g., lunch
 
 Moreover, if an organizer provisions a meal on a desktop laptop but wants to inspect or verify dining progress from their mobile phone at the restaurant table, there is no supported multi-device login mechanism.
 
+### 2.4 PR #67 Mitigation & Architectural Boundaries (Self-Service Public Creation)
+In PR #67, low-friction self-service meal room creation was introduced directly from the browser (`POST /api/meals/public-create`) protected by Cloudflare Turnstile bot verification, sliding-window IP rate limits, and SQLite capacity guards. To preserve SettleTable's low-friction, zero-account model while addressing cookie overwrites:
+1. **Device-Local Recent Meals Registry**: The frontend maintains a non-secret registry in `localStorage` (`settletable_recent_meals`, capped at 10 items) storing strictly non-sensitive metadata (`meal_id`, `title`, `role`, and timestamps). Bearer tokens and session credentials are strictly excluded.
+2. **One-Time Organizer Disaster Recovery**: Upon creation, the organizer is issued an emergency single-use recovery link (`/#/claim-organizer/<token>`) with 256-bit cryptographic entropy (`secrets.token_urlsafe(32)`). This link is displayed in an in-memory banner for the organizer to copy and save in their personal notes.
+3. **Intentional Boundary & Single-Use Contract**: Single-use organizer claim tokens are designed strictly for disaster recovery (e.g. cookie cleared by browser hygiene or accidental logout). Once redeemed, the token is marked `consumed = 1` in SQLite and cannot be reused. They are **not** an indefinitely reusable multi-meal session switcher. True simultaneous multi-meal session switching and cross-device synchronization remain dependent on the full Account Identity architecture defined in Section 4.
+
 ---
 
 ## 3. Current Architecture — Verified Findings

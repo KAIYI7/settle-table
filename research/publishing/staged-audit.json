@@ -1,23 +1,63 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 2,
-  "staged_bytes_excluding_report": 397924,
+  "staged_files": 11,
+  "staged_bytes_excluding_report": 692418,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 360,
   "untracked_files": 0,
   "ignored_files": 27911,
-  "valid_json_files": 0,
+  "valid_json_files": 1,
   "findings": [],
   "files": [
     {
-      "path": "PROJECT_STATUS.md",
-      "bytes": 187208,
-      "sha256": "f017e7baa90264180817e39711d190b2382e391bc9f3214710c7554ab4bb94a0"
+      "path": "docker-compose.yml",
+      "bytes": 4119,
+      "sha256": "f22b61de7da045cfacce21b21b3819c46c32e02c03813dfad8dd65685e9fd387"
     },
     {
-      "path": "docs/agents/phase-transitions.md",
-      "bytes": 210716,
-      "sha256": "7d3c421b8494d6fcb859476f2f68aa4b2b5bca42522236eb39e415c4e639ba7b"
+      "path": "docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md",
+      "bytes": 69445,
+      "sha256": "7285518edcfcf4300b1d276ecbb0e62fd80e58dd33d8149bd1dde542b19b9273"
+    },
+    {
+      "path": "docs/runbooks/windows_host_operations.md",
+      "bytes": 50386,
+      "sha256": "e0b8043aefc22e4cce90091c240274900382512dfa343496f84e4e9c798d7652"
+    },
+    {
+      "path": "settletable/authority.py",
+      "bytes": 131727,
+      "sha256": "ef0f8979498c64739c815c5050e8895e359c677eeab9b5f437206e1153576ba1"
+    },
+    {
+      "path": "settletable/public_creation.py",
+      "bytes": 23883,
+      "sha256": "bc8444260cd37c0af89570695ab7faf41d18dda4640b65ee5e085b103d9b2f6c"
+    },
+    {
+      "path": "settletable/static/app.js",
+      "bytes": 248195,
+      "sha256": "752aa15cc59f82ef10bcbaeb0cbd3c5276ec67bdb61706a02c35b3943a93ccd8"
+    },
+    {
+      "path": "settletable/transport.py",
+      "bytes": 86917,
+      "sha256": "6c54c0d8ed2fa0a3105aafc062888acf265b611036b7b10f91418ba2d6739ce1"
+    },
+    {
+      "path": "tests/test_public_creation.py",
+      "bytes": 31818,
+      "sha256": "bc5ef768e4da29877c17e8697517cc5819f3b633c46f3f96e9e889c225475bc6"
+    },
+    {
+      "path": "tools/verify_financial_export.mjs",
+      "bytes": 30046,
+      "sha256": "754a0807175246de37ad7c7200a07624d5f06a7ceef852e81820a9128a5ac030"
+    },
+    {
+      "path": "tools/verify_public_creation_flow.mjs",
+      "bytes": 15882,
+      "sha256": "01b337fe8ad50b0cec17b185179726d5fe594ac79f53b4f1e9bfb543b361f143"
     }
   ]
 }

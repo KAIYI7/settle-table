@@ -41,12 +41,15 @@ function resolveChromePath(explicitPath) {
   const candidates = [];
 
   if (platform === 'win32') {
+    const programFiles = process.env.ProgramFiles || '';
+    const programFilesX86 = process.env['ProgramFiles(x86)'] || '';
+    const localAppData = process.env.LOCALAPPDATA || '';
     candidates.push(
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
+      programFiles ? join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+      programFilesX86 ? join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+      localAppData ? join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+      programFilesX86 ? join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe') : '',
+      programFiles ? join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe') : ''
     );
   } else if (platform === 'darwin') {
     candidates.push(
@@ -88,8 +91,11 @@ function resolvePythonPath(explicitPath) {
   if (envPath && existsSync(envPath)) return envPath;
 
   if (process.platform === 'win32') {
-    if (existsSync('C:\\Python314\\python.exe')) return 'C:\\Python314\\python.exe';
-    if (existsSync('C:\\Python312\\python.exe')) return 'C:\\Python312\\python.exe';
+    const sysDrive = process.env.SystemDrive || '';
+    const py314 = sysDrive ? join(sysDrive, 'Python314', 'python.exe') : '';
+    const py312 = sysDrive ? join(sysDrive, 'Python312', 'python.exe') : '';
+    if (py314 && existsSync(py314)) return py314;
+    if (py312 && existsSync(py312)) return py312;
     return 'python';
   }
   try {
@@ -277,11 +283,11 @@ try {
   await p.send('Emulation.setDeviceMetricsOverride', {width:1280,height:900,deviceScaleFactor:1,mobile:false});
   await p.navigate(origin + '/');
   await wait("document.getElementById('create-meal-form')");
+  await ev(`document.getElementById('create-meal-id').value='financial-regression'; document.getElementById('create-org-name').value='Alice'; document.getElementById('create-diners').value='Bob, Chandra, Devi, Elaine, Farid'; document.getElementById('create-meal-form').requestSubmit()`);
+  await wait("state.mealId==='financial-regression' && document.getElementById('ocr-file-input')");
   // Match the UAT's historical item IDs so deterministic tie-breaking is
   // comparable despite production now generating fresh UUID-based IDs.
   await ev("{ let n=2; Object.defineProperty(crypto, 'randomUUID', {configurable:true, value:()=>String(++n)}); }");
-  await ev(`document.getElementById('create-meal-id').value='financial-regression'; document.getElementById('create-org-name').value='Alice'; document.getElementById('create-diners').value='Bob, Chandra, Devi, Elaine, Farid'; document.getElementById('create-meal-form').requestSubmit()`);
-  await wait("state.mealId==='financial-regression' && document.getElementById('ocr-file-input')");
   await ev(`(()=>{const b=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,100,0,0,0,100,8,2,0,0,0,144,145,104,60]);const d=new DataTransfer();d.items.add(new File([b],'synthetic.png',{type:'image/png'}));const x=document.getElementById('ocr-file-input');x.files=d.files;x.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await wait("document.getElementById('ocr-candidate-card')");
   await ev("document.getElementById('ocr-add-item-btn').click()");
@@ -356,9 +362,9 @@ try {
   // candidate, so tax, discount and rounding can all explicitly cover them.
   await p.navigate(origin + '/');
   await wait("document.getElementById('create-meal-form')");
-  await ev("{ let n=2; Object.defineProperty(crypto, 'randomUUID', {configurable:true, value:()=>String(++n)}); }");
   await ev(`document.getElementById('create-meal-id').value='financial-original';document.getElementById('create-org-name').value='Alice';document.getElementById('create-diners').value='Bob, Chandra, Devi, Elaine, Farid';document.getElementById('create-meal-form').requestSubmit()`);
   await wait("state.mealId==='financial-original' && document.getElementById('ocr-file-input')");
+  await ev("{ let n=2; Object.defineProperty(crypto, 'randomUUID', {configurable:true, value:()=>String(++n)}); }");
   await ev(`(()=>{const b=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,100,0,0,0,100,8,2,0,0,0,144,145,104,60]);const d=new DataTransfer();d.items.add(new File([b],'synthetic.png',{type:'image/png'}));const x=document.getElementById('ocr-file-input');x.files=d.files;x.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await wait("document.getElementById('ocr-candidate-card')");
   await ev("document.getElementById('ocr-add-item-btn').click();document.getElementById('ocr-add-item-btn').click()");
