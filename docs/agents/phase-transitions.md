@@ -1,5 +1,24 @@
 # Phase transition decisions
 
+## 2026-11-12 — Collaborative Payment & Reimbursement Confirmation Workflow (PR #63)
+
+**Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** In response to product owner requirements for collaborative dining and payment confirmation:
+1. **Diner Restaurant Bill Reporting & Organizer Confirmation**: Participating diners who paid the restaurant cashier at the counter can report payments ("I Paid the Restaurant") with amount and payment method; reported payments enter a pending queue (`pending_contributions`) visible to all meal participants; only the organizer can confirm or decline, atomically updating the authoritative funding ledger (`payer_contributions`); organizers retain direct attested recording ability.
+2. **Diner Sent Reimbursement Reporting & Recipient Confirmation**: In peer settlements, debtors can select "💸 I've Sent Payment", prefilling amount and recipient creditor from calculated suggestions; the recipient receives a pending confirmation request and can choose "Confirm Received" or "Not Received"; only recipient confirmation records the reimbursement (`peer_transfers`); strictly enforces anti-self-confirmation (debtors cannot confirm their own payment) and anti-third-party confirmation; organizers retain attested direct recording.
+3. **Shared Financial Visibility & Non-Custodial Disclaimers**: Transparent pending status lists and badges (`Pending Organizer`, `Pending Confirmation`, `Confirmed`, `Declined`, `Cancelled`) visible to all authenticated diners; prominent disclaimers clarify that SettleTable tracks self-attested settlements and does not execute bank, card, or e-wallet transactions.
+4. **Authoritative Ledger Immutability & Audit Attribution**: Additive pending tables (`pending_contributions`, `pending_transfers`) preserve append-only and trigger-enforced immutability of core tables without schema migrations; ledger records project clear audit attribution ("Reported by X, confirmed by Y" vs "Recorded directly by Organizer"); ACID overpayment and oversettlement bounds checks prevent double-spending.
+5. **Testing & Independent Review**: Test suite expanded to 439 Python tests passing locally and in GitHub Actions CI (run [43186822103](https://github.com/KAIYI7/settle-table/actions/runs/43186822103), 100% success); 8-stage native Chrome CDP headless E2E verification passed 100%; repository security audit clean (0 findings); independent code, security, and architectural review approved merge with verdict PASS. Reviewed head: `11d4b23`. Merged autonomously to `main` via `--no-ff`.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 439 Python tests passing locally and in hosted GitHub Actions CI; real browser CDP suites pass 100%. |
+| Gate 2: Publicly Reachable Restricted Online Pilot (`v0.9.0-beta.1`) | **PILOT COMPLETED & CONTROLLER COMPLETED**: Real-meal pilot completed and snapshotted. On-demand hosting and local development safely managed via hardened, fully-verified `tools/SettleTable-Control.ps1` and `tools/SettleTable-Control.cmd`. |
+| Gate 3: Unrestricted Public Product Access & Multi-Tenant Identity | **PASS (COLLABORATIVE SETTLEMENTS & SELF-SERVICE ACCESS)**: Diners actively participate in recording counter payments and sent reimbursements with strict two-party confirmation and zero-self-confirmation invariants. Low-friction public room creation without persistent account databases is fully operational. |
+| Gate 4: Public GitHub Repository & Portfolio Demonstration | **PASS (Product Owner Decision)**: Repository visibility public on GitHub for technical portfolio evaluation; All Rights Reserved licensing preserved. Always-accessible showcase deployed at `https://kaiyi7.github.io/settle-table/`. |
+| Collaborative Payment Confirmation Boundary | **PASS**: Diner counter payment reporting, organizer confirmation/decline, recipient transfer confirmation/decline, anti-self-confirmation, and audit attribution fully verified with zero gateway dependencies. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-12 — Notion Sharing & Post-Finalization Invitation UX Improvements (PR #69)
 
 **Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** In response to live browser testing findings across Notion export sharing and post-finalization invitation management:
