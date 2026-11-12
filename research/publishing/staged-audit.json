@@ -1,53 +1,18 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 8,
-  "staged_bytes_excluding_report": 640050,
+  "staged_files": 1,
+  "staged_bytes_excluding_report": 39112,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 364,
   "untracked_files": 1,
-  "ignored_files": 27953,
+  "ignored_files": 27920,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
-      "path": ".scratch/collaborative-payment-confirmation/SPEC.md",
-      "bytes": 11887,
-      "sha256": "6c71990e09953eabf0d03bbe00890325c79245fee28c32d0eb63ff394979da9a"
-    },
-    {
-      "path": "settletable/authority.py",
-      "bytes": 166143,
-      "sha256": "cc935b17616e88556d3eec5decd266ae0247664fdcb7d045e15faf52ed60dabe"
-    },
-    {
-      "path": "settletable/funding.py",
-      "bytes": 5554,
-      "sha256": "71a90429ee0770ef657e04cab20352ffcd9ba577776f81066528cb22c73911ad"
-    },
-    {
-      "path": "settletable/settlement.py",
-      "bytes": 6100,
-      "sha256": "97d65ef9601c017b0d17d09ccdda4e5e8c8b4f75ac2e93714f41eb839aed5439"
-    },
-    {
-      "path": "settletable/static/app.js",
-      "bytes": 307444,
-      "sha256": "23be33555edc1d6df1fc66ccb223b2c7451f1592d9a4c12d0ee8b563670c7af2"
-    },
-    {
-      "path": "settletable/transport.py",
-      "bytes": 94554,
-      "sha256": "0dd66fcff6d8e43468fba928fb5c991fe9ae85c15f8cb9713e1cbd076708173b"
-    },
-    {
-      "path": "tests/test_collaborative_payment.py",
-      "bytes": 26533,
-      "sha256": "63136a7844d0c94cd4ed2e202e496bb3296f4bde329f4c3da04c17023380628d"
-    },
-    {
-      "path": "tools/verify_collaborative_payment_flow.mjs",
-      "bytes": 21835,
-      "sha256": "4c2b57561055218ff037186488b8606de38005df5e6a379127450b7496dd48b7"
+      "path": "tools/verify_ux_polish.mjs",
+      "bytes": 39112,
+      "sha256": "e4abc826ed062d4f7cda9122f9108085393c25e0f64230fb8260c195314b1965"
     }
   ]
 }
