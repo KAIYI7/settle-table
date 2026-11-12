@@ -23,6 +23,29 @@ class PayerContributionRecord:
     reversed_by: str | None = None
     reversal_command_id: str | None = None
     reversal_reason: str | None = None
+    reported_by: str | None = None
+    reported_by_name: str | None = None
+    confirmed_by: str | None = None
+    confirmed_by_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PendingContributionRecord:
+    report_id: str
+    command_id: str
+    participant_id: str
+    participant_name: str
+    amount_sen: int
+    payment_method: str | None
+    created_at: float
+    created_by: str
+    created_by_name: str
+    status: str  # 'pending' | 'confirmed' | 'declined' | 'cancelled'
+    resolved_at: float | None = None
+    resolved_by: str | None = None
+    resolved_by_name: str | None = None
+    rejection_reason: str | None = None
+    contribution_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +71,12 @@ def derive_contribution_id(meal_id: str, command_id: str) -> str:
     """Deterministically derive a collision-resistant contribution ID from meal and command IDs."""
     digest = hashlib.sha256(f"{meal_id}:{command_id}".encode("ascii")).hexdigest()
     return f"contrib-{digest[:16]}"
+
+
+def derive_pending_contribution_id(meal_id: str, command_id: str) -> str:
+    """Deterministically derive a collision-resistant pending contribution report ID."""
+    digest = hashlib.sha256(f"pcontrib:{meal_id}:{command_id}".encode("ascii")).hexdigest()
+    return f"pcontrib-{digest[:16]}"
 
 
 def compute_funding_status(receipt_total_sen: int, total_contributed_sen: int) -> str:

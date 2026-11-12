@@ -22,6 +22,8 @@ from settletable.authority import (
     RevokeInvitation, RevokeSession, RevokeMembership,
     RecordContribution, ReverseContribution,
     RecordTransfer, ReverseTransfer,
+    ReportContribution, ConfirmContribution, DeclineContribution, CancelContribution,
+    ReportTransfer, ConfirmTransfer, DeclineTransfer, CancelTransfer,
     Receipt, ReceiptItem, ReceiptAdjustment,
 )
 from settletable.public_creation import PublicCreationConfig, PublicCreationGate
@@ -70,17 +72,25 @@ STATUS_MAP = {
     'organizer_claim_revoked': 409,
     'organizer_not_found': 404,
     'invalid_image': 400,
+    'amount_exceeds_unfunded': 400,
+    'amount_exceeds_debt': 400,
+    'amount_exceeds_credit': 400,
     # 401 Unauthorized
     'invalid_session': 401,
     # 403 Forbidden
     'forbidden': 403,
     'origin_mismatch': 403,
     'organizer_join_prohibited': 403,
+    'not_the_payer': 403,
+    'not_the_recipient': 403,
+    'not_the_sender': 403,
+    'cannot_confirm_own_payment': 403,
     # 404 Not Found
     'participant_not_found': 404,
     'join_request_not_found': 404,
     'meal_not_found': 404,
     'photo_not_found': 404,
+    'report_not_found': 404,
     # 409 Conflict
     'ambiguous_participant_name': 409,
     'join_request_conflict': 409,
@@ -105,6 +115,8 @@ STATUS_MAP = {
     'over_settlement_prohibited': 400,
     'transfer_not_found': 404,
     'invalid_transfer_status': 409,
+    'invalid_report_status': 409,
+    'report_conflict': 409,
     'active_peer_transfers_exist': 409,
     'invalid_participant': 400,
     'simulation_conflict': 409,
@@ -1107,6 +1119,8 @@ class SettleTableApp:
                 out['contribution_id'] = accepted.contribution_id
             if getattr(accepted, 'transfer_id', None) is not None:
                 out['transfer_id'] = accepted.transfer_id
+            if getattr(accepted, 'report_id', None) is not None:
+                out['report_id'] = accepted.report_id
             return 200, self._default_headers(), serialize_json(out)
 
         # Extract Receipt OCR POST /api/meals/{meal_id}/ocr/extract
@@ -1749,6 +1763,132 @@ class SettleTableApp:
                     expected_revision=expected_rev,
                     transfer_id=transfer_id,
                     reason=reason,
+                )
+            elif kind == 'ReportContribution':
+                expected_rev = data.get('expected_revision')
+                part_id = data.get('participant_id')
+                amount_sen = data.get('amount_sen')
+                method = data.get('payment_method')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not part_id or not isinstance(part_id, str):
+                    raise TransportError('invalid_input', 400)
+                if not isinstance(amount_sen, int) or amount_sen < 1 or amount_sen > 1_000_000_000:
+                    raise TransportError('invalid_input', 400)
+                if method is not None and method not in ('cash', 'card', 'ewallet', 'bank_transfer', 'other'):
+                    raise TransportError('invalid_input', 400)
+                return ReportContribution(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    participant_id=part_id,
+                    amount_sen=amount_sen,
+                    payment_method=method,
+                )
+            elif kind == 'ConfirmContribution':
+                expected_rev = data.get('expected_revision')
+                report_id = data.get('report_id')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not report_id or not isinstance(report_id, str):
+                    raise TransportError('invalid_input', 400)
+                return ConfirmContribution(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    report_id=report_id,
+                )
+            elif kind == 'DeclineContribution':
+                expected_rev = data.get('expected_revision')
+                report_id = data.get('report_id')
+                reason = data.get('reason')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not report_id or not isinstance(report_id, str):
+                    raise TransportError('invalid_input', 400)
+                if reason is not None and (not isinstance(reason, str) or len(reason) > 200):
+                    raise TransportError('invalid_input', 400)
+                return DeclineContribution(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    report_id=report_id,
+                    reason=reason,
+                )
+            elif kind == 'CancelContribution':
+                expected_rev = data.get('expected_revision')
+                report_id = data.get('report_id')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not report_id or not isinstance(report_id, str):
+                    raise TransportError('invalid_input', 400)
+                return CancelContribution(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    report_id=report_id,
+                )
+            elif kind == 'ReportTransfer':
+                expected_rev = data.get('expected_revision')
+                sender_id = data.get('sender_id')
+                receiver_id = data.get('receiver_id')
+                amount_sen = data.get('amount_sen')
+                note = data.get('note')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not sender_id or not isinstance(sender_id, str):
+                    raise TransportError('invalid_input', 400)
+                if not receiver_id or not isinstance(receiver_id, str):
+                    raise TransportError('invalid_input', 400)
+                if sender_id == receiver_id:
+                    raise TransportError('self_transfer_prohibited', 400)
+                if not isinstance(amount_sen, int) or amount_sen < 1 or amount_sen > 1_000_000_000:
+                    raise TransportError('invalid_input', 400)
+                if note is not None and (not isinstance(note, str) or len(note) > 200):
+                    raise TransportError('invalid_input', 400)
+                return ReportTransfer(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    sender_id=sender_id,
+                    receiver_id=receiver_id,
+                    amount_sen=amount_sen,
+                    note=note,
+                )
+            elif kind == 'ConfirmTransfer':
+                expected_rev = data.get('expected_revision')
+                report_id = data.get('report_id')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not report_id or not isinstance(report_id, str):
+                    raise TransportError('invalid_input', 400)
+                return ConfirmTransfer(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    report_id=report_id,
+                )
+            elif kind == 'DeclineTransfer':
+                expected_rev = data.get('expected_revision')
+                report_id = data.get('report_id')
+                reason = data.get('reason')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not report_id or not isinstance(report_id, str):
+                    raise TransportError('invalid_input', 400)
+                if reason is not None and (not isinstance(reason, str) or len(reason) > 200):
+                    raise TransportError('invalid_input', 400)
+                return DeclineTransfer(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    report_id=report_id,
+                    reason=reason,
+                )
+            elif kind == 'CancelTransfer':
+                expected_rev = data.get('expected_revision')
+                report_id = data.get('report_id')
+                if expected_rev is None or not isinstance(expected_rev, int) or expected_rev < 0:
+                    raise TransportError('invalid_input', 400)
+                if not report_id or not isinstance(report_id, str):
+                    raise TransportError('invalid_input', 400)
+                return CancelTransfer(
+                    command_id=cmd_id,
+                    expected_revision=expected_rev,
+                    report_id=report_id,
                 )
             else:
                 raise TransportError('invalid_command_kind', 400)

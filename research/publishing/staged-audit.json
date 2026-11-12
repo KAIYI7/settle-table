@@ -1,33 +1,53 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 4,
-  "staged_bytes_excluding_report": 492584,
+  "staged_files": 8,
+  "staged_bytes_excluding_report": 640050,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 361,
+  "tracked_files": 364,
   "untracked_files": 1,
-  "ignored_files": 27916,
+  "ignored_files": 27953,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
+      "path": ".scratch/collaborative-payment-confirmation/SPEC.md",
+      "bytes": 11887,
+      "sha256": "6c71990e09953eabf0d03bbe00890325c79245fee28c32d0eb63ff394979da9a"
+    },
+    {
       "path": "settletable/authority.py",
-      "bytes": 132226,
-      "sha256": "7e6e2c2c04c3f7c184b43dbcf834b967ac510989c3e066b319c7828073e83d49"
+      "bytes": 166143,
+      "sha256": "cc935b17616e88556d3eec5decd266ae0247664fdcb7d045e15faf52ed60dabe"
+    },
+    {
+      "path": "settletable/funding.py",
+      "bytes": 5554,
+      "sha256": "71a90429ee0770ef657e04cab20352ffcd9ba577776f81066528cb22c73911ad"
+    },
+    {
+      "path": "settletable/settlement.py",
+      "bytes": 6100,
+      "sha256": "97d65ef9601c017b0d17d09ccdda4e5e8c8b4f75ac2e93714f41eb839aed5439"
     },
     {
       "path": "settletable/static/app.js",
-      "bytes": 272941,
-      "sha256": "7128ddd2b5330a23743c9ced92ead05058573f898c54587324b98c4a96149df6"
+      "bytes": 307444,
+      "sha256": "23be33555edc1d6df1fc66ccb223b2c7451f1592d9a4c12d0ee8b563670c7af2"
     },
     {
-      "path": "tests/test_notion.py",
-      "bytes": 64739,
-      "sha256": "c29e66233f438b0f44f7c0988029913ff1eae9a4f9aaebe9560240a2f5647b31"
+      "path": "settletable/transport.py",
+      "bytes": 94554,
+      "sha256": "0dd66fcff6d8e43468fba928fb5c991fe9ae85c15f8cb9713e1cbd076708173b"
     },
     {
-      "path": "tools/verify_notion_sharing_and_access.mjs",
-      "bytes": 22678,
-      "sha256": "e4818f9b1fe27b791dd2020659fb0fdbcdb8c0b4541615a76f0a2adfd374c371"
+      "path": "tests/test_collaborative_payment.py",
+      "bytes": 26533,
+      "sha256": "63136a7844d0c94cd4ed2e202e496bb3296f4bde329f4c3da04c17023380628d"
+    },
+    {
+      "path": "tools/verify_collaborative_payment_flow.mjs",
+      "bytes": 21835,
+      "sha256": "4c2b57561055218ff037186488b8606de38005df5e6a379127450b7496dd48b7"
     }
   ]
 }
