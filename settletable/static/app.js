@@ -1962,14 +1962,29 @@ function updateMealUI() {
     `;
   }
 
+  // Quick navigation for organizers
+  if (state.isOrganizer) {
+    html += `
+      <div class="organizer-quick-nav" style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
+        <button type="button" class="btn btn-secondary btn-sm" id="quick-nav-sharing-btn" style="border-color: #818cf8; color: #818cf8; font-weight: 600;">
+          👥 Sharing & Access ▾
+        </button>
+      </div>
+    `;
+  }
+
   // 2. Finalized View: Apportionment Breakdown, Restaurant Funding & Peer Settlements
   if (finalized && snap.calculation) {
     html += renderFinalizedCalculation(snap);
     html += renderRestaurantFundingCard(snap);
     html += renderPeerSettlementCard(snap);
+    if (state.isOrganizer) {
+      html += renderSharingAndAccessSection(snap);
+    }
     app.innerHTML = html;
     bindEvents(snap);
     restoreFocus();
+    syncAlertContainerPlacement();
     return;
   }
 
@@ -2012,6 +2027,11 @@ function updateMealUI() {
         </button>
       </div>
     `;
+  }
+
+  // 6. Persistent Organizer Sharing & Access Section
+  if (state.isOrganizer) {
+    html += renderSharingAndAccessSection(snap);
   }
 
   app.innerHTML = html;
@@ -2375,44 +2395,126 @@ function renderOrganizerSection(snap) {
       </div>
     </div>
 
-    <!-- Invitation Hub -->
-    <div class="card" id="invitation-hub-card">
-      <div class="card-title">Diner Invitations & Joining</div>
-      <p class="card-desc">Invite dining companions using personal one-time links or share the table join link.</p>
+  `;
+}
 
-      <!-- General Table Join Link Box -->
-      <div style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-bottom: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <div>
-            <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-heading);">🔗 General Table Join Link</div>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">Share with any diner; they enter their name and wait for your one-click approval.</div>
+function renderSharingAndAccessSection(snap) {
+  const isFinalized = Boolean(snap.finalized);
+  const isExported = Boolean(state.notionExport && (state.notionExport.status === 'completed' || state.notionExport.status === 'already_exported'));
+  const notionPublicUrl = snap.notion_public_url || state.notionExport?.public_url || '';
+
+  return `
+    <div class="card" id="sharing-access-section" style="border-color: rgba(99, 102, 241, 0.4); margin-top: 1.5rem;">
+      <div id="sharing-access-heading" class="card-title workflow-section-heading" style="color: #818cf8; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;" tabindex="-1">
+        <span>👥 Sharing & Access Hub</span>
+        <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; font-size: 0.72rem;">Organizer Only</span>
+      </div>
+      <p class="card-desc" style="margin-bottom: 14px;">
+        Manage diner invitations, join requests, Notion report sharing, and organizer recovery. Different links grant different permissions and must not be confused.
+      </p>
+
+      <!-- 1. Invite Diners to Meal -->
+      <div id="invitation-hub-card" class="sharing-subsection" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+          <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-heading);">
+            1. Invite Diners to Meal (Diner Access)
           </div>
-          <button id="copy-general-join-btn" class="btn btn-secondary btn-sm" data-meal="${escapeHtml(snap.meal_id)}">
-            📋 Copy Join Link
-          </button>
+          <span class="badge" style="font-size: 0.7rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa;">Diner Permissions</span>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin: 0 0 10px 0; line-height: 1.4;">
+          Grants dining companions access to view items, claim portions, and see their share. Diners cannot edit organizer settings.
+        </p>
+
+        <!-- General Table Join Link Box -->
+        <div style="background: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div>
+              <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-heading);">🔗 General Table Join Link</div>
+              <div style="font-size: 0.78rem; color: var(--text-dim);">Share with any diner; they enter their name and wait for your one-click approval.</div>
+            </div>
+            <button id="copy-general-join-btn" class="btn btn-secondary btn-sm" data-meal="${escapeHtml(snap.meal_id)}">
+              📋 Copy Join Link
+            </button>
+          </div>
+        </div>
+
+        <!-- Pending Join Requests Queue -->
+        ${renderPendingJoinRequests(snap)}
+
+        <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-heading); margin-bottom: 6px;">
+          Personal One-Time Invitation Links
+        </div>
+        <div id="invitation-list">
+          ${renderInvitationList(snap)}
         </div>
       </div>
 
-      <!-- Pending Join Requests Queue -->
-      ${renderPendingJoinRequests(snap)}
-
-      <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-heading); margin-bottom: 6px;">
-        Personal One-Time Invitation Links
-      </div>
-      <div id="invitation-list">
-        ${renderInvitationList(snap)}
-      </div>
-
-      <!-- Emergency Organizer Recovery Link -->
-      <div style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; margin-top: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <div>
-            <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-heading);">🛡️ Emergency Organizer Recovery Link</div>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">Save this link. If your browser cookies expire or are cleared, opening it restores your organizer session.</div>
+      <!-- 2. Share Notion Report -->
+      <div id="sharing-notion-card" class="sharing-subsection" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+          <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-heading);">
+            2. Share Notion Report (Read-Only Document)
           </div>
-          <button id="gen-recovery-link-btn" class="btn btn-secondary btn-sm" data-meal="${escapeHtml(snap.meal_id)}">
-            ${state.recoveryLink ? '📋 Copy Recovery Link' : '🔑 Create Recovery Link'}
-          </button>
+          <span class="badge" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.15); color: #10b981;">View-Only Document</span>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin: 0 0 10px 0; line-height: 1.4;">
+          Shares a view-only external summary for records and receipts.
+        </p>
+
+        ${!isFinalized ? `
+          <div style="font-size: 0.8rem; color: var(--text-muted); padding: 8px; border-radius: 4px; background: var(--surface-primary);">
+            🔒 Notion report export becomes available after the meal is finalized.
+          </div>
+        ` : !isExported ? `
+          <div style="font-size: 0.8rem; color: var(--text-muted); padding: 8px; border-radius: 4px; background: var(--surface-primary); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+            <span>Meal is finalized. Export to Notion in the summary section above to generate a shareable report.</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="jump-to-notion-export-btn">Go to Notion Export ↑</button>
+          </div>
+        ` : `
+          <div style="background: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 6px;">
+              <span style="font-size: 0.85rem; font-weight: 600; color: ${notionPublicUrl ? '#10b981' : 'var(--text-dim)'};">
+                ${notionPublicUrl ? '✓ Active: Shared with Diners' : '🔒 Private: Not Shared with Diners'}
+              </span>
+              <button type="button" class="btn btn-secondary btn-sm" id="jump-to-notion-card-btn" style="font-size: 0.75rem;">Manage in Notion Section ↑</button>
+            </div>
+            ${notionPublicUrl ? `
+              <div style="font-size: 0.78rem; word-break: break-all; color: var(--text-muted);">
+                Link: <a href="${escapeHtml(notionPublicUrl)}" target="_blank" rel="noopener noreferrer" style="color: #6ee7b7;">${escapeHtml(notionPublicUrl)} ↗</a>
+              </div>
+            ` : `
+              <div style="font-size: 0.78rem; color: var(--text-dim);">
+                Export complete. Use "Share Exported Report with Diners" in the Notion section above to share access.
+              </div>
+            `}
+          </div>
+        `}
+      </div>
+
+      <!-- 3. Emergency Organizer Recovery Link -->
+      <div id="sharing-recovery-card" class="sharing-subsection" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+          <div style="font-weight: 700; font-size: 0.9rem; color: var(--accent-rose);">
+            3. Organizer Session Recovery (Administrative Control)
+          </div>
+          <span class="badge" style="font-size: 0.7rem; background: rgba(239, 68, 68, 0.15); color: #f87171;">⚠️ Secret Key</span>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin: 0 0 10px 0; line-height: 1.4;">
+          Restores full organizer control without an account. <strong>NEVER share with diners or paste into public chats or Notion.</strong>
+        </p>
+        <div style="background: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div>
+              <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-heading);">🛡️ Emergency Recovery Link</div>
+              <div style="font-size: 0.78rem; color: var(--text-dim);">Save in your private notes. If cookies expire or are cleared, opening it restores your organizer session.</div>
+            </div>
+            <button id="gen-recovery-link-btn" class="btn btn-secondary btn-sm" data-meal="${escapeHtml(snap.meal_id)}">
+              ${state.recoveryLink ? '📋 Copy Recovery Link' : '🔑 Create Recovery Link'}
+            </button>
+          </div>
+          <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-dim); line-height: 1.3;">
+            🔄 <em>Accidentally disclosed?</em> Clicking "Create Recovery Link" creates a fresh recovery link and immediately revokes all previous recovery links.
+          </div>
         </div>
       </div>
     </div>
@@ -2458,25 +2560,60 @@ function renderInvitationList(snap) {
     return '<p style="color: var(--text-dim); font-size: 0.85rem;">No other diners declared in this meal room.</p>';
   }
 
+  const now = Math.floor(Date.now() / 1000);
+
   return diners.map(d => {
-    const inv = snap.invitations?.find(i => i.participant_id === d.id && !i.revoked);
+    const dinInvs = (snap.invitations || []).filter(i => i.participant_id === d.id);
+    const hasConsumed = dinInvs.some(i => i.consumed);
+    const activeInv = dinInvs.find(i => !i.revoked && !i.consumed && i.expires > now);
+    const expiredInv = !activeInv && !hasConsumed ? dinInvs.find(i => !i.revoked && !i.consumed && i.expires <= now) : null;
+    const cachedUrl = state.issuedTokens[d.id];
+
     let actionHtml = '';
 
-    if (!inv) {
-      actionHtml = `<button class="btn btn-secondary btn-sm issue-invite-btn" data-id="${d.id}">Create Link</button>`;
-    } else if (inv.consumed) {
+    if (hasConsumed) {
       actionHtml = '<span class="badge badge-verified">Joined ✓</span>';
-    } else {
-      const hasToken = Boolean(state.issuedTokens[d.id]);
+    } else if (activeInv) {
+      if (cachedUrl) {
+        actionHtml = `
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button class="btn btn-primary btn-sm copy-invite-btn" data-part="${d.id}" title="Copy Invite Link">
+              📋 Copy Link
+            </button>
+            <button class="btn btn-secondary btn-sm revoke-invite-btn" data-part="${d.id}" title="Revoke Link" style="color: var(--accent-rose); padding: 2px 8px; font-size: 0.75rem;">
+              Revoke
+            </button>
+          </div>
+        `;
+      } else {
+        actionHtml = `
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; font-size: 0.72rem;">Active (link not cached)</span>
+            <button class="btn btn-secondary btn-sm reissue-invite-btn" data-part="${d.id}" title="Revoke lost link and create fresh invitation">
+              🔄 Revoke & Reissue
+            </button>
+          </div>
+        `;
+      }
+    } else if (expiredInv) {
       actionHtml = `
-        <button class="btn ${hasToken ? 'btn-primary' : 'btn-secondary'} btn-sm copy-invite-btn" data-part="${d.id}" title="${hasToken ? 'Copy Invite Link' : 'Invite Active'}">
-          ${hasToken ? '📋 Copy Link' : '📋 Active Link'}
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem;">Expired</span>
+          <button class="btn btn-secondary btn-sm issue-invite-btn" data-id="${d.id}">
+            🔄 Reissue Link
+          </button>
+        </div>
+      `;
+    } else {
+      actionHtml = `
+        <button class="btn btn-secondary btn-sm issue-invite-btn" data-id="${d.id}">
+          Create Link
         </button>
       `;
     }
 
     return `
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; gap: 6px;">
         <span style="font-weight: 600;">${escapeHtml(d.name)}</span>
         <div>${actionHtml}</div>
       </div>
@@ -3068,12 +3205,111 @@ async function loadSimulationReads(snap) {
   }
 }
 
+function validateNotionSharingUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return { valid: false, error: 'Please enter a valid URL.' };
+  }
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return { valid: false, error: 'Please enter a valid URL.' };
+  }
+
+  // 1. Explicitly check for Organizer Recovery / Claim URL
+  if (trimmed.includes('claim-organizer') || trimmed.includes('/claim-organizer/')) {
+    return {
+      valid: false,
+      isSensitive: true,
+      kind: 'organizer_claim',
+      error: '⚠️ Sensitive Credential Detected: You entered an Organizer Recovery Link. This grants administrative control over this meal and must NEVER be shared with diners! If this link was exposed, click "Create Recovery Link" in Sharing & Access to immediately revoke it.',
+    };
+  }
+
+  // 2. Check for Diner Invitation URL
+  if (trimmed.includes('/invite/') || trimmed.includes('#/invite/')) {
+    return {
+      valid: false,
+      isSensitive: true,
+      kind: 'diner_invite',
+      error: '⚠️ Diner Invitation Detected: You entered a personal Diner Invitation Link. These links are for individual diners to join, not for Notion report sharing. Use the Sharing & Access section below.',
+    };
+  }
+
+  // 3. Check for General Table Join URL
+  if (trimmed.includes('/join/')) {
+    return {
+      valid: false,
+      isSensitive: true,
+      kind: 'table_join',
+      error: '⚠️ Table Join Link Detected: You entered a Table Join Link, not a Notion report URL.',
+    };
+  }
+
+  // 4. Check for internal SettleTable URLs
+  try {
+    const locOrigin = window.location.origin.toLowerCase();
+    const candidate = new URL(trimmed, window.location.origin);
+    if (candidate.origin.toLowerCase() === locOrigin && !trimmed.startsWith('https://notion.')) {
+      return {
+        valid: false,
+        error: '⚠️ SettleTable URL Detected: Please enter a Notion report URL (https://...notion.site/... or https://...notion.so/...), not a SettleTable application link.',
+      };
+    }
+  } catch {
+    // If invalid relative URL
+  }
+
+  // 5. Must parse as complete HTTPS URL
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return {
+      valid: false,
+      error: '⚠️ Invalid URL Format: Please provide a complete HTTPS URL starting with https://',
+    };
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return {
+      valid: false,
+      error: '⚠️ Insecure Protocol: Notion links must use HTTPS (https://).',
+    };
+  }
+
+  if (parsed.username || parsed.password) {
+    return {
+      valid: false,
+      error: '⚠️ Invalid URL: URLs containing embedded user credentials are not permitted.',
+    };
+  }
+
+  const host = (parsed.hostname || '').toLowerCase();
+  const isNotionHost = host === 'notion.site' || host.endsWith('.notion.site') || host === 'notion.so' || host.endsWith('.notion.so');
+  if (!isNotionHost) {
+    return {
+      valid: false,
+      error: `⚠️ Unrecognized Domain: "${host}" is not a Notion domain. Please provide a link from notion.site or notion.so.`,
+    };
+  }
+
+  if (trimmed.length > 512) {
+    return {
+      valid: false,
+      error: '⚠️ URL Too Long: Notion links must not exceed 512 characters.',
+    };
+  }
+
+  return { valid: true, url: trimmed };
+}
+
 function formatNotionSuccessHtml(exp) {
   if (!exp) return '';
   const pageId = exp.page_id || '';
   const pageUrl = exp.page_url || '#';
   const publicUrl = exp.public_url || '';
   const exportTimeStr = exp.exported_at ? new Date(exp.exported_at * 1000).toLocaleString() : '';
+  const hasPageUrl = Boolean(exp.page_url && exp.page_url !== '#');
+
   return `
     <div id="notion-export-result" style="display: block; margin-top: 0.75rem; padding: 0.85rem; border-radius: 8px; background-color: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); color: #6ee7b7;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
@@ -3083,45 +3319,117 @@ function formatNotionSuccessHtml(exp) {
       <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 8px;">
         Page ID: <code style="font-size: 0.8rem; color: #a7f3d0;">${escapeHtml(pageId)}</code>
       </div>
-      <div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;">
         <a href="${escapeHtml(pageUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-success" style="font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;" id="notion-page-link">
           Open Report in Notion ↗
         </a>
+        ${hasPageUrl ? `
+          <button type="button" class="btn btn-secondary btn-sm" id="test-notion-incognito-btn" data-url="${escapeHtml(pageUrl)}" title="Copy link to test anonymous view-only access in a private/incognito window">
+            🔍 Test Link in Private Window
+          </button>
+        ` : ''}
       </div>
 
       <!-- Public Link Sharing with Diners -->
-      <div style="margin-top: 1rem; padding: 0.75rem; border-radius: 6px; background-color: var(--surface-primary); border: 1px solid var(--border-subtle); text-align: left;">
-        <div style="font-weight: 600; color: #818cf8; font-size: 0.85rem; margin-bottom: 4px;">
-          🔗 Diner Sharing: View-Only Web Link
+      <div style="margin-top: 1rem; padding: 0.85rem; border-radius: 6px; background-color: var(--surface-primary); border: 1px solid var(--border-subtle); text-align: left;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+          <div style="font-weight: 600; color: #818cf8; font-size: 0.85rem;">
+            🔗 Diner Sharing: View-Only Web Link
+          </div>
+          <span class="badge" style="font-size: 0.72rem; ${publicUrl ? 'background: rgba(16, 185, 129, 0.2); color: #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: var(--text-dim);'}">
+            ${publicUrl ? '✓ Shared with Diners' : '🔒 Private (Disabled)'}
+          </span>
         </div>
-        <p style="margin: 0 0 8px 0; color: var(--text-dim); font-size: 0.8rem;">
-          Notion API pages are private to your workspace. To share view-only access with diners without requiring Notion accounts:
-        </p>
-        <div style="display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;">
-          <input type="url" id="notion-public-url-input" value="${escapeHtml(publicUrl)}" placeholder="https://...notion.site/..." class="form-input" style="flex: 1; min-width: 200px; font-size: 0.82rem; font-family: monospace;" />
-          <button type="button" class="btn btn-secondary btn-sm" id="save-notion-public-url-btn">
-            ${publicUrl ? 'Update Link' : 'Share Link with Diners'}
-          </button>
-          ${publicUrl ? '<button type="button" class="btn btn-secondary btn-sm" id="clear-notion-public-url-btn" style="color: var(--accent-rose);">Remove</button>' : ''}
-        </div>
-        <div style="font-size: 0.78rem; color: ${publicUrl ? '#10b981' : 'var(--text-dim)'};">
-          ${publicUrl ? `✓ Active: Diners can view published report via link.` : '🔒 Private: Diners see meal is archived to workspace, but have no view link.'}
-        </div>
-      </div>
 
-      <div id="notion-view-only-guidance" style="margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background-color: var(--bg-main); border: 1px solid var(--border-subtle); font-size: 0.82rem; text-align: left;">
-        <div style="font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">
-          How to publish a view-only link in Notion:
-        </div>
-        <ol style="margin: 0 0 6px 18px; padding: 0; color: var(--text-muted); line-height: 1.4; font-size: 0.78rem;">
-          <li>Click <strong>Open Report in Notion ↗</strong> above.</li>
-          <li>In Notion, click <strong>Share</strong> (top right) &rarr; select <strong>Publish</strong> &rarr; click <strong>Publish to web</strong>.</li>
-          <li>Ensure <strong>Allow editing</strong>, <strong>Allow comments</strong>, and <strong>Search engine indexing</strong> are all turned OFF.</li>
-          <li>Copy the published web link and paste it in the field above.</li>
-        </ol>
-        <div style="padding: 4px 6px; border-radius: 4px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); color: #fde68a; font-size: 0.75rem;">
-          ⚠️ <strong>Privacy Warning:</strong> Anyone with the published link can view the report and attached photo. Verify the slip contains no confidential data before publishing.
-        </div>
+        ${publicUrl ? `
+          <!-- State A: Already Shared -->
+          <p style="margin: 0 0 6px 0; color: var(--text-dim); font-size: 0.8rem;">
+            Diners viewing this meal can open this view-only Notion report:
+          </p>
+          <div style="background: var(--bg-main); padding: 8px; border-radius: 4px; border: 1px solid var(--border-subtle); margin-bottom: 8px; word-break: break-all; font-family: monospace; font-size: 0.8rem; color: #a7f3d0;">
+            ${escapeHtml(publicUrl)}
+          </div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px;">
+            <a href="${escapeHtml(publicUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="color: #6ee7b7; font-weight: 600; text-decoration: none;">
+              Open Shared Report ↗
+            </a>
+            <button type="button" class="btn btn-secondary btn-sm" id="test-shared-incognito-btn" data-url="${escapeHtml(publicUrl)}">
+              🔍 Test in Private Window
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="clear-notion-public-url-btn" style="color: var(--accent-rose);">
+              Stop Sharing with Diners
+            </button>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 6px;">
+            ℹ️ Saved in SettleTable. Saving does not alter your Notion workspace permissions. Ensure access is verified in a private browsing window.
+          </div>
+
+          <!-- Option to update link -->
+          <details id="notion-custom-url-details" style="margin-top: 10px;">
+            <summary style="font-size: 0.8rem; color: var(--text-muted); cursor: pointer;">Change shared link ▾</summary>
+            <div style="margin-top: 8px; padding: 8px; border-radius: 6px; background: var(--bg-main); border: 1px solid var(--border-subtle);">
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <input type="url" id="notion-public-url-input" value="${escapeHtml(publicUrl)}" placeholder="https://...notion.site/..." class="form-input" style="flex: 1; min-width: 200px; font-size: 0.82rem; font-family: monospace;" />
+                <button type="button" class="btn btn-secondary btn-sm" id="save-notion-public-url-btn">Update Link</button>
+              </div>
+              <div id="notion-url-validation-alert" style="display: none; margin-top: 6px; font-size: 0.78rem;"></div>
+            </div>
+          </details>
+        ` : `
+          <!-- State B: Not Shared Yet (Disabled by default) -->
+          <p style="margin: 0 0 8px 0; color: var(--text-dim); font-size: 0.8rem; line-height: 1.4;">
+            Report sharing is disabled by default. If your Notion parent page is published or allows public link viewing (inherited permissions), you can share the exported report URL directly with diners.
+          </p>
+
+          ${hasPageUrl ? `
+            <div style="margin-bottom: 10px;">
+              <button type="button" class="btn btn-primary btn-sm" id="share-candidate-notion-url-btn" data-url="${escapeHtml(pageUrl)}">
+                📢 Share Exported Report with Diners
+              </button>
+            </div>
+
+            <!-- Confirmation Prompt for Candidate Sharing -->
+            <div id="notion-candidate-share-confirm" style="display: none; margin-bottom: 12px; padding: 10px; border-radius: 6px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25);">
+              <div style="font-weight: 700; font-size: 0.85rem; color: #818cf8; margin-bottom: 6px;">
+                Share Exported Notion Report with Diners?
+              </div>
+              <div style="font-size: 0.8rem; color: var(--text-main); margin-bottom: 6px;">
+                This will make the following report URL accessible to all diners viewing this meal:
+                <div style="font-family: monospace; font-size: 0.78rem; word-break: break-all; margin: 4px 0; color: #a7f3d0; background: var(--bg-main); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+                  ${escapeHtml(pageUrl)}
+                </div>
+              </div>
+              <ul style="font-size: 0.75rem; color: var(--text-muted); margin: 0 0 10px 16px; padding: 0; line-height: 1.4;">
+                <li><strong>Access Verification:</strong> SettleTable cannot verify whether your Notion page is accessible without login. Always test the link in a private/incognito window first.</li>
+                <li><strong>Privacy Notice:</strong> If you published your parent page in Notion to enable inherited permissions, ensure no sensitive personal pages or unrelated subpages are located inside that parent page.</li>
+                <li>Saving this link does not alter your Notion workspace permissions; it simply makes the URL visible to diners.</li>
+              </ul>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-success btn-sm" id="confirm-share-candidate-btn" data-url="${escapeHtml(pageUrl)}">
+                  Confirm & Share with Diners
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" id="cancel-share-candidate-btn">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Manual Published URL Fallback -->
+          <details id="notion-custom-url-details" style="margin-top: 8px;">
+            <summary style="font-size: 0.8rem; color: var(--text-muted); cursor: pointer;">Need to paste a separate published web link (e.g. notion.site)? ▾</summary>
+            <div style="margin-top: 8px; padding: 8px; border-radius: 6px; background: var(--bg-main); border: 1px solid var(--border-subtle);">
+              <p style="font-size: 0.78rem; color: var(--text-dim); margin: 0 0 6px 0;">
+                If your Notion parent page is private, publish the page in Notion (Share &rarr; Publish &rarr; Publish to web) and paste the published link:
+              </p>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <input type="url" id="notion-public-url-input" placeholder="https://...notion.site/... or https://...notion.so/..." class="form-input" style="flex: 1; min-width: 200px; font-size: 0.82rem; font-family: monospace;" />
+                <button type="button" class="btn btn-secondary btn-sm" id="save-notion-public-url-btn">Save Custom Link</button>
+              </div>
+              <div id="notion-url-validation-alert" style="display: none; margin-top: 6px; font-size: 0.78rem;"></div>
+            </div>
+          </details>
+        `}
       </div>
     </div>
   `;
@@ -4716,7 +5024,77 @@ function bindEvents(snap) {
           showAlert(`Link: ${cachedUrl}`, 'info');
         });
       } else {
-        showAlert(`Invite is already active for ${partId}. Raw tokens are not stored across page reloads. If the link was lost, revoke it and create a new one.`, 'info');
+        showAlert(`Invite is already active for ${partId}. Raw tokens are not stored across page reloads. If the link was lost, click "Revoke & Reissue".`, 'info');
+      }
+    });
+  });
+
+  // 4-rev. Revoke Active Invite Link
+  document.querySelectorAll('.revoke-invite-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const partId = btn.getAttribute('data-part');
+      const snap = state.snapshot;
+      if (!snap || !snap.meal_id || !partId) return;
+      if (!confirm(`Revoke active invitation link for ${partId}? Any unused link will stop working.`)) return;
+      btn.disabled = true;
+      btn.textContent = 'Revoking...';
+      try {
+        const cmd = {
+          command_id: `rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          kind: 'RevokeInvitation',
+          participant_id: partId,
+          expected_revision: snap.revision,
+        };
+        await apiCall(`/api/meals/${snap.meal_id}/apply`, 'POST', cmd);
+        delete state.issuedTokens[partId];
+        showAlert(`Invitation revoked for ${partId}.`, 'info');
+        await fetchSnapshot(true);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Revoke';
+        handleApiError(err);
+      }
+    });
+  });
+
+  // 4-reis. Revoke & Reissue Lost Invite Link
+  document.querySelectorAll('.reissue-invite-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const partId = btn.getAttribute('data-part');
+      const snap = state.snapshot;
+      if (!snap || !snap.meal_id || !partId) return;
+      btn.disabled = true;
+      btn.textContent = 'Reissuing...';
+      try {
+        // Step 1: Revoke existing active invitation
+        const cmd = {
+          command_id: `rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          kind: 'RevokeInvitation',
+          participant_id: partId,
+          expected_revision: snap.revision,
+        };
+        await apiCall(`/api/meals/${snap.meal_id}/apply`, 'POST', cmd);
+
+        // Step 2: Issue fresh invitation
+        const invRes = await apiCall(`/api/meals/${snap.meal_id}/invitations`, 'POST', {
+          participant_id: partId,
+          invite_ttl: 86400,
+        });
+
+        if (invRes?.token) {
+          const inviteUrl = invRes.invite_url || `${window.location.origin}/#/invite/${invRes.token}`;
+          state.issuedTokens[partId] = inviteUrl;
+          navigator.clipboard.writeText(inviteUrl).then(() => {
+            showAlert(`Previous link revoked. New invite link created & copied for ${partId}!`, 'success');
+          }).catch(() => {
+            showAlert(`New invite link created for ${partId}!`, 'success');
+          });
+          await fetchSnapshot(true);
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Revoke & Reissue';
+        handleApiError(err);
       }
     });
   });
@@ -5223,21 +5601,96 @@ function bindEvents(snap) {
     });
   }
 
-  // Save Notion Public Web Link
+  // 1. Incognito / Private Window Test Buttons
+  const handleTestIncognito = (btn) => {
+    const url = btn.getAttribute('data-url');
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => {
+      showAlert('Report link copied to clipboard! Open a Private / Incognito window to verify view-only access without logging in.', 'info');
+    }).catch(() => {
+      prompt('Copy this report URL to test in a private/incognito window:', url);
+    });
+  };
+
+  const testIncogBtn = document.getElementById('test-notion-incognito-btn');
+  if (testIncogBtn) testIncogBtn.addEventListener('click', () => handleTestIncognito(testIncogBtn));
+
+  const testSharedIncogBtn = document.getElementById('test-shared-incognito-btn');
+  if (testSharedIncogBtn) testSharedIncogBtn.addEventListener('click', () => handleTestIncognito(testSharedIncogBtn));
+
+  // 2. Share Candidate Notion URL (Exported Page Link)
+  const shareCandidateBtn = document.getElementById('share-candidate-notion-url-btn');
+  const candidateConfirmBox = document.getElementById('notion-candidate-share-confirm');
+  if (shareCandidateBtn && candidateConfirmBox) {
+    shareCandidateBtn.addEventListener('click', () => {
+      candidateConfirmBox.style.display = candidateConfirmBox.style.display === 'none' ? 'block' : 'none';
+      if (candidateConfirmBox.style.display === 'block') {
+        candidateConfirmBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  }
+
+  const cancelCandidateBtn = document.getElementById('cancel-share-candidate-btn');
+  if (cancelCandidateBtn && candidateConfirmBox) {
+    cancelCandidateBtn.addEventListener('click', () => {
+      candidateConfirmBox.style.display = 'none';
+    });
+  }
+
+  const confirmCandidateBtn = document.getElementById('confirm-share-candidate-btn');
+  if (confirmCandidateBtn) {
+    confirmCandidateBtn.addEventListener('click', async () => {
+      const candidateUrl = confirmCandidateBtn.getAttribute('data-url');
+      if (!candidateUrl) return;
+      confirmCandidateBtn.disabled = true;
+      confirmCandidateBtn.textContent = 'Sharing...';
+      try {
+        const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: candidateUrl });
+        if (res?.ok) {
+          if (state.notionExport) state.notionExport.public_url = res.public_url;
+          if (state.snapshot) state.snapshot.notion_public_url = res.public_url;
+          showAlert('Exported Notion report shared with diners! Verify view-only access in a private tab.', 'success');
+          updateMealUI();
+        }
+      } catch (err) {
+        confirmCandidateBtn.disabled = false;
+        confirmCandidateBtn.textContent = 'Confirm & Share with Diners';
+        handleApiError(err);
+      }
+    });
+  }
+
+  // 3. Save Custom Notion Public Web Link (with sensitive credential interception)
   const saveNotionPubBtn = document.getElementById('save-notion-public-url-btn');
   if (saveNotionPubBtn) {
     saveNotionPubBtn.addEventListener('click', async () => {
       const input = document.getElementById('notion-public-url-input');
       const val = (input?.value || '').trim();
-      if (!val) {
-        showAlert('Please paste a valid Notion web link.', 'error');
+      const alertBox = document.getElementById('notion-url-validation-alert');
+
+      const validation = validateNotionSharingUrl(val);
+      if (!validation.valid) {
+        if (alertBox) {
+          alertBox.style.display = 'block';
+          alertBox.style.padding = '8px';
+          alertBox.style.borderRadius = '4px';
+          alertBox.style.background = validation.isSensitive ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)';
+          alertBox.style.border = validation.isSensitive ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(245, 158, 11, 0.4)';
+          alertBox.style.color = validation.isSensitive ? 'var(--accent-rose)' : '#fde68a';
+          alertBox.textContent = validation.error;
+        }
+        showAlert(validation.error, 'error');
         return;
       }
+
+      if (alertBox) alertBox.style.display = 'none';
       saveNotionPubBtn.disabled = true;
+      saveNotionPubBtn.textContent = 'Saving...';
       try {
-        const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: val });
+        const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: validation.url });
         if (res?.ok) {
           if (state.notionExport) state.notionExport.public_url = res.public_url;
+          if (state.snapshot) state.snapshot.notion_public_url = res.public_url;
           showAlert('View-only Notion report link shared with diners!', 'success');
           updateMealUI();
         }
@@ -5245,19 +5698,25 @@ function bindEvents(snap) {
         showAlert(`Failed to save Notion public link: ${err.message || 'invalid_input'}`, 'error');
       } finally {
         saveNotionPubBtn.disabled = false;
+        saveNotionPubBtn.textContent = 'Save Custom Link';
       }
     });
   }
 
-  // Remove Notion Public Web Link
+  // 4. Remove Notion Public Web Link
   const clearNotionPubBtn = document.getElementById('clear-notion-public-url-btn');
   if (clearNotionPubBtn) {
     clearNotionPubBtn.addEventListener('click', async () => {
+      if (!confirm('Stop sharing report with diners? Diners will no longer see the link to this Notion page.')) {
+        return;
+      }
       clearNotionPubBtn.disabled = true;
+      clearNotionPubBtn.textContent = 'Removing...';
       try {
         const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: '' });
         if (res?.ok) {
           if (state.notionExport) state.notionExport.public_url = null;
+          if (state.snapshot) state.snapshot.notion_public_url = null;
           showAlert('Public Notion report link removed.', 'success');
           updateMealUI();
         }
@@ -5265,7 +5724,30 @@ function bindEvents(snap) {
         showAlert('Failed to remove Notion public link.', 'error');
       } finally {
         clearNotionPubBtn.disabled = false;
+        clearNotionPubBtn.textContent = 'Stop Sharing with Diners';
       }
+    });
+  }
+
+  // 5. Navigation helper buttons
+  const jumpToNotionExpBtn = document.getElementById('jump-to-notion-export-btn');
+  if (jumpToNotionExpBtn) {
+    jumpToNotionExpBtn.addEventListener('click', () => {
+      navigateToWorkflowSection('notion-export-card');
+    });
+  }
+
+  const jumpToNotionCardBtn = document.getElementById('jump-to-notion-card-btn');
+  if (jumpToNotionCardBtn) {
+    jumpToNotionCardBtn.addEventListener('click', () => {
+      navigateToWorkflowSection('notion-export-card');
+    });
+  }
+
+  const quickNavSharingBtn = document.getElementById('quick-nav-sharing-btn');
+  if (quickNavSharingBtn) {
+    quickNavSharingBtn.addEventListener('click', () => {
+      navigateToWorkflowSection('sharing-access-section', 'sharing-access-heading');
     });
   }
 

@@ -17,12 +17,14 @@ from settletable.authority import (
     ReplaceReceipt,
     ReviewReceipt,
     SetOwnQuantity,
+    AssignParticipantQuantity,
     SetItemAllocations,
     Finalize,
     RecordContribution,
     ReverseContribution,
     RecordTransfer,
     ReverseTransfer,
+    RevokeInvitation,
 )
 from settletable.notion.client import MockNotionClient
 from settletable.transport import SettleTableApp
@@ -53,6 +55,7 @@ class SyntheticPostFinalizationUAT(unittest.TestCase):
             "SERVER_NAME": "localhost",
             "SERVER_PORT": "8000",
             "HTTP_HOST": "localhost:8000",
+            "HTTP_ORIGIN": "http://localhost:8000",
             "wsgi.url_scheme": "http",
             "wsgi.input": io.BytesIO(),
         }
@@ -495,6 +498,216 @@ class SyntheticPostFinalizationUAT(unittest.TestCase):
             body={"public_url": "https://notion.site/david-hijack"},
         )
         self.assertIn(code_david_pub, (401, 403))
+
+    def test_post_finalization_invitations_and_access_lifecycle(self):
+        """Verify organizer can issue, revoke, reissue invitations, and review join requests after finalization,
+        while diners are forbidden from organizer actions and financial calculations remain immutable."""
+        auth = Authority(str(self.db_path))
+        try:
+            meal_id = "meal-post-fin-inv"
+            alice_id, bob_id, charlie_id = "alice", "bob", "charlie"
+            participants = (
+                Participant(alice_id, "Alice", organizer=True),
+                Participant(bob_id, "Bob", organizer=False),
+                Participant(charlie_id, "Charlie", organizer=False),
+            )
+            boot = auth.bootstrap(meal_id, participants)
+            org_cred = boot.sessions[0].credential
+            org_headers = {"Authorization": f"Bearer {org_cred}", "X-SettleTable-Action": "1"}
+
+            # 1. Setup receipt and finalize meal
+            items = (
+                ReceiptItem("item-1", "Steak", Fraction(1), 5000),
+                ReceiptItem("item-2", "Salad", Fraction(1), 2000),
+            )
+            rcpt = Receipt(items=items, subtotal_sen=7000, total_sen=7000, adjustments=(), included_tax_sen=0)
+            auth.apply(org_cred, meal_id, ReplaceReceipt("cmd-rcpt", 0, 0, rcpt))
+            snap = auth.snapshot(org_cred, meal_id)
+            rev1 = next(i.item_revision for i in snap.items if i.item_id == "item-1")
+            rev2 = next(i.item_revision for i in snap.items if i.item_id == "item-2")
+            auth.apply(org_cred, meal_id, AssignParticipantQuantity("cmd-q1", bob_id, "item-1", Fraction(1), rev1, snap.financial_revision))
+            snap = auth.snapshot(org_cred, meal_id)
+            auth.apply(org_cred, meal_id, AssignParticipantQuantity("cmd-q2", charlie_id, "item-2", Fraction(1), rev2, snap.financial_revision))
+            snap = auth.snapshot(org_cred, meal_id)
+            auth.apply(org_cred, meal_id, ReviewReceipt("cmd-rev", snap.revision, snap.financial_revision, snap.receipt_digest))
+            snap = auth.snapshot(org_cred, meal_id)
+            auth.apply(org_cred, meal_id, Finalize("cmd-fin", snap.revision, snap.financial_revision))
+
+            # Capture baseline calculation state for invariance assertions
+            fin_snap_baseline = auth.snapshot(org_cred, meal_id)
+            self.assertTrue(fin_snap_baseline.finalized)
+            self.assertIsNotNone(fin_snap_baseline.calculation)
+            baseline_calc_dict = json.dumps([{"p": c.participant_id, "sen": c.sen} for c in fin_snap_baseline.calculation.consumption], sort_keys=True)
+            baseline_total_sen = fin_snap_baseline.receipt.total_sen
+            baseline_fin_rev = fin_snap_baseline.financial_revision
+        finally:
+            auth.close()
+
+        # 2. Organizer issues invitation for Bob on finalized meal
+        code_inv_bob, _, res_inv_bob = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/invitations",
+            headers=org_headers,
+            body={"participant_id": bob_id, "invite_ttl": 86400},
+        )
+        self.assertEqual(code_inv_bob, 201)
+        bob_inv_data = json.loads(res_inv_bob.decode("utf-8"))
+        self.assertTrue(bob_inv_data["ok"])
+        bob_token = bob_inv_data["token"]
+        self.assertTrue(bool(bob_token))
+
+        # 3. Bob redeems invitation and accesses finalized calculation
+        code_redeem_bob, hdrs_redeem_bob, res_redeem_bob = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/invitations/redeem",
+            headers={"Content-Type": "application/json", "X-SettleTable-Action": "1"},
+            body={"invitation_token": bob_token},
+        )
+        self.assertEqual(code_redeem_bob, 200)
+        bob_inv_res = json.loads(res_redeem_bob.decode("utf-8"))
+        self.assertEqual(bob_inv_res["participant_id"], bob_id)
+        bob_cred = None
+        for k, v in hdrs_redeem_bob:
+            if k.lower() == "set-cookie" and "settletable_session=" in v:
+                bob_cred = v.split("settletable_session=")[1].split(";")[0]
+        self.assertIsNotNone(bob_cred)
+        bob_headers = {"Authorization": f"Bearer {bob_cred}", "X-SettleTable-Action": "1"}
+
+        # Bob verifies finalized calculation
+        code_snap_bob, _, res_snap_bob = self._call("GET", f"/api/meals/{meal_id}/snapshot", headers=bob_headers)
+        self.assertEqual(code_snap_bob, 200)
+        bob_snap = json.loads(res_snap_bob.decode("utf-8"))
+        self.assertTrue(bob_snap["finalized"])
+        self.assertFalse(bob_snap["is_organizer"])
+        bob_consumption = next(c["sen"] for c in bob_snap["calculation"]["consumption"] if c["participant_id"] == bob_id)
+        self.assertEqual(bob_consumption, 5000)
+
+        # 4. Organizer issues invitation for Charlie, then revokes and reissues it
+        code_inv_c1, _, res_inv_c1 = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/invitations",
+            headers=org_headers,
+            body={"participant_id": charlie_id, "invite_ttl": 86400},
+        )
+        self.assertEqual(code_inv_c1, 201)
+        c1_token = json.loads(res_inv_c1.decode("utf-8"))["token"]
+
+        # Duplicate active invitation attempt rejected with 409
+        code_inv_dup, _, _ = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/invitations",
+            headers=org_headers,
+            body={"participant_id": charlie_id},
+        )
+        self.assertEqual(code_inv_dup, 409)
+
+        # Organizer revokes Charlie's lost invitation
+        code_snap_cur, _, res_snap_cur = self._call("GET", f"/api/meals/{meal_id}/snapshot", headers=org_headers)
+        current_rev = json.loads(res_snap_cur.decode("utf-8"))["revision"]
+        code_rev_c, _, res_rev_c = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/apply",
+            headers=org_headers,
+            body={
+                "command_id": "rev-charlie-lost",
+                "kind": "RevokeInvitation",
+                "participant_id": charlie_id,
+                "expected_revision": current_rev,
+            },
+        )
+        self.assertEqual(code_rev_c, 200)
+
+        # Charlie cannot redeem the revoked invitation
+        code_c1_redeem, _, _ = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/invitations/redeem",
+            headers={"Content-Type": "application/json", "X-SettleTable-Action": "1"},
+            body={"invitation_token": c1_token},
+        )
+        self.assertIn(code_c1_redeem, (400, 403, 409))
+
+        # Organizer reissues Charlie's invitation successfully
+        code_inv_c2, _, res_inv_c2 = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/invitations",
+            headers=org_headers,
+            body={"participant_id": charlie_id, "invite_ttl": 86400},
+        )
+        self.assertEqual(code_inv_c2, 201)
+        c2_token = json.loads(res_inv_c2.decode("utf-8"))["token"]
+
+        # 5. Join request flow on finalized meal
+        code_join_req, _, res_join_req = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/join-requests",
+            headers={"Content-Type": "application/json", "X-SettleTable-Action": "1"},
+            body={"display_name": "Charlie"},
+        )
+        self.assertEqual(code_join_req, 201)
+        join_req_id = json.loads(res_join_req.decode("utf-8"))["request_id"]
+
+        # Organizer approves join request on finalized meal
+        code_review_req, _, res_review_req = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/join-requests/{join_req_id}/review",
+            headers=org_headers,
+            body={"action": "approve"},
+        )
+        self.assertEqual(code_review_req, 200)
+        self.assertEqual(json.loads(res_review_req.decode("utf-8"))["status"], "approved")
+
+        # 6. Diner authorization boundary enforcement on finalized meal
+        # Bob cannot issue invitations
+        code_bad_inv, _, _ = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/invitations",
+            headers=bob_headers,
+            body={"participant_id": charlie_id},
+        )
+        self.assertEqual(code_bad_inv, 403)
+
+        # Bob cannot revoke invitations
+        code_bad_rev, _, _ = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/apply",
+            headers=bob_headers,
+            body={
+                "command_id": "bad-rev",
+                "kind": "RevokeInvitation",
+                "participant_id": charlie_id,
+                "expected_revision": current_rev,
+            },
+        )
+        self.assertEqual(code_bad_rev, 403)
+
+        # Bob cannot review join requests
+        code_bad_req, _, _ = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/join-requests/{join_req_id}/review",
+            headers=bob_headers,
+            body={"action": "reject"},
+        )
+        self.assertEqual(code_bad_req, 403)
+
+        # Bob cannot generate emergency organizer recovery links
+        code_bad_claim, _, _ = self._call(
+            "POST",
+            f"/api/meals/{meal_id}/organizer-claims",
+            headers=bob_headers,
+            body={},
+        )
+        self.assertEqual(code_bad_claim, 403)
+
+        # 7. Strict mathematical & financial invariance verification
+        auth_final = Authority(str(self.db_path))
+        try:
+            fin_snap_after = auth_final.snapshot(org_cred, meal_id)
+            after_calc_dict = json.dumps([{"p": c.participant_id, "sen": c.sen} for c in fin_snap_after.calculation.consumption], sort_keys=True)
+            self.assertEqual(after_calc_dict, baseline_calc_dict)
+            self.assertEqual(fin_snap_after.receipt.total_sen, baseline_total_sen)
+            self.assertEqual(fin_snap_after.financial_revision, baseline_fin_rev)
+        finally:
+            auth_final.close()
 
 
 if __name__ == "__main__":

@@ -1,23 +1,38 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 3,
-  "staged_bytes_excluding_report": 407532,
+  "staged_files": 6,
+  "staged_bytes_excluding_report": 524909,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 360,
+  "tracked_files": 361,
   "untracked_files": 0,
-  "ignored_files": 27911,
+  "ignored_files": 27915,
   "valid_json_files": 1,
   "findings": [],
   "files": [
     {
-      "path": "PROJECT_STATUS.md",
-      "bytes": 191789,
-      "sha256": "8430d908154fc379d8cce1a2db4bf16ca5731496a6b392591a8cdd32f5744406"
+      "path": "settletable/authority.py",
+      "bytes": 132188,
+      "sha256": "df7dcaf43d355e50371a6f9fdf5e4c0b1d9dac783268f429741921e6b1fcce80"
     },
     {
-      "path": "docs/agents/phase-transitions.md",
-      "bytes": 215743,
-      "sha256": "f544aad3484aabd13fcf81a9e5a17b4df92305aa8e690c5ce090c6c46a61a1bc"
+      "path": "settletable/static/app.js",
+      "bytes": 272627,
+      "sha256": "9e9a3b78a54f00774524e1923b16aec88a3cb664914895da6df892d16cb5b4dd"
+    },
+    {
+      "path": "tests/test_notion.py",
+      "bytes": 64350,
+      "sha256": "746777106212e473b60970184cb7d7aaa224d1c8418628fea51eae15d6a41cba"
+    },
+    {
+      "path": "tests/test_post_finalization_uat.py",
+      "bytes": 33551,
+      "sha256": "5faed6787ff654e225f5863b6507d90c62b1fa93cf649a42b1d994e31a90ceff"
+    },
+    {
+      "path": "tools/verify_notion_sharing_and_access.mjs",
+      "bytes": 22193,
+      "sha256": "4036aeba244bf1610f2c5d799e44a5d74eac99174a374084acfef1af5ae1d436"
     }
   ]
 }
