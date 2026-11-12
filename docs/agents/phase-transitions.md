@@ -1,5 +1,26 @@
 # Phase transition decisions
 
+## 2026-11-12 — Notion Sharing & Post-Finalization Invitation UX Improvements (PR #69)
+
+**Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** In response to live browser testing findings across Notion export sharing and post-finalization invitation management:
+1. **Candidate Notion Report Sharing & Confirmation Modal**: Reuses exported Notion report URLs as candidate diner-sharing links with "📢 Share Exported Report with Diners" (`#share-candidate-notion-url-btn`); requires explicit organizer confirmation with prominent disclaimers regarding inherited parent permissions and subpage visibility; provides 1-click private window verification actions (`#test-notion-incognito-btn`, `#test-shared-incognito-btn`); preserves custom link override under collapsible details; allows organizers to stop sharing anytime (`#clear-notion-public-url-btn`); and keeps report sharing disabled by default without altering Notion workspace permissions.
+2. **Defensive Boundary Validation & Credential Interception**: Implemented `validateNotionSharingUrl(rawUrl)` in `settletable/static/app.js` and hardened `Authority.set_notion_public_url()` in `settletable/authority.py`. Strictly rejects accidental pasting of organizer recovery links (`claim-organizer`, `/claim-organizer/`), diner invitation links (`/invite/`), table join links (`/join/`), embedded user credentials, non-HTTPS protocols, and non-Notion domains (`notion.site`, `*.notion.site`, `notion.so`, `*.notion.so`), providing contextual warnings explaining that organizer recovery credentials must remain private.
+3. **Persistent Post-Finalization Invitation & Access Management**: Decoupled the Invitation Hub from `renderOrganizerSection()` into a persistent organizer-only "Sharing & Access Hub" (`#sharing-access-section`) rendered both before and after meal finalization. Clearly separates link categories into three distinct subsections: (1) Diner Access, (2) Notion Report, and (3) Organizer Session Recovery. Added top quick-navigation button `[👥 Sharing & Access ▾]` (`#quick-nav-sharing-btn`) in finalized view for fast access on desktop and mobile. Preserved full invitation management on finalized meals: general table join link copy, pending join request review, personal invitation issuance, and a 1-click Revoke & Reissue flow (`.reissue-invite-btn`) for uncached active invitations (e.g. after page reload).
+4. **Financial & Mathematical Invariance**: Verified that all invitation and sharing operations preserve immutable meal calculations, receipt totals, and cent conservation. Automated tests confirm diners cannot issue invitations, revoke invitations, or generate organizer claims (HTTP 403 Forbidden).
+5. **Testing & Independent Review**: Test suite expanded by 8 tests in `tests/test_notion.py` and 213 lines in `tests/test_post_finalization_uat.py`; headless Chrome CDP E2E verification harness (`tools/verify_notion_sharing_and_access.mjs`) passing 100%; repository pre-publish audit clean (0 findings); independent code and security review approved merge with verdict PASS. Reviewed head: `31c6ed9`. Merged autonomously to `main` via `--no-ff`.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 421 Python tests passing locally; real browser CDP suites pass 100%. |
+| Gate 2: Publicly Reachable Restricted Online Pilot (`v0.9.0-beta.1`) | **PILOT COMPLETED & CONTROLLER COMPLETED**: Real-meal pilot completed and snapshotted. On-demand hosting and local development safely managed via hardened, fully-verified `tools/SettleTable-Control.ps1` and `tools/SettleTable-Control.cmd`. |
+| Gate 3: Unrestricted Public Product Access & Multi-Tenant Identity | **PASS (SECURE SELF-SERVICE CREATION & ACCESS POLISH)**: Low-friction public room creation without persistent account databases or host CLI is now fully implemented and protected with Turnstile, IP rate limiting, cryptographic room entropy, and ACID capacity bounds. Notion sharing and post-finalization access polished and verified. |
+| Gate 4: Public GitHub Repository & Portfolio Demonstration | **PASS (Product Owner Decision)**: Repository visibility public on GitHub for technical portfolio evaluation; All Rights Reserved licensing preserved. Always-accessible showcase deployed at `https://kaiyi7.github.io/settle-table/`. |
+| Notion Sharing UX & Privacy Boundary | **PASS**: Candidate link sharing with explicit confirmation, privacy notice, private test actions, and default-disabled state verified. |
+| Credential Interception Boundary | **PASS**: Frontend and backend categorically reject organizer recovery links, diner invite links, and non-Notion domains in Notion sharing inputs. |
+| Post-Finalization Access Lifecycle | **PASS**: Sharing & Access hub persists post-finalization; table join link, diner invitations, and 1-click Revoke & Reissue fully operational with strict financial invariance. |
+
+Authority: [governance](governance.md). Current state: [PROJECT_STATUS](../../PROJECT_STATUS.md). Only the main orchestrator records approval of progression; reviews are inputs.
+
 ## 2026-11-11 — Public Meal Creation Release Blockers & Operational Hardening (PR #68)
 
 **Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** In response to independent GitHub source review and CI failure on `main` following PR #67:
