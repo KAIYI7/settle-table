@@ -3629,6 +3629,9 @@ function renderRestaurantFundingCard(snap) {
   if (!funding) return '';
 
   const contributions = snap.contributions || [];
+  const currentUserId = state.currentUserId || snap.current_participant_id;
+  const pendingContributions = (snap.pending_contributions || []).filter(p => p.status === 'pending');
+  const resolvedContribs = (snap.pending_contributions || []).filter(p => p.status === 'declined' || p.status === 'cancelled');
   const status = funding.status;
   const totalContributed = funding.total_contributed_sen;
   const receiptTotal = funding.receipt_total_sen;
@@ -3702,9 +3705,19 @@ function renderRestaurantFundingCard(snap) {
         actionHtml = `<small style="color: var(--accent-rose);">Reversed${c.reversal_reason ? `: ${escapeHtml(c.reversal_reason)}` : ''}</small>`;
       }
 
+      let attributionHtml = '';
+      if (c.reported_by_name && c.confirmed_by_name) {
+        attributionHtml = `<div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 2px;">Reported by ${escapeHtml(c.reported_by_name)}, confirmed by ${escapeHtml(c.confirmed_by_name)}</div>`;
+      } else {
+        attributionHtml = `<div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 2px;">Recorded directly by Organizer</div>`;
+      }
+
       return `
         <tr style="${rowStyle}">
-          <td>${escapeHtml(c.participant_name)}</td>
+          <td>
+            <strong>${escapeHtml(c.participant_name)}</strong>
+            ${attributionHtml}
+          </td>
           <td class="amount" style="font-weight: 600;">${formatSen(c.amount_sen)}</td>
           <td><span class="badge" style="font-size: 0.72rem;">${methodLabel}</span></td>
           <td style="font-size: 0.78rem; color: var(--text-dim);">${timeStr}</td>
@@ -3730,6 +3743,118 @@ function renderRestaurantFundingCard(snap) {
           </tbody>
         </table>
       </div>
+    `;
+  }
+
+  // Pending contributions HTML
+  let pendingContribHtml = '';
+  if (pendingContributions.length > 0) {
+    const pendingRows = pendingContributions.map(p => {
+      const methodLabels = {
+        card: '💳 Card',
+        cash: '💵 Cash',
+        ewallet: '📱 E-Wallet',
+        bank_transfer: '🏦 Online Banking',
+        other: 'Other',
+      };
+      const methodLabel = methodLabels[p.payment_method] || (p.payment_method ? escapeHtml(p.payment_method) : '—');
+      const timeStr = new Date(p.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      let actionHtml = '';
+      if (snap.is_organizer) {
+        actionHtml = `
+          <div style="display: flex; gap: 4px; justify-content: flex-end;">
+            <button type="button" class="btn btn-primary btn-sm confirm-pending-contrib-btn"
+                    data-id="${escapeHtml(p.report_id)}"
+                    data-name="${escapeHtml(p.participant_name)}"
+                    data-amount="${formatSen(p.amount_sen)}"
+                    style="padding: 2px 8px; font-size: 0.75rem; background: #10b981; border-color: #10b981;">
+              ✓ Confirm
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm decline-pending-contrib-btn"
+                    data-id="${escapeHtml(p.report_id)}"
+                    data-name="${escapeHtml(p.participant_name)}"
+                    style="padding: 2px 8px; font-size: 0.75rem; color: var(--accent-rose);">
+              ✕ Decline
+            </button>
+          </div>
+        `;
+      } else if (p.created_by === currentUserId || p.participant_id === currentUserId) {
+        actionHtml = `
+          <div style="display: flex; gap: 4px; justify-content: flex-end; align-items: center;">
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem;">Pending Organizer</span>
+            <button type="button" class="btn btn-secondary btn-sm cancel-pending-contrib-btn"
+                    data-id="${escapeHtml(p.report_id)}"
+                    style="padding: 2px 6px; font-size: 0.72rem; color: var(--accent-rose);">
+              Cancel
+            </button>
+          </div>
+        `;
+      } else {
+        actionHtml = `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem;">Pending Organizer</span>`;
+      }
+
+      return `
+        <tr>
+          <td><strong>${escapeHtml(p.participant_name)}</strong></td>
+          <td class="amount" style="font-weight: 600; color: #f59e0b;">${formatSen(p.amount_sen)}</td>
+          <td><span class="badge" style="font-size: 0.72rem;">${methodLabel}</span></td>
+          <td style="font-size: 0.78rem; color: var(--text-dim);">${timeStr}</td>
+          <td style="text-align: right;">${actionHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    pendingContribHtml = `
+      <div style="margin-top: 1.25rem; padding: 0.85rem; background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px;">
+        <div style="font-weight: 600; font-size: 0.92rem; color: #f59e0b; margin-bottom: 4px;">
+          ⏳ Pending Restaurant Payments (${pendingContributions.length})
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+          Reported by diners at the counter. Pending reports do not alter balances until confirmed by the organizer.
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="breakdown-table" style="font-size: 0.85rem;">
+            <thead>
+              <tr>
+                <th>Payer</th>
+                <th style="text-align: right;">Amount</th>
+                <th>Method</th>
+                <th>Time</th>
+                <th style="text-align: right;">Status / Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pendingRows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // Resolved (declined or cancelled) contributions HTML
+  let resolvedContribHtml = '';
+  if (resolvedContribs.length > 0) {
+    const rows = resolvedContribs.map(p => {
+      const isDeclined = p.status === 'declined';
+      const statusBadge = isDeclined
+        ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; font-size: 0.72rem;">Declined</span>`
+        : `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted); font-size: 0.72rem;">Cancelled</span>`;
+      const reasonStr = p.rejection_reason ? ` (${escapeHtml(p.rejection_reason)})` : '';
+      return `
+        <li style="margin-bottom: 4px;">
+          <strong>${escapeHtml(p.participant_name)}</strong> — ${formatSen(p.amount_sen)}: ${statusBadge}${reasonStr}
+        </li>
+      `;
+    }).join('');
+    resolvedContribHtml = `
+      <details style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
+        <summary style="cursor: pointer;">Declined or Cancelled Payment Reports (${resolvedContribs.length})</summary>
+        <ul style="margin-top: 0.4rem; padding-left: 1.2rem;">
+          ${rows}
+        </ul>
+      </details>
     `;
   }
 
@@ -3798,12 +3923,56 @@ function renderRestaurantFundingCard(snap) {
             ✓ <strong>Restaurant bill is 100% funded.</strong> Net balances are fully balanced (sum = RM 0.00).
           </p>
         `}
-        ${!snap.is_organizer ? `
-          <div style="margin-top: 0.75rem; padding: 0.6rem 0.85rem; background: rgba(59, 130, 246, 0.08); border-left: 3px solid #60a5fa; border-radius: 4px; font-size: 0.82rem; color: var(--text-muted);">
-            ℹ️ <strong>Organizer-Attested Ledger:</strong> Payments made directly to the restaurant counter are verified and recorded by the organizer. If you paid part of the bill at the counter, let the organizer know so it can be recorded.
-          </div>
-        ` : ''}
       </div>
+
+      <!-- Pending Contributions Section -->
+      ${pendingContribHtml}
+
+      <!-- Diner I Paid Counter Toggle & Form -->
+      ${(!snap.is_organizer && status !== 'fully_funded' && currentUserId) ? `
+        <div style="margin-top: 1rem;">
+          <button type="button" id="toggle-diner-contrib-panel-btn" class="btn btn-secondary" style="width: 100%; border: 1px dashed #60a5fa; color: #60a5fa; padding: 8px 12px; font-size: 0.9rem;">
+            💳 I Paid the Restaurant Counter
+          </button>
+          <div id="diner-contrib-panel" style="display: none; margin-top: 0.75rem; padding: 1rem; border-radius: 8px; background: rgba(59, 130, 246, 0.07); border: 1px solid rgba(59, 130, 246, 0.3);">
+            <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem; color: #93c5fd;">
+              Report Restaurant Payment
+            </div>
+            <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+              If you paid the restaurant cashier at the counter, enter the amount and method below. Your report will be sent to the organizer for confirmation before updating the ledger.
+            </p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+              <div>
+                <label for="diner-payer-method-select" style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Payment Method:</label>
+                <select id="diner-payer-method-select" class="form-input" style="width: 100%;">
+                  <option value="card">💳 Credit / Debit Card</option>
+                  <option value="cash">💵 Cash</option>
+                  <option value="ewallet">📱 E-Wallet (TNG / GrabPay)</option>
+                  <option value="bank_transfer">🏦 Online Banking / DuitNow</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <label for="diner-payer-amount-input" style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Amount (RM):</label>
+                  <button type="button" id="diner-fill-remaining-btn" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 1px 6px;">
+                    Remaining (${formatSen(unfunded)})
+                  </button>
+                </div>
+                <input type="text" id="diner-payer-amount-input" class="form-input" placeholder="e.g. 50.00" inputmode="decimal" autocomplete="off" style="width: 100%; font-size: 1rem; font-weight: 600;" />
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" id="submit-diner-contrib-btn" class="btn btn-primary" style="flex: 1;">
+                Submit Payment for Confirmation
+              </button>
+              <button type="button" id="cancel-diner-contrib-panel-btn" class="btn btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
 
       <!-- Organizer Record Payment Form -->
       ${(snap.is_organizer && status !== 'fully_funded') ? `
@@ -3851,6 +4020,7 @@ function renderRestaurantFundingCard(snap) {
           Recorded Restaurant Payments
         </div>
         ${historyHtml}
+        ${resolvedContribHtml}
       </div>
     </div>
   `;
@@ -3860,13 +4030,16 @@ function renderPeerSettlementCard(snap) {
   const settle = snap.settlement;
   if (!settle) return '';
 
+  const currentUserId = state.currentUserId || snap.current_participant_id;
   const isSettled = settle.is_settled;
   const unfundedBlocker = settle.unfunded_blocker_sen;
   const suggestedTransfers = settle.suggested_transfers || [];
   const transfers = snap.transfers || [];
   const outstandingList = settle.outstanding_net_balances || [];
+  const pendingTransfers = (snap.pending_transfers || []).filter(t => t.status === 'pending');
+  const resolvedTransfers = (snap.pending_transfers || []).filter(t => t.status === 'declined' || t.status === 'cancelled');
 
-  // Debtors and Creditors for organizer reimbursement dropdowns
+  // Debtors and Creditors for reimbursement dropdowns
   const debtors = outstandingList.filter(b => b.outstanding_net_balance_sen < 0);
   const creditors = outstandingList.filter(b => b.outstanding_net_balance_sen > 0);
 
@@ -3928,15 +4101,26 @@ function renderPeerSettlementCard(snap) {
       const sName = sender ? sender.name : st.sender_id;
       const rName = receiver ? receiver.name : st.receiver_id;
 
-      let prefillBtn = '';
+      let actionBtns = '';
       if (snap.is_organizer) {
-        prefillBtn = `
+        actionBtns += `
           <button type="button" class="btn btn-secondary btn-sm prefill-transfer-btn"
                   data-sender="${escapeHtml(st.sender_id)}"
                   data-receiver="${escapeHtml(st.receiver_id)}"
                   data-amount="${(st.amount_sen / 100).toFixed(2)}"
                   style="font-size: 0.75rem; padding: 3px 10px; margin-left: auto;">
             Use Suggestion
+          </button>
+        `;
+      }
+      if (st.sender_id === currentUserId) {
+        actionBtns += `
+          <button type="button" class="btn btn-primary btn-sm diner-report-sent-btn"
+                  data-receiver="${escapeHtml(st.receiver_id)}"
+                  data-receiver-name="${escapeHtml(rName)}"
+                  data-amount="${(st.amount_sen / 100).toFixed(2)}"
+                  style="font-size: 0.75rem; padding: 3px 10px; margin-left: auto;">
+            💸 I've Sent Payment
           </button>
         `;
       }
@@ -3949,7 +4133,7 @@ function renderPeerSettlementCard(snap) {
             <span style="font-weight: 700; color: #10b981;">${escapeHtml(rName)}</span>
             <span style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin-left: 6px;">${formatSen(st.amount_sen)}</span>
           </div>
-          ${prefillBtn}
+          ${actionBtns}
         </div>
       `;
     }).join('');
@@ -3969,6 +4153,124 @@ function renderPeerSettlementCard(snap) {
         <strong>⚠️ Unfunded Restaurant Bill (${formatSen(unfundedBlocker)})</strong><br/>
         The restaurant bill is not fully funded. Suggested peer transfers only settle up to the fronted restaurant amounts. The remaining balance represents an outstanding restaurant obligation.
       </div>
+    `;
+  }
+
+  // Pending reimbursements HTML
+  let pendingTransfersHtml = '';
+  if (pendingTransfers.length > 0) {
+    const rows = pendingTransfers.map(t => {
+      const timeStr = new Date(t.created_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const isRecipient = currentUserId === t.receiver_id;
+      const isSender = currentUserId === t.sender_id;
+
+      let actionHtml = '';
+      if (isRecipient) {
+        actionHtml = `
+          <div style="display: flex; gap: 4px; justify-content: flex-end;">
+            <button type="button" class="btn btn-primary btn-sm confirm-pending-transfer-btn"
+                    data-id="${escapeHtml(t.report_id)}"
+                    data-sender="${escapeHtml(t.sender_name)}"
+                    data-amount="${formatSen(t.amount_sen)}"
+                    style="padding: 2px 8px; font-size: 0.75rem; background: #10b981; border-color: #10b981;">
+              ✓ Confirm Received
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm decline-pending-transfer-btn"
+                    data-id="${escapeHtml(t.report_id)}"
+                    data-sender="${escapeHtml(t.sender_name)}"
+                    style="padding: 2px 8px; font-size: 0.75rem; color: var(--accent-rose);">
+              ✕ Not Received
+            </button>
+          </div>
+        `;
+      } else if (isSender) {
+        actionHtml = `
+          <div style="display: flex; gap: 4px; justify-content: flex-end; align-items: center;">
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem;">Awaiting ${escapeHtml(t.receiver_name)}</span>
+            <button type="button" class="btn btn-secondary btn-sm cancel-pending-transfer-btn"
+                    data-id="${escapeHtml(t.report_id)}"
+                    style="padding: 2px 6px; font-size: 0.72rem; color: var(--accent-rose);">
+              Cancel
+            </button>
+          </div>
+        `;
+      } else if (snap.is_organizer) {
+        actionHtml = `
+          <div style="display: flex; gap: 4px; justify-content: flex-end; align-items: center;">
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem;">Awaiting ${escapeHtml(t.receiver_name)}</span>
+            <button type="button" class="btn btn-secondary btn-sm decline-pending-transfer-btn"
+                    data-id="${escapeHtml(t.report_id)}"
+                    data-sender="${escapeHtml(t.sender_name)}"
+                    style="padding: 2px 6px; font-size: 0.72rem; color: var(--accent-rose);">
+              ✕ Decline
+            </button>
+          </div>
+        `;
+      } else {
+        actionHtml = `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem;">Awaiting ${escapeHtml(t.receiver_name)}</span>`;
+      }
+
+      return `
+        <tr>
+          <td><strong>${escapeHtml(t.sender_name)}</strong> → <strong>${escapeHtml(t.receiver_name)}</strong></td>
+          <td class="amount" style="font-weight: 600; color: #f59e0b;">${formatSen(t.amount_sen)}</td>
+          <td style="font-size: 0.82rem; color: var(--text-muted);">${t.note ? escapeHtml(t.note) : '—'}</td>
+          <td style="font-size: 0.78rem; color: var(--text-dim);">${timeStr}</td>
+          <td style="text-align: right;">${actionHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    pendingTransfersHtml = `
+      <div style="margin-bottom: 1.5rem; padding: 0.85rem; background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px;">
+        <div style="font-weight: 600; font-size: 0.92rem; color: #f59e0b; margin-bottom: 4px;">
+          ⏳ Pending Reimbursement Confirmations (${pendingTransfers.length})
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+          Reported peer reimbursements awaiting recipient confirmation. SettleTable does not execute banking transactions; balances update only when confirmed.
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="breakdown-table" style="font-size: 0.85rem;">
+            <thead>
+              <tr>
+                <th>Transfer</th>
+                <th style="text-align: right;">Amount</th>
+                <th>Note</th>
+                <th>Time</th>
+                <th style="text-align: right;">Status / Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // Resolved (declined or cancelled) transfers HTML
+  let resolvedTransfersHtml = '';
+  if (resolvedTransfers.length > 0) {
+    const rows = resolvedTransfers.map(t => {
+      const isDeclined = t.status === 'declined';
+      const statusBadge = isDeclined
+        ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; font-size: 0.72rem;">Declined / Not Received</span>`
+        : `<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted); font-size: 0.72rem;">Cancelled</span>`;
+      const reasonStr = t.rejection_reason ? ` (${escapeHtml(t.rejection_reason)})` : '';
+      return `
+        <li style="margin-bottom: 4px;">
+          <strong>${escapeHtml(t.sender_name)}</strong> → <strong>${escapeHtml(t.receiver_name)}</strong> (${formatSen(t.amount_sen)}): ${statusBadge}${reasonStr}
+        </li>
+      `;
+    }).join('');
+    resolvedTransfersHtml = `
+      <details style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
+        <summary style="cursor: pointer;">Declined or Cancelled Reimbursement Reports (${resolvedTransfers.length})</summary>
+        <ul style="margin-top: 0.4rem; padding-left: 1.2rem;">
+          ${rows}
+        </ul>
+      </details>
     `;
   }
 
@@ -4001,9 +4303,19 @@ function renderPeerSettlementCard(snap) {
         actionHtml = `<small style="color: var(--accent-rose);">Reversed${t.reversal_reason ? `: ${escapeHtml(t.reversal_reason)}` : ''}</small>`;
       }
 
+      let attributionHtml = '';
+      if (t.reported_by_name && t.confirmed_by_name) {
+        attributionHtml = `<div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 2px;">Reported by ${escapeHtml(t.reported_by_name)}, confirmed by ${escapeHtml(t.confirmed_by_name)}</div>`;
+      } else {
+        attributionHtml = `<div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 2px;">Recorded directly by Organizer</div>`;
+      }
+
       return `
         <tr style="${rowStyle}">
-          <td><strong>${escapeHtml(sName)}</strong> → <strong>${escapeHtml(rName)}</strong></td>
+          <td>
+            <strong>${escapeHtml(sName)}</strong> → <strong>${escapeHtml(rName)}</strong>
+            ${attributionHtml}
+          </td>
           <td class="amount" style="font-weight: 600;">${formatSen(t.amount_sen)}</td>
           <td style="font-size: 0.82rem; color: var(--text-muted);">${t.note ? escapeHtml(t.note) : '—'}</td>
           <td style="font-size: 0.78rem; color: var(--text-dim);">${timeStr}</td>
@@ -4083,18 +4395,73 @@ function renderPeerSettlementCard(snap) {
   // Diner personalized settlement summary card
   let dinerPersonalCardHtml = '';
   if (!snap.is_organizer) {
-    const myRec = outstandingList.find(b => b.participant_id === state.currentUserId);
+    const myRec = outstandingList.find(b => b.participant_id === currentUserId);
     if (myRec) {
       const myNet = myRec.outstanding_net_balance_sen;
       if (myNet < 0) {
         // Debtor
         const oweSen = -myNet;
-        const myTransfers = suggestedTransfers.filter(st => st.sender_id === state.currentUserId);
+        const myTransfers = suggestedTransfers.filter(st => st.sender_id === currentUserId);
         const transferLines = myTransfers.map(st => {
           const recObj = outstandingList.find(b => b.participant_id === st.receiver_id);
           const rName = recObj ? recObj.name : st.receiver_id;
-          return `<div style="padding: 4px 0; font-weight: 600; color: var(--text-main);">👉 Pay <strong>${escapeHtml(rName)}</strong>: <span style="color: #6ee7b7; font-size: 1.05rem;">${formatSen(st.amount_sen)}</span></div>`;
+          return `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed rgba(255, 255, 255, 0.08); flex-wrap: wrap; gap: 6px;">
+              <div>
+                👉 Pay <strong>${escapeHtml(rName)}</strong>: <span style="color: #6ee7b7; font-size: 1.05rem; font-weight: 700;">${formatSen(st.amount_sen)}</span>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm diner-report-sent-btn"
+                      data-receiver="${escapeHtml(st.receiver_id)}"
+                      data-receiver-name="${escapeHtml(rName)}"
+                      data-amount="${(st.amount_sen / 100).toFixed(2)}"
+                      style="font-size: 0.75rem; padding: 3px 10px;">
+                💸 I've Sent Payment
+              </button>
+            </div>
+          `;
         }).join('');
+
+        const creditorOptions = creditors.map(c =>
+          `<option value="${escapeHtml(c.participant_id)}">${escapeHtml(c.name)} (receives ${formatSen(c.outstanding_net_balance_sen)})</option>`
+        ).join('');
+
+        const dinerXferFormHtml = `
+          <div style="margin-top: 8px;">
+            <button type="button" id="toggle-custom-diner-transfer-btn" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 3px 10px;">
+              ➕ Report Reimbursement
+            </button>
+            <div id="diner-report-transfer-form" style="display: none; margin-top: 8px; padding: 10px 12px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px;">
+              <div style="font-weight: 600; font-size: 0.88rem; margin-bottom: 6px; color: #fca5a5;">
+                Report Sent Reimbursement
+              </div>
+              <div style="font-size: 0.78rem; color: var(--text-dim); margin-bottom: 8px;">
+                Report a reimbursement you've transferred. The recipient will be notified to confirm they received the funds before balances update.
+              </div>
+              <div style="margin-bottom: 8px;">
+                <label for="diner-xfer-receiver-select" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Recipient (Creditor):</label>
+                <select id="diner-xfer-receiver-select" class="form-input" style="width: 100%;">
+                  ${creditorOptions}
+                </select>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <label for="diner-xfer-amount-input" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Amount (RM):</label>
+                <input type="text" id="diner-xfer-amount-input" class="form-input" placeholder="e.g. 15.00" inputmode="decimal" autocomplete="off" style="width: 100%; font-size: 0.95rem; font-weight: 600;" />
+              </div>
+              <div style="margin-bottom: 10px;">
+                <label for="diner-xfer-note-input" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 2px;">Reference / Note (Optional):</label>
+                <input type="text" id="diner-xfer-note-input" class="form-input" placeholder="e.g. DuitNow reference or cash handed" style="width: 100%; font-size: 0.85rem;" />
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" id="submit-diner-transfer-btn" class="btn btn-primary btn-sm" style="flex: 1;">
+                  Submit Sent Payment Report
+                </button>
+                <button type="button" id="cancel-diner-transfer-form-btn" class="btn btn-secondary btn-sm">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
 
         dinerPersonalCardHtml = `
           <div class="card" id="diner-personal-settlement-card" style="margin-bottom: 12px; padding: 12px 14px; background: rgba(239, 68, 68, 0.07); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px;">
@@ -4103,16 +4470,17 @@ function renderPeerSettlementCard(snap) {
               <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">You Owe ${formatSen(oweSen)}</span>
             </div>
             ${transferLines ? `<div style="margin: 6px 0;">${transferLines}</div>` : ''}
-            ${unfundedBlocker > 0 ? `<div style="font-size: 0.8rem; color: #f59e0b; margin-top: 4px;">⚠️ ${formatSen(unfundedBlocker)} of the restaurant bill remains unfunded. Direct peer settlement is pending cashier funding.</div>` : ''}
-            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(239, 68, 68, 0.15);">
-              ℹ️ Transfer your share to the recipient(s) above (via DuitNow QR, online banking, or cash), then notify the organizer to record your payment on the official ledger.
+            ${dinerXferFormHtml}
+            ${unfundedBlocker > 0 ? `<div style="font-size: 0.8rem; color: #f59e0b; margin-top: 6px;">⚠️ ${formatSen(unfundedBlocker)} of the restaurant bill remains unfunded. Direct peer settlement is pending cashier funding.</div>` : ''}
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(239, 68, 68, 0.15);">
+              ℹ️ Transfer your share to the recipient(s) above, then click <strong>I've Sent Payment</strong> so the recipient can confirm receipt on the ledger.
             </div>
           </div>
         `;
       } else if (myNet > 0) {
         // Creditor
         const recoverSen = myNet;
-        const incomingTransfers = suggestedTransfers.filter(st => st.receiver_id === state.currentUserId);
+        const incomingTransfers = suggestedTransfers.filter(st => st.receiver_id === currentUserId);
         const incomingLines = incomingTransfers.map(st => {
           const sndObj = outstandingList.find(b => b.participant_id === st.sender_id);
           const sName = sndObj ? sndObj.name : st.sender_id;
@@ -4127,7 +4495,7 @@ function renderPeerSettlementCard(snap) {
             </div>
             ${incomingLines ? `<div style="margin: 6px 0;">${incomingLines}</div>` : ''}
             <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(16, 185, 129, 0.15);">
-              ℹ️ Once you receive repayment from peers, notify the organizer so the reimbursement can be attested and marked complete on the ledger.
+              ℹ️ Once you receive repayment from peers, click <strong>Confirm Received</strong> in the pending section below to mark it complete.
             </div>
           </div>
         `;
@@ -4157,12 +4525,15 @@ function renderPeerSettlementCard(snap) {
         ${statusBadgeHtml}
       </div>
 
-      <!-- Organizer Attestation & Disclaimer Notice -->
+      <!-- Collaborative Settlement Notice -->
       <div class="settlement-attestation-notice" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 0.83rem; color: var(--text-muted); line-height: 1.45;">
-        ℹ️ <strong>Organizer-recorded settlements:</strong> SettleTable calculates suggested peer transfers and tracks reimbursements recorded by the organizer. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.
+        ℹ️ <strong>Collaborative Settlement Tracking:</strong> Diners can report sent reimbursements, which update the ledger once confirmed by the recipient. The organizer can also record attested payments directly. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.
       </div>
 
       ${dinerPersonalCardHtml}
+
+      <!-- Pending Reimbursements Section -->
+      ${pendingTransfersHtml}
 
       ${unfundedWarningHtml}
 
@@ -4206,6 +4577,7 @@ function renderPeerSettlementCard(snap) {
           Recorded Peer Reimbursements Ledger
         </div>
         ${ledgerHtml}
+        ${resolvedTransfersHtml}
       </div>
     </div>
   `;
@@ -5884,6 +6256,182 @@ function bindEvents(snap) {
     });
   });
 
+  // Toggle Diner Restaurant Contribution Panel
+  const toggleDinerContribBtn = document.getElementById('toggle-diner-contrib-panel-btn');
+  const dinerContribPanel = document.getElementById('diner-contrib-panel');
+  if (toggleDinerContribBtn && dinerContribPanel) {
+    toggleDinerContribBtn.addEventListener('click', () => {
+      const isHidden = dinerContribPanel.style.display === 'none';
+      dinerContribPanel.style.display = isHidden ? 'block' : 'none';
+    });
+  }
+
+  const cancelDinerContribPanelBtn = document.getElementById('cancel-diner-contrib-panel-btn');
+  if (cancelDinerContribPanelBtn && dinerContribPanel) {
+    cancelDinerContribPanelBtn.addEventListener('click', () => {
+      dinerContribPanel.style.display = 'none';
+    });
+  }
+
+  const dinerFillRemainingBtn = document.getElementById('diner-fill-remaining-btn');
+  if (dinerFillRemainingBtn && snap.funding) {
+    dinerFillRemainingBtn.addEventListener('click', () => {
+      const input = document.getElementById('diner-payer-amount-input');
+      if (input) input.value = (snap.funding.unfunded_sen / 100).toFixed(2);
+    });
+  }
+
+  const submitDinerContribBtn = document.getElementById('submit-diner-contrib-btn');
+  if (submitDinerContribBtn && snap.funding) {
+    submitDinerContribBtn.addEventListener('click', async () => {
+      const amountInput = document.getElementById('diner-payer-amount-input');
+      const methodSelect = document.getElementById('diner-payer-method-select');
+      const currentUserId = state.currentUserId || snap.current_participant_id;
+      if (!amountInput || !currentUserId) return;
+
+      let amountSen;
+      try {
+        amountSen = parseSen(amountInput.value, false);
+      } catch (err) {
+        showAlert(err.message || 'Invalid payment amount.', 'error');
+        return;
+      }
+      if (amountSen <= 0) {
+        showAlert('Payment amount must be greater than zero.', 'error');
+        return;
+      }
+      if (amountSen > snap.funding.unfunded_sen) {
+        showAlert(`Reported amount (${formatSen(amountSen)}) exceeds remaining unfunded bill (${formatSen(snap.funding.unfunded_sen)}).`, 'error');
+        return;
+      }
+
+      submitDinerContribBtn.disabled = true;
+      submitDinerContribBtn.textContent = 'Submitting...';
+      try {
+        const cmdId = `rpay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'ReportContribution',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          participant_id: currentUserId,
+          amount_sen: amountSen,
+          payment_method: methodSelect ? methodSelect.value : null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert(`Payment report submitted for organizer confirmation ✓`, 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not report payment'}`, 'error');
+          submitDinerContribBtn.disabled = false;
+          submitDinerContribBtn.textContent = 'Submit Payment for Confirmation';
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Payment report failed'}`, 'error');
+        submitDinerContribBtn.disabled = false;
+        submitDinerContribBtn.textContent = 'Submit Payment for Confirmation';
+      }
+    });
+  }
+
+  // Confirm Pending Contribution (Organizer)
+  document.querySelectorAll('.confirm-pending-contrib-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reportId = btn.getAttribute('data-id');
+      const name = btn.getAttribute('data-name');
+      const amount = btn.getAttribute('data-amount');
+      if (!reportId) return;
+      if (!confirm(`Confirm that ${name} paid ${amount} to the restaurant? This will record the payment on the official ledger.`)) return;
+
+      btn.disabled = true;
+      try {
+        const cmdId = `cpay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'ConfirmContribution',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          report_id: reportId,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert(`Payment confirmed and recorded on ledger ✓`, 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not confirm payment'}`, 'error');
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Confirmation failed'}`, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Decline Pending Contribution (Organizer)
+  document.querySelectorAll('.decline-pending-contrib-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reportId = btn.getAttribute('data-id');
+      const name = btn.getAttribute('data-name');
+      if (!reportId) return;
+      const reason = window.prompt(`Decline reported payment by ${name}?\nEnter reason (optional):`);
+      if (reason === null) return;
+
+      btn.disabled = true;
+      try {
+        const cmdId = `dpay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'DeclineContribution',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          report_id: reportId,
+          reason: reason.trim() || null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert('Reported payment declined ✓', 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not decline payment'}`, 'error');
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Decline failed'}`, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Cancel Pending Contribution (Reporter Diner)
+  document.querySelectorAll('.cancel-pending-contrib-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reportId = btn.getAttribute('data-id');
+      if (!reportId) return;
+      if (!confirm('Cancel your reported payment?')) return;
+
+      btn.disabled = true;
+      try {
+        const cmdId = `xpay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'CancelContribution',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          report_id: reportId,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert('Payment report cancelled ✓', 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not cancel report'}`, 'error');
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Cancellation failed'}`, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+
   // --- Peer Settlement Event Handlers ---
   document.querySelectorAll('.prefill-transfer-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -6002,6 +6550,202 @@ function bindEvents(snap) {
         }
       } catch (err) {
         showAlert(`Error: ${err.message || 'Reversal failed'}`, 'error');
+      }
+    });
+  });
+
+  // Diner "I've Sent Payment" Action Buttons
+  document.querySelectorAll('.diner-report-sent-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const receiver = btn.getAttribute('data-receiver');
+      const amount = btn.getAttribute('data-amount');
+
+      const rSelect = document.getElementById('diner-xfer-receiver-select');
+      const aInput = document.getElementById('diner-xfer-amount-input');
+      const form = document.getElementById('diner-report-transfer-form');
+
+      if (rSelect && receiver) rSelect.value = receiver;
+      if (aInput && amount) aInput.value = amount;
+      if (form) {
+        form.style.display = 'block';
+        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  });
+
+  // Toggle Custom Diner Reimbursement Form
+  const toggleCustomXferBtn = document.getElementById('toggle-custom-diner-transfer-btn');
+  const dinerXferForm = document.getElementById('diner-report-transfer-form');
+  if (toggleCustomXferBtn && dinerXferForm) {
+    toggleCustomXferBtn.addEventListener('click', () => {
+      const isHidden = dinerXferForm.style.display === 'none';
+      dinerXferForm.style.display = isHidden ? 'block' : 'none';
+    });
+  }
+
+  const cancelDinerXferFormBtn = document.getElementById('cancel-diner-transfer-form-btn');
+  if (cancelDinerXferFormBtn && dinerXferForm) {
+    cancelDinerXferFormBtn.addEventListener('click', () => {
+      dinerXferForm.style.display = 'none';
+    });
+  }
+
+  // Submit Diner Sent Reimbursement Report
+  const submitDinerTransferBtn = document.getElementById('submit-diner-transfer-btn');
+  if (submitDinerTransferBtn && snap.settlement) {
+    submitDinerTransferBtn.addEventListener('click', async () => {
+      const rSelect = document.getElementById('diner-xfer-receiver-select');
+      const aInput = document.getElementById('diner-xfer-amount-input');
+      const nInput = document.getElementById('diner-xfer-note-input');
+      const currentUserId = state.currentUserId || snap.current_participant_id;
+      if (!rSelect || !aInput || !currentUserId) return;
+
+      const receiverId = rSelect.value;
+      if (!receiverId) {
+        showAlert('Please select a recipient.', 'error');
+        return;
+      }
+      if (receiverId === currentUserId) {
+        showAlert('You cannot send reimbursement to yourself.', 'error');
+        return;
+      }
+
+      let amountSen;
+      try {
+        amountSen = parseSen(aInput.value, false);
+      } catch (err) {
+        showAlert(err.message || 'Invalid transfer amount.', 'error');
+        return;
+      }
+      if (amountSen <= 0) {
+        showAlert('Transfer amount must be greater than zero.', 'error');
+        return;
+      }
+
+      submitDinerTransferBtn.disabled = true;
+      submitDinerTransferBtn.textContent = 'Submitting...';
+      try {
+        const cmdId = `rxfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'ReportTransfer',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          sender_id: currentUserId,
+          receiver_id: receiverId,
+          amount_sen: amountSen,
+          note: nInput && nInput.value.trim() ? nInput.value.trim() : null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert(`Reimbursement reported! Recipient can now confirm receipt ✓`, 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not report reimbursement'}`, 'error');
+          submitDinerTransferBtn.disabled = false;
+          submitDinerTransferBtn.textContent = 'Submit Sent Payment Report';
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Reimbursement report failed'}`, 'error');
+        submitDinerTransferBtn.disabled = false;
+        submitDinerTransferBtn.textContent = 'Submit Sent Payment Report';
+      }
+    });
+  }
+
+  // Confirm Pending Transfer (Recipient Creditor)
+  document.querySelectorAll('.confirm-pending-transfer-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reportId = btn.getAttribute('data-id');
+      const sender = btn.getAttribute('data-sender');
+      const amount = btn.getAttribute('data-amount');
+      if (!reportId) return;
+      if (!confirm(`Confirm you received ${amount} from ${sender}? This will record the reimbursement on the official ledger.`)) return;
+
+      btn.disabled = true;
+      try {
+        const cmdId = `cxfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'ConfirmTransfer',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          report_id: reportId,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert(`Reimbursement confirmed and recorded on ledger ✓`, 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not confirm reimbursement'}`, 'error');
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Confirmation failed'}`, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Decline Pending Transfer (Recipient or Organizer)
+  document.querySelectorAll('.decline-pending-transfer-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reportId = btn.getAttribute('data-id');
+      const sender = btn.getAttribute('data-sender');
+      if (!reportId) return;
+      const reason = window.prompt(`Mark reimbursement from ${sender} as Not Received?\nEnter reason (optional):`);
+      if (reason === null) return;
+
+      btn.disabled = true;
+      try {
+        const cmdId = `dxfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'DeclineTransfer',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          report_id: reportId,
+          reason: reason.trim() || null,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert('Reimbursement marked not received ✓', 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not decline reimbursement'}`, 'error');
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Decline failed'}`, 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Cancel Pending Transfer (Sender)
+  document.querySelectorAll('.cancel-pending-transfer-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reportId = btn.getAttribute('data-id');
+      if (!reportId) return;
+      if (!confirm('Cancel this reported reimbursement?')) return;
+
+      btn.disabled = true;
+      try {
+        const cmdId = `xxfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const payload = {
+          kind: 'CancelTransfer',
+          command_id: cmdId,
+          expected_revision: snap.revision,
+          report_id: reportId,
+        };
+        const res = await apiCall(`/api/meals/${mealId}/apply`, 'POST', payload);
+        if (res && res.ok) {
+          showAlert('Reimbursement report cancelled ✓', 'success');
+          await fetchSnapshot(true);
+        } else {
+          showAlert(`Failed: ${res?.error || 'Could not cancel report'}`, 'error');
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showAlert(`Error: ${err.message || 'Cancellation failed'}`, 'error');
+        btn.disabled = false;
       }
     });
   });

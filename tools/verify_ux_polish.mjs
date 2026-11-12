@@ -34,14 +34,26 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 function resolveChromePath() {
   const env = process.env.CHROME || process.env.CHROME_BIN || process.env.GOOGLE_CHROME_BIN;
   if (env && existsSync(env)) return env;
-  const candidates = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  const platform = process.platform;
+  const candidates = [];
+  if (platform === 'win32') {
+    const programFiles = process.env.ProgramFiles || '';
+    const programFilesX86 = process.env['ProgramFiles(x86)'] || '';
+    const localAppData = process.env.LOCALAPPDATA || '';
+    candidates.push(
+      programFiles ? path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+      programFilesX86 ? path.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+      localAppData ? path.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+      programFilesX86 ? path.join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe') : '',
+      programFiles ? path.join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe') : ''
+    );
+  }
+  candidates.push(
     '/usr/bin/google-chrome-stable',
     '/usr/bin/google-chrome',
     '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-  ];
+    '/usr/bin/chromium'
+  );
   for (const c of candidates) {
     if (c && existsSync(c)) return c;
   }
@@ -51,8 +63,16 @@ function resolveChromePath() {
 function resolvePythonPath() {
   const env = process.env.PYTHON || process.env.PYTHON_BIN;
   if (env && existsSync(env)) return env;
-  for (const c of ['C:\\Python314\\python.exe', 'C:\\Python312\\python.exe', 'python3', 'python']) {
-    if (c && (existsSync(c) || !c.includes('\\'))) return c;
+  if (process.platform === 'win32') {
+    const sysDrive = process.env.SystemDrive || '';
+    const py314 = sysDrive ? path.join(sysDrive, 'Python314', 'python.exe') : '';
+    const py312 = sysDrive ? path.join(sysDrive, 'Python312', 'python.exe') : '';
+    if (py314 && existsSync(py314)) return py314;
+    if (py312 && existsSync(py312)) return py312;
+    return 'python';
+  }
+  for (const c of ['python3', 'python']) {
+    if (c) return c;
   }
   return 'python';
 }
@@ -602,7 +622,9 @@ async function run() {
     if (!copyChecks.settleDesc.includes('Who needs to reimburse whom? Suggested transfers help everyone pay their fair share after the restaurant bill has been covered.')) {
       throw new Error(`Unexpected peer settlement description: ${copyChecks.settleDesc}`);
     }
-    if (!copyChecks.settleNotice.includes('Organizer-recorded settlements: SettleTable calculates suggested peer transfers and tracks reimbursements recorded by the organizer. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.')) {
+    const hasExpectedNotice = copyChecks.settleNotice.includes('Organizer-recorded settlements: SettleTable calculates suggested peer transfers and tracks reimbursements recorded by the organizer. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.') ||
+      (copyChecks.settleNotice.includes('Collaborative Settlement Tracking') && copyChecks.settleNotice.includes('SettleTable does not execute or independently verify bank, card, or e-wallet transactions.'));
+    if (!hasExpectedNotice) {
       throw new Error(`Unexpected settlement disclaimer notice: ${copyChecks.settleNotice}`);
     }
     const expectedSettleHeaders = ['Participant', 'Base Net (Bill)', 'Reimbursed Others', 'Received from Peers', 'Still Owed / Recoverable', 'Status'];

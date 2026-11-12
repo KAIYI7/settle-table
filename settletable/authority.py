@@ -16,16 +16,20 @@ from .funding import (
     FundingSnapshot,
     ParticipantNetBalance,
     PayerContributionRecord,
+    PendingContributionRecord,
     compute_net_balances,
     derive_contribution_id,
+    derive_pending_contribution_id,
 )
 from .settlement import (
     ParticipantOutstandingBalance,
     PeerTransferRecord,
+    PendingTransferRecord,
     SettlementSnapshot,
     SuggestedTransfer,
     compute_settlement,
     derive_transfer_id,
+    derive_pending_transfer_id,
 )
 
 
@@ -253,6 +257,69 @@ class ReverseTransfer:
 
 
 @dataclass(frozen=True, slots=True)
+class ReportContribution:
+    command_id: str
+    expected_revision: int
+    participant_id: str
+    amount_sen: int
+    payment_method: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmContribution:
+    command_id: str
+    expected_revision: int
+    report_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeclineContribution:
+    command_id: str
+    expected_revision: int
+    report_id: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CancelContribution:
+    command_id: str
+    expected_revision: int
+    report_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReportTransfer:
+    command_id: str
+    expected_revision: int
+    sender_id: str
+    receiver_id: str
+    amount_sen: int
+    note: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmTransfer:
+    command_id: str
+    expected_revision: int
+    report_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeclineTransfer:
+    command_id: str
+    expected_revision: int
+    report_id: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CancelTransfer:
+    command_id: str
+    expected_revision: int
+    report_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class Claim:
     item_id: str
     participant_id: str
@@ -287,6 +354,7 @@ class AcceptedResult:
     canonical_bytes: bytes = field(repr=False)
     contribution_id: str | None = None
     transfer_id: str | None = None
+    report_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +384,8 @@ class DraftSnapshot:
     receipt_photo_shared: bool = False
     notion_export_status: str | None = None
     notion_public_url: str | None = None
+    pending_contributions: tuple[PendingContributionRecord, ...] = ()
+    pending_transfers: tuple[PendingTransferRecord, ...] = ()
 
 
 def _require(condition, code='invalid_input'):
@@ -458,7 +528,9 @@ def _command_data(command):
     _require(type(command) in (ReplaceReceipt, SetOwnQuantity, AssignParticipantQuantity, SetItemAllocations, ReviewReceipt, Finalize,
                                RevokeSession, RevokeMembership, RevokeInvitation,
                                RecordContribution, ReverseContribution,
-                               RecordTransfer, ReverseTransfer))
+                               RecordTransfer, ReverseTransfer,
+                               ReportContribution, ConfirmContribution, DeclineContribution, CancelContribution,
+                               ReportTransfer, ConfirmTransfer, DeclineTransfer, CancelTransfer))
     _id(command.command_id)
     data = {'contract': 'settletable-command-v1', 'kind': type(command).__name__, 'command_id': command.command_id}
     if type(command) is SetOwnQuantity:
@@ -534,6 +606,66 @@ def _command_data(command):
         if reason is not None:
             _text(reason, 200)
         data.update(transfer_id=command.transfer_id, reason=reason)
+    elif type(command) is ReportContribution:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.participant_id)
+        _money(command.amount_sen)
+        _require(1 <= command.amount_sen <= 1_000_000_000, 'invalid_input')
+        method = command.payment_method
+        if method is not None:
+            _require(method in ('cash', 'card', 'ewallet', 'bank_transfer', 'other'), 'invalid_input')
+        data.update(participant_id=command.participant_id, amount_sen=command.amount_sen,
+                    payment_method=method)
+    elif type(command) is ConfirmContribution:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.report_id)
+        data.update(report_id=command.report_id)
+    elif type(command) is DeclineContribution:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.report_id)
+        reason = command.reason
+        if reason is not None:
+            _text(reason, 200)
+        data.update(report_id=command.report_id, reason=reason)
+    elif type(command) is CancelContribution:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.report_id)
+        data.update(report_id=command.report_id)
+    elif type(command) is ReportTransfer:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.sender_id)
+        _id(command.receiver_id)
+        _require(command.sender_id != command.receiver_id, 'self_transfer_prohibited')
+        _money(command.amount_sen)
+        _require(1 <= command.amount_sen <= 1_000_000_000, 'invalid_input')
+        note = command.note
+        if note is not None:
+            _text(note, 200)
+        data.update(sender_id=command.sender_id, receiver_id=command.receiver_id,
+                    amount_sen=command.amount_sen, note=note)
+    elif type(command) is ConfirmTransfer:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.report_id)
+        data.update(report_id=command.report_id)
+    elif type(command) is DeclineTransfer:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.report_id)
+        reason = command.reason
+        if reason is not None:
+            _text(reason, 200)
+        data.update(report_id=command.report_id, reason=reason)
+    elif type(command) is CancelTransfer:
+        _revision(command.expected_revision)
+        data['expected_revision'] = command.expected_revision
+        _id(command.report_id)
+        data.update(report_id=command.report_id)
     else:
         _revision(command.expected_revision)
         data['expected_revision'] = command.expected_revision
@@ -565,7 +697,8 @@ def _decode_result(wire):
     return AcceptedResult(data['command_id'], data['kind'], data['revision'],
                           data['financial_revision'], claims, _decode_calculation(data['calculation']), wire,
                           data.get('contribution_id'),
-                          data.get('transfer_id'))
+                          data.get('transfer_id'),
+                          data.get('report_id'))
 
 
 def _calculation_data(result):
@@ -796,6 +929,92 @@ class Authority:
                           OR NEW.created_at != OLD.created_at OR NEW.created_by != OLD.created_by
                           OR (NEW.note IS NOT OLD.note) THEN
                             RAISE(FAIL, 'immutable transfer columns cannot be modified')
+                    END;
+                END;
+                CREATE TABLE IF NOT EXISTS pending_contributions (
+                    meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+                    report_id TEXT NOT NULL,
+                    command_id TEXT NOT NULL,
+                    participant_id TEXT NOT NULL,
+                    amount_sen INTEGER NOT NULL CHECK (amount_sen >= 1 AND amount_sen <= 1000000000),
+                    payment_method TEXT CHECK (payment_method IN ('cash', 'card', 'ewallet', 'bank_transfer', 'other') OR payment_method IS NULL),
+                    created_at REAL NOT NULL,
+                    created_by TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'declined', 'cancelled')),
+                    resolved_at REAL,
+                    resolved_by TEXT,
+                    rejection_reason TEXT,
+                    contribution_id TEXT,
+                    PRIMARY KEY(meal_id, report_id),
+                    UNIQUE(meal_id, command_id),
+                    FOREIGN KEY(meal_id, participant_id) REFERENCES participants(meal_id, id),
+                    FOREIGN KEY(meal_id, created_by) REFERENCES participants(meal_id, id),
+                    FOREIGN KEY(meal_id, resolved_by) REFERENCES participants(meal_id, id));
+                CREATE INDEX IF NOT EXISTS idx_pending_contributions_status ON pending_contributions(meal_id, status);
+                CREATE TRIGGER IF NOT EXISTS prevent_pending_contributions_delete
+                BEFORE DELETE ON pending_contributions
+                BEGIN
+                    SELECT RAISE(FAIL, 'pending_contributions rows cannot be deleted');
+                END;
+                CREATE TRIGGER IF NOT EXISTS prevent_pending_contributions_tamper
+                BEFORE UPDATE ON pending_contributions
+                FOR EACH ROW
+                BEGIN
+                    SELECT CASE
+                        WHEN OLD.status != 'pending' THEN
+                            RAISE(FAIL, 'cannot modify resolved pending contribution')
+                        WHEN NEW.status NOT IN ('confirmed', 'declined', 'cancelled') THEN
+                            RAISE(FAIL, 'invalid status transition')
+                        WHEN NEW.meal_id != OLD.meal_id OR NEW.report_id != OLD.report_id
+                          OR NEW.command_id != OLD.command_id OR NEW.participant_id != OLD.participant_id
+                          OR NEW.amount_sen != OLD.amount_sen OR NEW.created_at != OLD.created_at
+                          OR NEW.created_by != OLD.created_by OR (NEW.payment_method IS NOT OLD.payment_method) THEN
+                            RAISE(FAIL, 'immutable pending contribution columns cannot be modified')
+                    END;
+                END;
+                CREATE TABLE IF NOT EXISTS pending_transfers (
+                    meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+                    report_id TEXT NOT NULL,
+                    command_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    receiver_id TEXT NOT NULL,
+                    amount_sen INTEGER NOT NULL CHECK (amount_sen >= 1 AND amount_sen <= 1000000000),
+                    note TEXT,
+                    created_at REAL NOT NULL,
+                    created_by TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'declined', 'cancelled')),
+                    resolved_at REAL,
+                    resolved_by TEXT,
+                    rejection_reason TEXT,
+                    transfer_id TEXT,
+                    PRIMARY KEY(meal_id, report_id),
+                    UNIQUE(meal_id, command_id),
+                    CHECK(sender_id != receiver_id),
+                    FOREIGN KEY(meal_id, sender_id) REFERENCES participants(meal_id, id),
+                    FOREIGN KEY(meal_id, receiver_id) REFERENCES participants(meal_id, id),
+                    FOREIGN KEY(meal_id, created_by) REFERENCES participants(meal_id, id),
+                    FOREIGN KEY(meal_id, resolved_by) REFERENCES participants(meal_id, id));
+                CREATE INDEX IF NOT EXISTS idx_pending_transfers_status ON pending_transfers(meal_id, status);
+                CREATE TRIGGER IF NOT EXISTS prevent_pending_transfers_delete
+                BEFORE DELETE ON pending_transfers
+                BEGIN
+                    SELECT RAISE(FAIL, 'pending_transfers rows cannot be deleted');
+                END;
+                CREATE TRIGGER IF NOT EXISTS prevent_pending_transfers_tamper
+                BEFORE UPDATE ON pending_transfers
+                FOR EACH ROW
+                BEGIN
+                    SELECT CASE
+                        WHEN OLD.status != 'pending' THEN
+                            RAISE(FAIL, 'cannot modify resolved pending transfer')
+                        WHEN NEW.status NOT IN ('confirmed', 'declined', 'cancelled') THEN
+                            RAISE(FAIL, 'invalid status transition')
+                        WHEN NEW.meal_id != OLD.meal_id OR NEW.report_id != OLD.report_id
+                          OR NEW.command_id != OLD.command_id OR NEW.sender_id != OLD.sender_id
+                          OR NEW.receiver_id != OLD.receiver_id OR NEW.amount_sen != OLD.amount_sen
+                          OR NEW.created_at != OLD.created_at OR NEW.created_by != OLD.created_by
+                          OR (NEW.note IS NOT OLD.note) THEN
+                            RAISE(FAIL, 'immutable pending transfer columns cannot be modified')
                     END;
                 END;
             ''')
@@ -1059,7 +1278,33 @@ class Authority:
             funding = None
             transfers = ()
             settlement = None
+            pending_contributions = ()
+            pending_transfers = ()
             if state['calculation'] is not None:
+                part_names = {p[0]: p[1] for p in people}
+                active_set = {p[0] for p in people if p[3]}
+
+                pcontrib_rows = self._db.execute('''
+                    SELECT report_id, command_id, participant_id, amount_sen, payment_method,
+                           created_at, created_by, status, resolved_at, resolved_by,
+                           rejection_reason, contribution_id
+                    FROM pending_contributions
+                    WHERE meal_id=?
+                    ORDER BY created_at ASC, report_id ASC
+                ''', (meal_id,)).fetchall()
+                pending_contributions = tuple(
+                    PendingContributionRecord(
+                        report_id=r[0], command_id=r[1], participant_id=r[2],
+                        participant_name=part_names.get(r[2], r[2]), amount_sen=r[3],
+                        payment_method=r[4], created_at=r[5], created_by=r[6],
+                        created_by_name=part_names.get(r[6], r[6]), status=r[7],
+                        resolved_at=r[8], resolved_by=r[9],
+                        resolved_by_name=part_names.get(r[9], r[9]) if r[9] else None,
+                        rejection_reason=r[10], contribution_id=r[11],
+                    ) for r in pcontrib_rows
+                )
+                confirmed_pcontribs = {p.contribution_id: p for p in pending_contributions if p.status == 'confirmed' and p.contribution_id}
+
                 contrib_rows = self._db.execute('''
                     SELECT contribution_id, command_id, participant_id, amount_sen, payment_method,
                            created_at, created_by, status, reversed_at, reversed_by,
@@ -1068,26 +1313,32 @@ class Authority:
                     WHERE meal_id=?
                     ORDER BY created_at ASC, contribution_id ASC
                 ''', (meal_id,)).fetchall()
-                part_names = {p[0]: p[1] for p in people}
-                active_set = {p[0] for p in people if p[3]}
-                contrib_records = tuple(
-                    PayerContributionRecord(
-                        contribution_id=r[0],
-                        command_id=r[1],
-                        participant_id=r[2],
-                        participant_name=part_names.get(r[2], r[2]),
-                        amount_sen=r[3],
-                        payment_method=r[4],
-                        created_at=r[5],
-                        created_by=r[6],
-                        status=r[7],
-                        reversed_at=r[8],
-                        reversed_by=r[9],
-                        reversal_command_id=r[10],
-                        reversal_reason=r[11],
-                    ) for r in contrib_rows
-                )
-                contributions = contrib_records
+                contrib_records = []
+                for r in contrib_rows:
+                    cid = r[0]
+                    p_rec = confirmed_pcontribs.get(cid)
+                    contrib_records.append(
+                        PayerContributionRecord(
+                            contribution_id=cid,
+                            command_id=r[1],
+                            participant_id=r[2],
+                            participant_name=part_names.get(r[2], r[2]),
+                            amount_sen=r[3],
+                            payment_method=r[4],
+                            created_at=r[5],
+                            created_by=r[6],
+                            status=r[7],
+                            reversed_at=r[8],
+                            reversed_by=r[9],
+                            reversal_command_id=r[10],
+                            reversal_reason=r[11],
+                            reported_by=p_rec.created_by if p_rec else None,
+                            reported_by_name=p_rec.created_by_name if p_rec else None,
+                            confirmed_by=p_rec.resolved_by if p_rec else None,
+                            confirmed_by_name=p_rec.resolved_by_name if p_rec else None,
+                        )
+                    )
+                contributions = tuple(contrib_records)
                 calc_consumption = [(p['participant_id'], p['sen']) for p in state['calculation']['consumption']]
                 receipt_total = state['receipt']['total_sen']
                 funding, net_balances = compute_net_balances(
@@ -1097,6 +1348,28 @@ class Authority:
                     active_contributions=contrib_records,
                     receipt_total_sen=receipt_total,
                 )
+
+                pxfer_rows = self._db.execute('''
+                    SELECT report_id, command_id, sender_id, receiver_id, amount_sen,
+                           note, created_at, created_by, status, resolved_at, resolved_by,
+                           rejection_reason, transfer_id
+                    FROM pending_transfers
+                    WHERE meal_id=?
+                    ORDER BY created_at ASC, report_id ASC
+                ''', (meal_id,)).fetchall()
+                pending_transfers = tuple(
+                    PendingTransferRecord(
+                        report_id=r[0], command_id=r[1], sender_id=r[2],
+                        sender_name=part_names.get(r[2], r[2]), receiver_id=r[3],
+                        receiver_name=part_names.get(r[3], r[3]), amount_sen=r[4],
+                        note=r[5], created_at=r[6], created_by=r[7], status=r[8],
+                        resolved_at=r[9], resolved_by=r[10],
+                        resolved_by_name=part_names.get(r[10], r[10]) if r[10] else None,
+                        rejection_reason=r[11], transfer_id=r[12],
+                    ) for r in pxfer_rows
+                )
+                confirmed_pxfers = {p.transfer_id: p for p in pending_transfers if p.status == 'confirmed' and p.transfer_id}
+
                 xfer_rows = self._db.execute('''
                     SELECT transfer_id, command_id, sender_id, receiver_id, amount_sen,
                            note, created_at, created_by, status, reversed_at, reversed_by,
@@ -1105,13 +1378,32 @@ class Authority:
                     WHERE meal_id=?
                     ORDER BY created_at ASC, transfer_id ASC
                 ''', (meal_id,)).fetchall()
-                transfers = tuple(
-                    PeerTransferRecord(
-                        transfer_id=r[0], command_id=r[1], sender_id=r[2], receiver_id=r[3],
-                        amount_sen=r[4], note=r[5], created_at=r[6], created_by=r[7], status=r[8],
-                        reversed_at=r[9], reversed_by=r[10], reversal_command_id=r[11], reversal_reason=r[12],
-                    ) for r in xfer_rows
-                )
+                xfer_records = []
+                for r in xfer_rows:
+                    xid = r[0]
+                    p_rec = confirmed_pxfers.get(xid)
+                    xfer_records.append(
+                        PeerTransferRecord(
+                            transfer_id=xid,
+                            command_id=r[1],
+                            sender_id=r[2],
+                            receiver_id=r[3],
+                            amount_sen=r[4],
+                            note=r[5],
+                            created_at=r[6],
+                            created_by=r[7],
+                            status=r[8],
+                            reversed_at=r[9],
+                            reversed_by=r[10],
+                            reversal_command_id=r[11],
+                            reversal_reason=r[12],
+                            reported_by=p_rec.created_by if p_rec else None,
+                            reported_by_name=p_rec.sender_name if p_rec else None,
+                            confirmed_by=p_rec.resolved_by if p_rec else None,
+                            confirmed_by_name=p_rec.resolved_by_name if p_rec else None,
+                        )
+                    )
+                transfers = tuple(xfer_records)
                 settlement = compute_settlement(
                     base_net_balances=net_balances,
                     transfers=transfers,
@@ -1136,7 +1428,9 @@ class Authority:
                                    settlement,
                                    receipt_photo_shared,
                                    notion_export_status,
-                                   notion_public_url)
+                                   notion_public_url,
+                                   pending_contributions,
+                                   pending_transfers)
             self._db.execute('COMMIT')
             return result
         except AuthorityError:
@@ -1880,9 +2174,33 @@ class Authority:
         return tuple(sorted(set(issues)))
 
     def _permission(self, actor, organizer, meal_id, data):
-        if data['kind'] != 'SetOwnQuantity':
+        kind = data['kind']
+        if kind == 'SetOwnQuantity':
+            pass
+        elif kind == 'ReportContribution':
+            _require(actor == data['participant_id'], 'not_the_payer')
+        elif kind == 'CancelContribution':
+            row = self._db.execute('SELECT created_by FROM pending_contributions WHERE meal_id=? AND report_id=?',
+                                   (meal_id, data['report_id'])).fetchone()
+            _require(row is not None and row[0] == actor, 'forbidden')
+        elif kind == 'ReportTransfer':
+            _require(actor == data['sender_id'], 'not_the_sender')
+        elif kind == 'ConfirmTransfer':
+            row = self._db.execute('SELECT receiver_id, sender_id FROM pending_transfers WHERE meal_id=? AND report_id=?',
+                                   (meal_id, data['report_id'])).fetchone()
+            _require(row is not None and row[0] == actor, 'not_the_recipient')
+            _require(row[1] != actor, 'cannot_confirm_own_payment')
+        elif kind == 'DeclineTransfer':
+            row = self._db.execute('SELECT receiver_id FROM pending_transfers WHERE meal_id=? AND report_id=?',
+                                   (meal_id, data['report_id'])).fetchone()
+            _require(row is not None and (row[0] == actor or bool(organizer)), 'not_the_recipient')
+        elif kind == 'CancelTransfer':
+            row = self._db.execute('SELECT sender_id FROM pending_transfers WHERE meal_id=? AND report_id=?',
+                                   (meal_id, data['report_id'])).fetchone()
+            _require(row is not None and row[0] == actor, 'not_the_sender')
+        else:
             _require(bool(organizer), 'forbidden')
-        if data['kind'] in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation'):
+        if kind in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation'):
             target = self._db.execute('SELECT organizer FROM participants WHERE meal_id=? AND id=?',
                                       (meal_id, data['participant_id'])).fetchone()
             _require(target is not None and not target[0] and data['participant_id'] != actor, 'forbidden')
@@ -2218,6 +2536,320 @@ class Authority:
             WHERE meal_id=? AND transfer_id=?
         ''', (now, actor, command_id, reason, meal_id, transfer_id))
 
+    def _report_contribution(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        participant_id = data['participant_id']
+        amount_sen = data['amount_sen']
+        payment_method = data.get('payment_method')
+        calc_data = state['calculation']
+        consumption_participants = {p['participant_id'] for p in calc_data['consumption']}
+        _require(participant_id in consumption_participants, 'invalid_participant')
+
+        part_row = self._db.execute('SELECT active FROM participants WHERE meal_id=? AND id=?',
+                                    (meal_id, participant_id)).fetchone()
+        _require(part_row is not None and bool(part_row[0]), 'invalid_participant')
+
+        row = self._db.execute("SELECT COALESCE(SUM(amount_sen), 0) FROM payer_contributions WHERE meal_id=? AND status='active'",
+                               (meal_id,)).fetchone()
+        active_sum = row[0] if row else 0
+        receipt_total = state['receipt']['total_sen']
+        unfunded_sen = max(0, receipt_total - active_sum)
+        _require(amount_sen <= unfunded_sen, 'amount_exceeds_unfunded')
+
+        p_row = self._db.execute(
+            "SELECT COALESCE(SUM(amount_sen), 0) FROM pending_contributions WHERE meal_id=? AND participant_id=? AND status='pending'",
+            (meal_id, participant_id)).fetchone()
+        pending_sum = p_row[0] if p_row else 0
+        _require(pending_sum + amount_sen <= unfunded_sen, 'amount_exceeds_unfunded')
+
+        report_id = derive_pending_contribution_id(meal_id, command_id)
+        now = self._now()
+        self._db.execute('''
+            INSERT INTO pending_contributions (
+                meal_id, report_id, command_id, participant_id, amount_sen,
+                payment_method, created_at, created_by, status
+            ) VALUES (?,?,?,?,?,?,?,?,'pending')
+        ''', (meal_id, report_id, command_id, participant_id, amount_sen, payment_method, now, actor))
+        return report_id
+
+    def _confirm_contribution(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        report_id = data['report_id']
+        row = self._db.execute(
+            'SELECT status, participant_id, amount_sen, payment_method FROM pending_contributions WHERE meal_id=? AND report_id=?',
+            (meal_id, report_id)).fetchone()
+        _require(row is not None, 'report_not_found')
+        _require(row[0] == 'pending', 'invalid_report_status')
+        participant_id, amount_sen, payment_method = row[1], row[2], row[3]
+
+        c_row = self._db.execute("SELECT COALESCE(SUM(amount_sen), 0) FROM payer_contributions WHERE meal_id=? AND status='active'",
+                                (meal_id,)).fetchone()
+        active_sum = c_row[0] if c_row else 0
+        receipt_total = state['receipt']['total_sen']
+        _require(active_sum + amount_sen <= receipt_total, 'overpayment_prohibited')
+
+        contrib_id = derive_contribution_id(meal_id, command_id)
+        now = self._now()
+        self._db.execute('''
+            INSERT INTO payer_contributions (
+                meal_id, contribution_id, command_id, participant_id, amount_sen,
+                payment_method, created_at, created_by, status
+            ) VALUES (?,?,?,?,?,?,?,?,'active')
+        ''', (meal_id, contrib_id, command_id, participant_id, amount_sen, payment_method, now, actor))
+        self._db.execute('''
+            UPDATE pending_contributions
+            SET status='confirmed', resolved_at=?, resolved_by=?, contribution_id=?
+            WHERE meal_id=? AND report_id=?
+        ''', (now, actor, contrib_id, meal_id, report_id))
+        return contrib_id, report_id
+
+    def _decline_contribution(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        report_id = data['report_id']
+        reason = data.get('reason')
+        row = self._db.execute('SELECT status FROM pending_contributions WHERE meal_id=? AND report_id=?',
+                               (meal_id, report_id)).fetchone()
+        _require(row is not None, 'report_not_found')
+        _require(row[0] == 'pending', 'invalid_report_status')
+        now = self._now()
+        self._db.execute('''
+            UPDATE pending_contributions
+            SET status='declined', resolved_at=?, resolved_by=?, rejection_reason=?
+            WHERE meal_id=? AND report_id=?
+        ''', (now, actor, reason, meal_id, report_id))
+        return report_id
+
+    def _cancel_contribution(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        report_id = data['report_id']
+        row = self._db.execute('SELECT status, created_by FROM pending_contributions WHERE meal_id=? AND report_id=?',
+                               (meal_id, report_id)).fetchone()
+        _require(row is not None, 'report_not_found')
+        _require(row[0] == 'pending', 'invalid_report_status')
+        _require(row[1] == actor, 'forbidden')
+        now = self._now()
+        self._db.execute('''
+            UPDATE pending_contributions
+            SET status='cancelled', resolved_at=?, resolved_by=?
+            WHERE meal_id=? AND report_id=?
+        ''', (now, actor, meal_id, report_id))
+        return report_id
+
+    def _report_transfer(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        sender_id = data['sender_id']
+        receiver_id = data['receiver_id']
+        amount_sen = data['amount_sen']
+        note = data.get('note')
+
+        _require(sender_id != receiver_id, 'self_transfer_prohibited')
+        people = self._db.execute('SELECT id, name, organizer, active FROM participants WHERE meal_id=?', (meal_id,)).fetchall()
+        part_names = {p[0]: p[1] for p in people}
+        active_set = {p[0] for p in people if p[3]}
+        _require(sender_id in active_set and receiver_id in active_set, 'invalid_participant')
+        _require(1 <= amount_sen <= 1_000_000_000, 'invalid_input')
+
+        contrib_rows = self._db.execute('''
+            SELECT contribution_id, command_id, participant_id, amount_sen, payment_method,
+                   created_at, created_by, status, reversed_at, reversed_by,
+                   reversal_command_id, reversal_reason
+            FROM payer_contributions
+            WHERE meal_id=?
+            ORDER BY created_at ASC, contribution_id ASC
+        ''', (meal_id,)).fetchall()
+        contrib_records = tuple(
+            PayerContributionRecord(
+                contribution_id=r[0], command_id=r[1], participant_id=r[2],
+                participant_name=part_names.get(r[2], r[2]), amount_sen=r[3],
+                payment_method=r[4], created_at=r[5], created_by=r[6], status=r[7],
+                reversed_at=r[8], reversed_by=r[9], reversal_command_id=r[10], reversal_reason=r[11],
+            ) for r in contrib_rows
+        )
+        calc_consumption = [(p['participant_id'], p['sen']) for p in state['calculation']['consumption']]
+        receipt_total = state['receipt']['total_sen']
+        funding, net_balances = compute_net_balances(
+            consumption_records=calc_consumption,
+            participant_names=part_names,
+            active_participants=active_set,
+            active_contributions=contrib_records,
+            receipt_total_sen=receipt_total,
+        )
+
+        xfer_rows = self._db.execute('''
+            SELECT transfer_id, command_id, sender_id, receiver_id, amount_sen,
+                   note, created_at, created_by, status, reversed_at, reversed_by,
+                   reversal_command_id, reversal_reason
+            FROM peer_transfers
+            WHERE meal_id=?
+            ORDER BY created_at ASC, transfer_id ASC
+        ''', (meal_id,)).fetchall()
+        transfers = tuple(
+            PeerTransferRecord(
+                transfer_id=r[0], command_id=r[1], sender_id=r[2], receiver_id=r[3],
+                amount_sen=r[4], note=r[5], created_at=r[6], created_by=r[7], status=r[8],
+                reversed_at=r[9], reversed_by=r[10], reversal_command_id=r[11], reversal_reason=r[12],
+            ) for r in xfer_rows
+        )
+        settlement = compute_settlement(
+            base_net_balances=net_balances,
+            transfers=transfers,
+            unfunded_sen=funding.unfunded_sen,
+        )
+
+        bal_map = {b.participant_id: b.outstanding_net_balance_sen for b in settlement.outstanding_net_balances}
+        sender_bal = bal_map.get(sender_id, 0)
+        receiver_bal = bal_map.get(receiver_id, 0)
+
+        _require(sender_bal < 0, 'not_a_debtor')
+        _require(receiver_bal > 0, 'not_a_creditor')
+
+        sender_debt = -sender_bal
+        receiver_credit = receiver_bal
+        max_allowed = min(sender_debt, receiver_credit)
+        _require(amount_sen <= max_allowed, 'over_settlement_prohibited')
+
+        p_sent = self._db.execute(
+            "SELECT COALESCE(SUM(amount_sen), 0) FROM pending_transfers WHERE meal_id=? AND sender_id=? AND status='pending'",
+            (meal_id, sender_id)).fetchone()[0]
+        _require(p_sent + amount_sen <= sender_debt, 'amount_exceeds_debt')
+
+        p_rcvd = self._db.execute(
+            "SELECT COALESCE(SUM(amount_sen), 0) FROM pending_transfers WHERE meal_id=? AND receiver_id=? AND status='pending'",
+            (meal_id, receiver_id)).fetchone()[0]
+        _require(p_rcvd + amount_sen <= receiver_credit, 'amount_exceeds_credit')
+
+        report_id = derive_pending_transfer_id(meal_id, command_id)
+        now = self._now()
+        self._db.execute('''
+            INSERT INTO pending_transfers (
+                meal_id, report_id, command_id, sender_id, receiver_id, amount_sen,
+                note, created_at, created_by, status
+            ) VALUES (?,?,?,?,?,?,?,?,?,'pending')
+        ''', (meal_id, report_id, command_id, sender_id, receiver_id, amount_sen, note, now, actor))
+        return report_id
+
+    def _confirm_transfer(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        report_id = data['report_id']
+        row = self._db.execute(
+            'SELECT status, sender_id, receiver_id, amount_sen, note FROM pending_transfers WHERE meal_id=? AND report_id=?',
+            (meal_id, report_id)).fetchone()
+        _require(row is not None, 'report_not_found')
+        _require(row[0] == 'pending', 'invalid_report_status')
+        sender_id, receiver_id, amount_sen, note = row[1], row[2], row[3], row[4]
+        _require(receiver_id == actor, 'not_the_recipient')
+        _require(sender_id != actor, 'cannot_confirm_own_payment')
+
+        people = self._db.execute('SELECT id, name, organizer, active FROM participants WHERE meal_id=?', (meal_id,)).fetchall()
+        part_names = {p[0]: p[1] for p in people}
+        active_set = {p[0] for p in people if p[3]}
+
+        contrib_rows = self._db.execute('''
+            SELECT contribution_id, command_id, participant_id, amount_sen, payment_method,
+                   created_at, created_by, status, reversed_at, reversed_by,
+                   reversal_command_id, reversal_reason
+            FROM payer_contributions
+            WHERE meal_id=?
+            ORDER BY created_at ASC, contribution_id ASC
+        ''', (meal_id,)).fetchall()
+        contrib_records = tuple(
+            PayerContributionRecord(
+                contribution_id=r[0], command_id=r[1], participant_id=r[2],
+                participant_name=part_names.get(r[2], r[2]), amount_sen=r[3],
+                payment_method=r[4], created_at=r[5], created_by=r[6], status=r[7],
+                reversed_at=r[8], reversed_by=r[9], reversal_command_id=r[10], reversal_reason=r[11],
+            ) for r in contrib_rows
+        )
+        calc_consumption = [(p['participant_id'], p['sen']) for p in state['calculation']['consumption']]
+        receipt_total = state['receipt']['total_sen']
+        funding, net_balances = compute_net_balances(
+            consumption_records=calc_consumption,
+            participant_names=part_names,
+            active_participants=active_set,
+            active_contributions=contrib_records,
+            receipt_total_sen=receipt_total,
+        )
+
+        xfer_rows = self._db.execute('''
+            SELECT transfer_id, command_id, sender_id, receiver_id, amount_sen,
+                   note, created_at, created_by, status, reversed_at, reversed_by,
+                   reversal_command_id, reversal_reason
+            FROM peer_transfers
+            WHERE meal_id=?
+            ORDER BY created_at ASC, transfer_id ASC
+        ''', (meal_id,)).fetchall()
+        transfers = tuple(
+            PeerTransferRecord(
+                transfer_id=r[0], command_id=r[1], sender_id=r[2], receiver_id=r[3],
+                amount_sen=r[4], note=r[5], created_at=r[6], created_by=r[7], status=r[8],
+                reversed_at=r[9], reversed_by=r[10], reversal_command_id=r[11], reversal_reason=r[12],
+            ) for r in xfer_rows
+        )
+        settlement = compute_settlement(
+            base_net_balances=net_balances,
+            transfers=transfers,
+            unfunded_sen=funding.unfunded_sen,
+        )
+
+        bal_map = {b.participant_id: b.outstanding_net_balance_sen for b in settlement.outstanding_net_balances}
+        sender_bal = bal_map.get(sender_id, 0)
+        receiver_bal = bal_map.get(receiver_id, 0)
+
+        _require(sender_bal < 0, 'not_a_debtor')
+        _require(receiver_bal > 0, 'not_a_creditor')
+
+        sender_debt = -sender_bal
+        receiver_credit = receiver_bal
+        max_allowed = min(sender_debt, receiver_credit)
+        _require(amount_sen <= max_allowed, 'over_settlement_prohibited')
+
+        transfer_id = derive_transfer_id(meal_id, command_id)
+        now = self._now()
+        self._db.execute('''
+            INSERT INTO peer_transfers (
+                meal_id, transfer_id, command_id, sender_id, receiver_id, amount_sen,
+                note, created_at, created_by, status
+            ) VALUES (?,?,?,?,?,?,?,?,?,'confirmed')
+        ''', (meal_id, transfer_id, command_id, sender_id, receiver_id, amount_sen, note, now, actor))
+        self._db.execute('''
+            UPDATE pending_transfers
+            SET status='confirmed', resolved_at=?, resolved_by=?, transfer_id=?
+            WHERE meal_id=? AND report_id=?
+        ''', (now, actor, transfer_id, meal_id, report_id))
+        return transfer_id, report_id
+
+    def _decline_transfer(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        report_id = data['report_id']
+        reason = data.get('reason')
+        row = self._db.execute('SELECT status FROM pending_transfers WHERE meal_id=? AND report_id=?',
+                               (meal_id, report_id)).fetchone()
+        _require(row is not None, 'report_not_found')
+        _require(row[0] == 'pending', 'invalid_report_status')
+        now = self._now()
+        self._db.execute('''
+            UPDATE pending_transfers
+            SET status='declined', resolved_at=?, resolved_by=?, rejection_reason=?
+            WHERE meal_id=? AND report_id=?
+        ''', (now, actor, reason, meal_id, report_id))
+        return report_id
+
+    def _cancel_transfer(self, meal_id, state, actor, command_id, data):
+        _require(state['calculation'] is not None, 'not_finalized')
+        report_id = data['report_id']
+        row = self._db.execute('SELECT status, sender_id FROM pending_transfers WHERE meal_id=? AND report_id=?',
+                               (meal_id, report_id)).fetchone()
+        _require(row is not None, 'report_not_found')
+        _require(row[0] == 'pending', 'invalid_report_status')
+        _require(row[1] == actor, 'not_the_sender')
+        now = self._now()
+        self._db.execute('''
+            UPDATE pending_transfers
+            SET status='cancelled', resolved_at=?, resolved_by=?
+            WHERE meal_id=? AND report_id=?
+        ''', (now, actor, meal_id, report_id))
+        return report_id
+
     def apply(self, credential, meal_id, command, *, replay_only=False, omitted_scope_ids=()):
         verifier = _verifier(credential)
         _id(meal_id)
@@ -2241,7 +2873,11 @@ class Authority:
             _require(not replay_only)
             state = json.loads(self._db.execute('SELECT state FROM meals WHERE id=?', (meal_id,)).fetchone()[0])
             security = data['kind'] in ('RevokeSession', 'RevokeMembership', 'RevokeInvitation')
-            post_finalization = data['kind'] in ('RecordContribution', 'ReverseContribution', 'RecordTransfer', 'ReverseTransfer')
+            post_finalization = data['kind'] in (
+                'RecordContribution', 'ReverseContribution', 'RecordTransfer', 'ReverseTransfer',
+                'ReportContribution', 'ConfirmContribution', 'DeclineContribution', 'CancelContribution',
+                'ReportTransfer', 'ConfirmTransfer', 'DeclineTransfer', 'CancelTransfer'
+            )
             if security:
                 _require(self._db.execute('SELECT COUNT(*) FROM commands WHERE meal_id=? AND security=1', (meal_id,)).fetchone()[0] < 15_000,
                          'resource_limit')
@@ -2260,6 +2896,7 @@ class Authority:
                 _require(data['expected_financial_revision'] == state['financial_revision'], 'financial_revision_conflict')
             contrib_id = None
             transfer_id = None
+            report_id = None
             if data['kind'] == 'ReplaceReceipt':
                 changed = self._replace_receipt(state, data, omitted_scope_ids)
             elif data['kind'] == 'SetOwnQuantity':
@@ -2286,6 +2923,30 @@ class Authority:
             elif data['kind'] == 'ReverseTransfer':
                 self._reverse_transfer(meal_id, state, actor, command.command_id, data)
                 changed = ()
+            elif data['kind'] == 'ReportContribution':
+                report_id = self._report_contribution(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'ConfirmContribution':
+                contrib_id, report_id = self._confirm_contribution(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'DeclineContribution':
+                report_id = self._decline_contribution(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'CancelContribution':
+                report_id = self._cancel_contribution(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'ReportTransfer':
+                report_id = self._report_transfer(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'ConfirmTransfer':
+                transfer_id, report_id = self._confirm_transfer(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'DeclineTransfer':
+                report_id = self._decline_transfer(meal_id, state, actor, command.command_id, data)
+                changed = ()
+            elif data['kind'] == 'CancelTransfer':
+                report_id = self._cancel_transfer(meal_id, state, actor, command.command_id, data)
+                changed = ()
             elif security:
                 self._revoke(meal_id, data)
                 changed = ()
@@ -2305,6 +2966,8 @@ class Authority:
                 result_dict['contribution_id'] = contrib_id
             if transfer_id is not None:
                 result_dict['transfer_id'] = transfer_id
+            if report_id is not None:
+                result_dict['report_id'] = report_id
             result_bytes = _wire(result_dict)
             self._db.execute('INSERT INTO commands VALUES (?,?,?,?,?,?,?)',
                              (meal_id, actor, command.command_id, body, digest, result_bytes, int(security)))

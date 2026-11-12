@@ -29,6 +29,30 @@ class PeerTransferRecord:
     reversed_by: str | None = None
     reversal_command_id: str | None = None
     reversal_reason: str | None = None
+    reported_by: str | None = None
+    reported_by_name: str | None = None
+    confirmed_by: str | None = None
+    confirmed_by_name: str | None = None
+
+
+@dataclass(frozen=True)
+class PendingTransferRecord:
+    report_id: str
+    command_id: str
+    sender_id: str
+    sender_name: str
+    receiver_id: str
+    receiver_name: str
+    amount_sen: int
+    note: str | None
+    created_at: float
+    created_by: str
+    status: str  # 'pending' | 'confirmed' | 'declined' | 'cancelled'
+    resolved_at: float | None = None
+    resolved_by: str | None = None
+    resolved_by_name: str | None = None
+    rejection_reason: str | None = None
+    transfer_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +80,13 @@ def derive_transfer_id(meal_id: str, command_id: str) -> str:
     raw = f"{meal_id}:{command_id}".encode("utf-8")
     digest = hashlib.sha256(raw).hexdigest()[:16]
     return f"xfer-{digest}"
+
+
+def derive_pending_transfer_id(meal_id: str, command_id: str) -> str:
+    """Deterministically derive a collision-resistant pending transfer report ID."""
+    raw = f"pxfer:{meal_id}:{command_id}".encode("utf-8")
+    digest = hashlib.sha256(raw).hexdigest()[:16]
+    return f"pxfer-{digest}"
 
 
 def compute_settlement(
