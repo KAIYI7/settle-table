@@ -1055,6 +1055,8 @@ class TestNotionTransportIntegration(unittest.TestCase):
             "javascript:alert(1)",  # XSS scheme
             "https://evil.phishing-site.com/fake",  # unauthorized domain
             "https://notion.site.evil.com/fake",  # prefix domain bypass attempt
+            "https://notion.com.evil.com/fake",  # notion.com prefix bypass attempt
+            "https://app.notion.com.attacker.com/fake",  # app.notion.com subdomain bypass attempt
             "https://notion.site/" + "a" * 520,  # exceeds 512 chars
             "https://settle.kybuilds.com/#/claim-organizer/test-token-123456",  # organizer claim URL
             "http://localhost:8000/#/claim-organizer/test-token-123456",  # local organizer claim URL
@@ -1074,11 +1076,14 @@ class TestNotionTransportIntegration(unittest.TestCase):
             data_bad = json.loads(res_bad.decode("utf-8"))
             self.assertEqual(data_bad["error"], "invalid_input")
 
-        # 5. Valid notion.site and notion.so URLs accepted
+        # 5. Valid notion.site, notion.so, and notion.com URLs accepted
         valid_urls = [
             "https://table-123.notion.site/Dinner-Report-xyz",
             "https://notion.so/my-org/Dinner-Report-xyz",
             "https://www.notion.so/my-org/Dinner-Report-xyz",
+            "https://app.notion.com/p/SettleTable-test-12345/197ad85",
+            "https://www.notion.com/my-org/Dinner-Report-xyz",
+            "https://notion.com/my-org/Dinner-Report-xyz",
         ]
         for good_url in valid_urls:
             code_good, _, res_good = self._call(

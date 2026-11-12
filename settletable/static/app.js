@@ -3251,7 +3251,7 @@ function validateNotionSharingUrl(rawUrl) {
     if (candidate.origin.toLowerCase() === locOrigin && !trimmed.startsWith('https://notion.')) {
       return {
         valid: false,
-        error: '⚠️ SettleTable URL Detected: Please enter a Notion report URL (https://...notion.site/... or https://...notion.so/...), not a SettleTable application link.',
+        error: '⚠️ SettleTable URL Detected: Please enter a Notion report URL (https://...notion.site/..., https://...notion.so/..., or https://...notion.com/...), not a SettleTable application link.',
       };
     }
   } catch {
@@ -3284,11 +3284,13 @@ function validateNotionSharingUrl(rawUrl) {
   }
 
   const host = (parsed.hostname || '').toLowerCase();
-  const isNotionHost = host === 'notion.site' || host.endsWith('.notion.site') || host === 'notion.so' || host.endsWith('.notion.so');
+  const isNotionHost = host === 'notion.site' || host.endsWith('.notion.site') ||
+                       host === 'notion.so' || host.endsWith('.notion.so') ||
+                       host === 'notion.com' || host.endsWith('.notion.com');
   if (!isNotionHost) {
     return {
       valid: false,
-      error: `⚠️ Unrecognized Domain: "${host}" is not a Notion domain. Please provide a link from notion.site or notion.so.`,
+      error: `⚠️ Unrecognized Domain: "${host}" is not a Notion domain. Please provide a link from notion.site, notion.so, or notion.com.`,
     };
   }
 
@@ -5642,10 +5644,17 @@ function bindEvents(snap) {
     confirmCandidateBtn.addEventListener('click', async () => {
       const candidateUrl = confirmCandidateBtn.getAttribute('data-url');
       if (!candidateUrl) return;
+
+      const validation = validateNotionSharingUrl(candidateUrl);
+      if (!validation.valid) {
+        showAlert(validation.error, 'error');
+        return;
+      }
+
       confirmCandidateBtn.disabled = true;
       confirmCandidateBtn.textContent = 'Sharing...';
       try {
-        const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: candidateUrl });
+        const res = await apiCall(`/api/meals/${state.mealId}/export/notion/public-url`, 'POST', { public_url: validation.url });
         if (res?.ok) {
           if (state.notionExport) state.notionExport.public_url = res.public_url;
           if (state.snapshot) state.snapshot.notion_public_url = res.public_url;

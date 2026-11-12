@@ -448,6 +448,15 @@ async function main() {
     await wait("document.getElementById('notion-url-validation-alert')?.innerText.includes('not a Notion domain')");
     console.log('✓ Successfully blocked non-Notion external URL sharing');
 
+    // Test acceptance of official app.notion.com URL
+    const appNotionUrl = 'https://app.notion.com/p/SettleTable-test-12345/197ad85';
+    await ev(`
+      document.getElementById('notion-public-url-input').value = '${appNotionUrl}';
+      document.getElementById('save-notion-public-url-btn').click();
+    `);
+    await wait("state.snapshot.notion_public_url === '" + appNotionUrl + "'");
+    console.log('✓ Successfully accepted and saved official app.notion.com report URL');
+
     // Test Stop Sharing with Diners
     await ev("document.getElementById('clear-notion-public-url-btn').click()");
     await wait("!state.snapshot.notion_public_url");
