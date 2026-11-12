@@ -2370,8 +2370,11 @@ class Authority:
                 import urllib.parse
                 parsed = urllib.parse.urlparse(public_url)
                 _require(parsed.scheme == 'https', 'invalid_input')
+                _require(not parsed.username and not parsed.password, 'invalid_input')
                 host = (parsed.hostname or '').lower()
                 _require(host == 'notion.site' or host.endswith('.notion.site') or host == 'notion.so' or host.endswith('.notion.so'), 'invalid_input')
+                _require(not any(sub in public_url for sub in ('/claim-organizer/', '/invite/', '/join/')), 'invalid_input')
+                _require('claim-organizer' not in public_url.lower(), 'invalid_input')
             else:
                 public_url = None
         try:

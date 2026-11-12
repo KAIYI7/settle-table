@@ -1049,13 +1049,19 @@ class TestNotionTransportIntegration(unittest.TestCase):
         finally:
             auth.close()
 
-        # 4. Invalid URLs rejected with 400
+        # 4. Invalid and sensitive credential URLs rejected with 400
         invalid_urls = [
             "http://subdomain.notion.site/unencrypted",  # unencrypted http
             "javascript:alert(1)",  # XSS scheme
             "https://evil.phishing-site.com/fake",  # unauthorized domain
             "https://notion.site.evil.com/fake",  # prefix domain bypass attempt
             "https://notion.site/" + "a" * 520,  # exceeds 512 chars
+            "https://settle.kybuilds.com/#/claim-organizer/test-token-123456",  # organizer claim URL
+            "http://localhost:8000/#/claim-organizer/test-token-123456",  # local organizer claim URL
+            "https://notion.site/#/claim-organizer/test-token-123456",  # organizer claim path on notion domain
+            "https://notion.site/invite/test-token-123456",  # invitation path
+            "https://notion.site/join/meal-test-123",  # join path
+            "https://admin:secret@notion.site/shared-report",  # embedded user credentials
         ]
         for bad_url in invalid_urls:
             code_bad, _, res_bad = self._call(
