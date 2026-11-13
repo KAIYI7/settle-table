@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -98,6 +99,33 @@ class SimulationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 config(url)
         self.assertNotIn('A' * 43, repr(config()))
+
+    def test_private_credential_file_and_access_pair_fail_closed(self):
+        path = Path(self.temp.name) / 'credentials.json'
+        credentials = {'credential': self.cfg.credential, 'access_client_id': 'dummy-access-id',
+                       'access_client_secret': 'dummy-access-secret'}
+        env = {'SETTLETABLE_KAIPAY_' + name: value for name, value in {
+            'ENABLED': '1', 'INTEGRATION_ID': INTEGRATION, 'NAMESPACE': NAMESPACE,
+            'BASE_URL': 'https://api.kybuilds.com', 'CREDENTIALS_FILE': str(path)}.items()}
+        with patch.dict(os.environ, dict(env, SETTLETABLE_KAIPAY_ENABLED='0'), clear=True):
+            self.assertIsNone(SimulationConfig.from_env())
+        with patch.dict(os.environ, env, clear=True):
+            path.write_text(json.dumps(credentials), encoding='utf-8')
+            configured = SimulationConfig.from_env()
+            for key, value in credentials.items():
+                self.assertEqual(getattr(configured, key), value)
+                self.assertNotIn(value, repr(configured))
+            with patch.dict(os.environ, {'SETTLETABLE_KAIPAY_CREDENTIAL': credentials['credential']}):
+                with self.assertRaisesRegex(ValueError, '^invalid_simulation_configuration$'):
+                    SimulationConfig.from_env()
+            for invalid in ({'credential': self.cfg.credential},
+                            dict(credentials, access_client_secret=None),
+                            dict(credentials, access_client_id='invalid\r\nInjected: value')):
+                path.write_text(json.dumps(invalid), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, '^invalid_simulation_configuration$'):
+                    SimulationConfig.from_env()
+        with self.assertRaises(ValueError):
+            SimulationConfig(INTEGRATION, NAMESPACE, self.cfg.base_url, **credentials)
 
     def test_draft_no_intent_or_network(self):
         client = RecordingClient()
@@ -318,10 +346,82 @@ finally: a.close()
         done = perform_simulation(self.authority, self.credentials['A'], 'meal', 'B', self.cfg, client, initiate=True)
         self.assertEqual([c[0] for c in client.calls], ['PUT', 'GET', 'PUT'])
         self.assertEqual(done['state'], 'AUTHORIZED')
-        self.assertEqual(len({c[1] for c in client.calls}), 1)
+        self.assertEqual(client.calls[0], client.calls[2])
         absent = perform_simulation(self.authority, self.credentials['A'], 'meal', 'A', self.cfg, client)
         self.assertFalse(absent['exists'])
         self.assertEqual(len(client.calls), 3)
+
+    def test_interrupted_put_and_unavailable_reads_stay_get_first(self):
+        self.finalize()
+        calls = []
+
+        class InterruptedClient:
+            def request(inner, method, reference, amount):
+                calls.append((method, reference, amount))
+                raise SystemExit('interrupted after dispatch')
+
+        def initiate(client):
+            return perform_simulation(self.authority, self.credentials['A'], 'meal', 'B',
+                                      self.cfg, client, initiate=True)
+
+        with self.assertRaises(SystemExit):
+            initiate(InterruptedClient())
+        self.authority.close()
+        self.authority = Authority(self.path, clock=lambda: self.now)
+        client = RecordingClient({'outcome': 'UNAVAILABLE'})
+        for _ in range(2):
+            result = initiate(client)
+            self.assertEqual(result['state'], 'REQUEST_UNKNOWN')
+            self.assertFalse(result['retryReady'])
+        self.assertEqual([call[0] for call in calls + client.calls], ['PUT', 'GET', 'GET'])
+
+    def test_legacy_missing_and_checked_states_require_fresh_get(self):
+        self.finalize()
+        self.intent()
+        for outcome in ('NOT_SENT', 'UNAVAILABLE', 'REQUEST_UNKNOWN_CHECKED'):
+            self.authority._db.execute('UPDATE payment_simulations SET outcome=?', (outcome,))
+            client = RecordingClient({'outcome': 'UNAVAILABLE'})
+            result = perform_simulation(self.authority, self.credentials['A'], 'meal', 'B',
+                                        self.cfg, client, initiate=True)
+            self.assertEqual([call[0] for call in client.calls], ['GET'])
+            self.assertFalse(result['retryReady'])
+
+    def test_concurrent_refresh_cannot_authorize_retry_during_put(self):
+        self.finalize()
+        entered, released = threading.Event(), threading.Event()
+        calls = []
+
+        class BlockedClient:
+            def request(inner, method, reference, amount):
+                calls.append(method)
+                entered.set()
+                if not released.wait(timeout=10):
+                    raise RuntimeError('fixture did not release')
+                return {'outcome': 'REQUEST_UNKNOWN'}
+
+        def start():
+            authority = Authority(self.path, clock=lambda: self.now)
+            try:
+                return perform_simulation(authority, self.credentials['A'], 'meal', 'B',
+                                          self.cfg, BlockedClient(), initiate=True)
+            finally:
+                authority.close()
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(start)
+            try:
+                self.assertTrue(entered.wait(timeout=10))
+                unused = RecordingClient({'outcome': 'NOT_SENT', 'checked': True})
+                read = perform_simulation(self.authority, self.credentials['B'], 'meal', 'B', self.cfg, unused)
+                self.assertEqual(read['state'], 'REQUEST_UNKNOWN')
+                self.assertFalse(read['retryReady'])
+                self.assertEqual(unused.calls, [])
+                self.assertTrue(self.authority.snapshot(self.credentials['A'], 'meal').finalized)
+                self.assertTrue(self.authority.snapshot(self.credentials['B'], 'meal').finalized)
+            finally:
+                released.set()
+            self.assertEqual(future.result(timeout=10)['state'], 'REQUEST_UNKNOWN')
+        self.assertEqual(calls, ['PUT'])
 
     def test_response_strict_types_and_immutable_amount(self):
         self.finalize()
@@ -385,6 +485,100 @@ class HttpClientTests(unittest.TestCase):
         self.assertEqual(calls[0][0], '/v1/integrations/payments/' + reference)
         self.assertEqual(json.loads(calls[0][2]), {'amountCents': 1234, 'currency': 'MYR'})
         self.assertEqual(set(calls[0][1]) & {'Cookie', 'X-Merchant-Id', 'X-Participant-Id'}, set())
+
+    def test_get_framing_and_only_kai_pay_not_found_checks_absence(self):
+        responses = [
+            (404, 'text/html', b'Cloudflare not found'),
+            (502, 'text/html', b'Cloudflare gateway unavailable'),
+            (404, 'application/json', b'{"success":false,"status":404,"code":"NOT_FOUND"}'),
+            (404, 'application/json', b'{"success":false,"status":404,"code":"NOT_FOUND","message":"missing"}'),
+        ]
+        requests = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                requests.append((self.path, self.headers.get('Content-Type'), self.headers.get('Content-Length')))
+                status, content_type, body = responses[len(requests) - 1]
+                self.send_response(status)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        client = self.serve(Handler)
+        reference = str(uuid.uuid4())
+        for _ in range(3):
+            result = client.request('GET', reference, 1234)
+            self.assertEqual(result['outcome'], 'UNAVAILABLE')
+            self.assertFalse(result.get('checked'))
+        self.assertEqual(client.request('GET', reference, 1234), {'outcome': 'NOT_SENT', 'checked': True})
+        self.assertEqual(requests, [('/v1/integrations/payments/' + reference, None, None)] * 4)
+
+    def test_malformed_not_found_wire_framing_cannot_authorize_retry(self):
+        body = b'{"success":false,"status":404,"code":"NOT_FOUND","message":"missing"}'
+        chunked = b'%x\r\n%s\r\n0\r\n\r\n' % (len(body), body)
+        responses = iter([
+            (b'Content-Length: bogus\r\n', body),
+            (b'Content-Length: %d\r\nContent-Length: 1\r\n' % len(body), body),
+            (b'Transfer-Encoding: chunked\r\nContent-Length: %d\r\n' % len(body), chunked),
+            (b'Transfer-Encoding: chunked\r\n', chunked[:-2]),
+            (b'Transfer-Encoding: chunked\r\n', chunked.replace(b'\r\n0', b'xx0')),
+            (b'Transfer-Encoding: chunked\r\n', chunked),
+        ])
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                framing, raw = next(responses)
+                self.wfile.write(b'HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n'
+                                 b'Connection: close\r\n' + framing + b'\r\n' + raw)
+
+        client = self.serve(Handler)
+        reference = str(uuid.uuid4())
+        for _ in range(5):
+            self.assertEqual(client.request('GET', reference, 1234), {'outcome': 'UNAVAILABLE'})
+        self.assertEqual(client.request('GET', reference, 1234), {'outcome': 'NOT_SENT', 'checked': True})
+
+    def test_dns_failure_recovers_and_tcp_fallback_precedes_request(self):
+        calls = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                calls.append(self.path)
+                self.send_response(502)
+                self.end_headers()
+
+        client = self.serve(Handler)
+        reference = str(uuid.uuid4())
+        reachable = (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', client.port))
+        unreachable = (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.2', client.port))
+        external = (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.0.2.1', client.port))
+        with patch('socket.getaddrinfo', side_effect=[socket.gaierror(), [external, reachable],
+                                                     [unreachable, reachable], [reachable]]) as resolver:
+            for _ in range(4):
+                self.assertEqual(client.request('GET', reference, 1234)['outcome'], 'UNAVAILABLE')
+        self.assertEqual(resolver.call_count, 4)
+        self.assertEqual(calls, ['/v1/integrations/payments/' + reference] * 2)
+
+    def test_stalled_dns_is_bounded_and_does_not_spawn_duplicate_lookups(self):
+        client = KaiPayClient(config('https://dns-fixture.invalid'))
+        release = threading.Event()
+
+        def lookup(*args, **kwargs):
+            release.wait(timeout=6)
+            raise socket.gaierror()
+
+        with patch('socket.getaddrinfo', side_effect=lookup) as resolver:
+            try:
+                for _ in range(2):
+                    started = time.monotonic()
+                    self.assertEqual(client.request('GET', str(uuid.uuid4()), 1234)['outcome'], 'UNAVAILABLE')
+                    self.assertLess(time.monotonic() - started, 3)
+                self.assertEqual(resolver.call_count, 1)
+            finally:
+                release.set()
 
     def test_response_size_duplicate_content_and_whole_request_deadline(self):
         reference = str(uuid.uuid4())

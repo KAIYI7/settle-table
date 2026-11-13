@@ -4,6 +4,7 @@ Only an amount and opaque reference are sent to a fixed operator-owned KaiPay
 destination. This module never provisions credentials or enables a deployment.
 """
 from dataclasses import dataclass, field
+from concurrent.futures import Future
 from datetime import datetime
 import http.client
 import ipaddress
@@ -21,6 +22,12 @@ import uuid
 from .authority import AuthorityError, _require, _wire
 
 PURPOSE = 'allocation-authorization-v1'
+CHECKED_ABSENT = 'REQUEST_UNKNOWN_CONFIRMED_ABSENT'
+LEGACY_UNCERTAIN = {'NOT_SENT', 'UNAVAILABLE', 'REQUEST_UNKNOWN_CHECKED'}
+RESPONSE_LIMIT = 8192
+# The deployment has one WSGI worker. Keep a status check from racing a PUT
+# within that worker, and leave request threads free for ordinary meal work.
+_wire_slot = threading.Lock()
 TERMINAL = {'AUTHORIZED', 'DECLINED', 'FAILED', 'CONFLICT', 'UNEXPECTED_STATUS', 'NO_PAYMENT_NEEDED'}
 REMOTE_STATES = {'CREATED': 'PENDING', 'PROCESSING': 'PENDING', 'AUTHORIZED': 'AUTHORIZED',
                  'DECLINED': 'DECLINED', 'FAILED': 'FAILED'}
@@ -38,6 +45,8 @@ class SimulationConfig:
     namespace: str
     base_url: str
     credential: str = field(repr=False)
+    access_client_id: str | None = field(default=None, repr=False)
+    access_client_secret: str | None = field(default=None, repr=False)
 
     def __post_init__(self):
         canonical_uuid(self.integration_id)
@@ -46,13 +55,22 @@ class SimulationConfig:
             raise ValueError('invalid_simulation_configuration')
         try:
             url = urlsplit(self.base_url)
-            if (url.scheme not in ('http', 'https') or not url.hostname or url.username or url.password
-                    or url.path not in ('', '/') or url.query or url.fragment or len(self.base_url) > 512):
+            if (url.scheme not in ('http', 'https') or not url.hostname
+                    or url.username is not None or url.password is not None
+                    or url.path not in ('', '/') or '?' in self.base_url or '#' in self.base_url
+                    or not re.fullmatch(r'[!-~]{1,512}', self.base_url)):
                 raise ValueError()
-            port = url.port or (443 if url.scheme == 'https' else 80)
-            if not 1 <= port <= 65535:
+            if url.port is not None and url.port == 0:
                 raise ValueError()
             if url.scheme == 'http' and url.hostname != 'localhost' and not ipaddress.ip_address(url.hostname).is_loopback:
+                raise ValueError()
+            access = (self.access_client_id, self.access_client_secret)
+            if any(value is not None for value in access):
+                if url.scheme != 'https' or not all(
+                        isinstance(value, str) and re.fullmatch(r'[!-~]{1,512}', value) for value in access):
+                    raise ValueError()
+            if url.hostname.rstrip('.') == 'api.kybuilds.com' and (
+                    not self.access_client_id or url.port not in (None, 443)):
                 raise ValueError()
         except (ValueError, TypeError):
             raise ValueError('invalid_simulation_configuration') from None
@@ -65,9 +83,24 @@ class SimulationConfig:
         if enabled != '1':
             raise ValueError('invalid_simulation_configuration')
         try:
-            return cls(*(os.environ['SETTLETABLE_KAIPAY_' + name]
-                         for name in ('INTEGRATION_ID', 'NAMESPACE', 'BASE_URL', 'CREDENTIAL')))
-        except (KeyError, ValueError, TypeError):
+            prefix = 'SETTLETABLE_KAIPAY_'
+            binding = [os.environ[prefix + name] for name in ('INTEGRATION_ID', 'NAMESPACE', 'BASE_URL')]
+            credentials = {name: os.environ[prefix + name.upper()]
+                           for name in ('credential', 'access_client_id', 'access_client_secret')
+                           if prefix + name.upper() in os.environ}
+            secret_file = os.environ.get(prefix + 'CREDENTIALS_FILE')
+            if secret_file:
+                if credentials:
+                    raise ValueError()
+                with open(secret_file, 'rb') as stream:
+                    raw = stream.read(4097)
+                if len(raw) > 4096:
+                    raise ValueError()
+                credentials = json.loads(raw, object_pairs_hook=_pairs)
+                if type(credentials) is not dict or not all(type(value) is str for value in credentials.values()):
+                    raise ValueError()
+            return cls(*binding, **credentials)
+        except (KeyError, ValueError, TypeError, OSError, RecursionError):
             raise ValueError('invalid_simulation_configuration') from None
 
 
@@ -85,8 +118,9 @@ def _projection(basis, reference, row=None):
     if row is not None:
         out.update(zip(('paymentId', 'paymentVersion', 'paymentStatus', 'paymentUpdatedAt',
                         'observedAt', 'state', 'retryAfter'), row))
-    out['retryReady'] = out['state'] == 'REQUEST_UNKNOWN_CHECKED'
-    if out['retryReady']:
+    out['retryReady'] = out['state'] == CHECKED_ABSENT
+    # Older versions could leave any of these states after a possible PUT.
+    if out['retryReady'] or (row is not None and out['state'] in LEGACY_UNCERTAIN):
         out['state'] = 'REQUEST_UNKNOWN'
     if basis['amountCents'] == 0:
         out['state'] = 'NO_PAYMENT_NEEDED'
@@ -114,6 +148,11 @@ def _transaction_failure(authority, error, attempted):
 
 
 def simulation_intent(authority, credential, meal_id, participant_id, config, *, create=False):
+    intent, _ = _simulation_intent(authority, credential, meal_id, participant_id, config, create=create)
+    return intent
+
+
+def _simulation_intent(authority, credential, meal_id, participant_id, config, *, create=False, prepare_put=False):
     """Authority-owned short transaction: authorize, freeze or validate, commit."""
     attempted = False
     try:
@@ -122,6 +161,9 @@ def simulation_intent(authority, credential, meal_id, participant_id, config, *,
         reference = client_reference(config.namespace, basis)
         basis_bytes = _wire(basis)
         row = _select(authority, config, reference)
+        prior = _projection(basis, reference, row[1:] if row else None)
+        may_dispatch = prepare_put and basis['amountCents'] > 0 and (
+            row is None or (prior['paymentVersion'] is None and prior['retryReady']))
         if row is None and create:
             authority._db.execute('''INSERT INTO payment_simulations
                 (integration_id,meal_id,finalize_actor_id,finalize_command_id,participant_id,
@@ -132,13 +174,20 @@ def simulation_intent(authority, credential, meal_id, participant_id, config, *,
             row = _select(authority, config, reference)
         if row is not None:
             _require(row[0] == basis_bytes, 'simulation_conflict')
+        if may_dispatch:
+            # Consume any checked absence and durably mark possible dispatch
+            # before leaving this transaction to send even the first byte.
+            authority._db.execute('''UPDATE payment_simulations SET outcome=?,retry_after=NULL
+                WHERE integration_id=? AND client_reference=?''',
+                ('REQUEST_UNKNOWN', config.integration_id, reference))
+            row = _select(authority, config, reference)
         result = _projection(basis, reference, row[1:] if row else None)
         result['exists'] = row is not None
         authority._hook('simulation_before_intent_commit')
         attempted = True
         authority._db.execute('COMMIT')
         authority._hook('simulation_after_intent_commit')
-        return result
+        return result, may_dispatch
     except Exception as error:
         _transaction_failure(authority, error, attempted)
 
@@ -177,13 +226,13 @@ def store_observation(authority, credential, meal_id, participant_id, config, ob
         elif current['paymentVersion'] is None and current['state'] not in TERMINAL:
             outcome = observation.get('outcome')
             _require(outcome in ('REQUEST_UNKNOWN', 'UNAVAILABLE', 'CONFLICT', 'NOT_SENT'), 'invalid_input')
-            if outcome != 'NOT_SENT' or current['state'] == 'NOT_SENT':
-                authority._db.execute('''UPDATE payment_simulations SET outcome=?,retry_after=?
-                    WHERE integration_id=? AND client_reference=?''',
-                    (outcome, observation.get('retry_after'), config.integration_id, reference))
-            elif outcome == 'NOT_SENT' and current['state'] == 'REQUEST_UNKNOWN' and observation.get('checked'):
-                authority._db.execute('''UPDATE payment_simulations SET outcome='REQUEST_UNKNOWN_CHECKED'
-                    WHERE integration_id=? AND client_reference=?''', (config.integration_id, reference))
+            if outcome == 'NOT_SENT' and observation.get('checked') is True:
+                outcome = CHECKED_ABSENT
+            elif outcome != 'CONFLICT':
+                outcome = 'REQUEST_UNKNOWN'
+            authority._db.execute('''UPDATE payment_simulations SET outcome=?,retry_after=?
+                WHERE integration_id=? AND client_reference=?''',
+                (outcome, observation.get('retry_after'), config.integration_id, reference))
         authority._hook('simulation_before_observation_commit')
         attempted = True
         authority._db.execute('COMMIT')
@@ -217,22 +266,96 @@ def _pairs(pairs):
     return result
 
 
+def _read_absence_body(response):
+    """Require the gateway's unambiguous framing before trusting absence."""
+    lengths = [value.strip(' \t') for value in response.headers.get_all('Content-Length', [])]
+    encodings = [value.strip(' \t').lower() for value in response.headers.get_all('Transfer-Encoding', [])]
+    if response.headers.defects:
+        raise ValueError('invalid_payment_response')
+    if len(lengths) == 1 and not encodings and re.fullmatch(r'0|[1-9][0-9]{0,3}', lengths[0]):
+        if int(lengths[0]) <= RESPONSE_LIMIT:
+            return response.read()
+    if lengths or encodings != ['chunked'] or response.version != 11:
+        raise ValueError('invalid_payment_response')
+
+    # http.client tolerates EOF before the terminating trailer and discards
+    # chunk separators without checking them. Use its buffered wire stream
+    # here to enforce the same chunk framing as the KaiPay gateway.
+    raw = bytearray()
+    while True:
+        size = response.fp.readline(11)
+        if not re.fullmatch(rb'[0-9A-Fa-f]{1,8}\r\n', size):
+            raise ValueError('invalid_payment_response')
+        count = int(size, 16)
+        if count > RESPONSE_LIMIT - len(raw):
+            raise ValueError('invalid_payment_response')
+        chunk = response.fp.read(count + 2)
+        if len(chunk) != count + 2 or not chunk.endswith(b'\r\n'):
+            raise ValueError('invalid_payment_response')
+        if count == 0:
+            return raw
+        raw.extend(chunk[:-2])
+
+
 class KaiPayClient:
-    """Direct HTTP(S), pinned startup DNS, no environment proxies or redirects."""
+    """Direct HTTP(S) to one configured origin, without proxies or redirects."""
     def __init__(self, config):
         self.config = config
         self.url = urlsplit(config.base_url)
         self.port = self.url.port or (443 if self.url.scheme == 'https' else 80)
-        self.addresses = tuple(dict.fromkeys(info[4][0] for info in socket.getaddrinfo(
-            self.url.hostname, self.port, type=socket.SOCK_STREAM)))
-        if not self.addresses or (self.url.scheme == 'http' and
-                                 not all(ipaddress.ip_address(a).is_loopback for a in self.addresses)):
-            raise ValueError('invalid_simulation_configuration')
         self.context = ssl.create_default_context() if self.url.scheme == 'https' else None
-        self.slots = threading.BoundedSemaphore(4)
+        self.resolver_lock = threading.Lock()
+        self.lookup = None
         self.admission_lock = threading.Lock()
         self.retry_not_before = 0
         self.suspended = False
+
+    def _resolve(self, deadline):
+        # getaddrinfo has no per-call timeout. Share at most one outstanding
+        # lookup and let it finish without keeping a WSGI thread waiting.
+        with self.resolver_lock:
+            if self.lookup is None or self.lookup.done():
+                lookup = Future()
+                self.lookup = lookup
+
+                def resolve():
+                    try:
+                        lookup.set_result(socket.getaddrinfo(self.url.hostname, self.port, type=socket.SOCK_STREAM))
+                    except (OSError, ValueError) as error:
+                        lookup.set_exception(error)
+
+                threading.Thread(target=resolve, daemon=True).start()
+            else:
+                lookup = self.lookup
+        addresses = tuple(dict.fromkeys((family, address) for family, _, _, _, address in
+                                       lookup.result(timeout=max(0, deadline - time.monotonic()))))
+        if not addresses or (self.context is None and not all(
+                ipaddress.ip_address(address[0]).is_loopback for _, address in addresses)):
+            raise ValueError('invalid_simulation_destination')
+        return addresses[:4]
+
+    def _connect(self, deadline):
+        addresses = self._resolve(deadline)
+        for index, (family, address) in enumerate(addresses):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            attempt_deadline = time.monotonic() + remaining / (len(addresses) - index)
+            sock = None
+            try:
+                sock = socket.socket(family, socket.SOCK_STREAM)
+                sock.settimeout(max(0.001, attempt_deadline - time.monotonic()))
+                sock.connect(address)
+                if self.context:
+                    sock = self.context.wrap_socket(sock, server_hostname=self.url.hostname,
+                                                    do_handshake_on_connect=False)
+                    sock.settimeout(max(0.001, attempt_deadline - time.monotonic()))
+                    sock.do_handshake()
+                return sock
+            except (OSError, ValueError):
+                if sock is not None:
+                    sock.close()
+        raise OSError('simulation_connection_unavailable')
 
     def request(self, method, reference, amount):
         canonical_uuid(reference)
@@ -241,68 +364,84 @@ class KaiPayClient:
                 return {'outcome': 'UNAVAILABLE'}
             if time.monotonic() < self.retry_not_before:
                 return {'outcome': 'UNAVAILABLE', 'retry_after': max(1, int(self.retry_not_before - time.monotonic()) + 1)}
-        if method not in ('GET', 'PUT') or not self.slots.acquire(blocking=False):
+        if method not in ('GET', 'PUT'):
             return {'outcome': 'UNAVAILABLE', 'retry_after': 2}
         connection = None
+        response = None
+        sock = None
         timer = None
-        sockets = []
+
         def abort():
-            for active in sockets:
-                try:
-                    active.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
         try:
-            deadline = time.monotonic() + 5
-            sock = socket.create_connection((self.addresses[0], self.port), timeout=2)
-            sockets.append(sock)
+            started = time.monotonic()
+            deadline = started + 5
+            # Resolve and try candidate connections before handing the socket
+            # to HTTP. There is no address fallback once sending can begin.
+            sock = self._connect(started + 2)
             timer = threading.Timer(max(0.001, deadline - time.monotonic()), abort)
             timer.daemon = True
             timer.start()
-            if self.context:
-                sock.settimeout(max(0.001, deadline - time.monotonic()))
-                sock = self.context.wrap_socket(sock, server_hostname=self.url.hostname, do_handshake_on_connect=False)
-                sockets.append(sock)
-                sock.do_handshake()
             connection = http.client.HTTPConnection(self.url.hostname, self.port, timeout=2)
             connection.sock = sock
             sock.settimeout(max(0.001, deadline - time.monotonic()))
-            body = json.dumps({'amountCents': amount, 'currency': 'MYR'}, separators=(',', ':')) if method == 'PUT' else None
-            connection.request(method, '/v1/integrations/payments/' + reference, body=body,
-                               headers={'Authorization': 'Bearer ' + self.config.credential,
-                                        'Content-Type': 'application/json', 'Accept': 'application/json',
-                                        'Connection': 'close'})
+            headers = {'Authorization': 'Bearer ' + self.config.credential, 'Accept': 'application/json',
+                       'Connection': 'close'}
+            if self.config.access_client_id is not None:
+                headers.update({'CF-Access-Client-Id': self.config.access_client_id,
+                                'CF-Access-Client-Secret': self.config.access_client_secret})
+            body = None
+            if method == 'PUT':
+                headers['Content-Type'] = 'application/json'
+                body = json.dumps({'amountCents': amount, 'currency': 'MYR'}, separators=(',', ':'))
+            connection.request(method, '/v1/integrations/payments/' + reference, body=body, headers=headers)
             sock.settimeout(max(0.001, deadline - time.monotonic()))
             response = connection.getresponse()
-            raw = bytearray()
-            # read1 closes the response fp as soon as Content-Length reaches
-            # zero. With HTTP/1.0 that also releases the connection's socket;
-            # never reset its timeout after the completed body has closed it.
-            while not response.isclosed():
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError()
-                sock.settimeout(remaining)
-                chunk = response.read1(min(1024, 8193 - len(raw)))
-                if not chunk:
-                    break
-                raw.extend(chunk)
-                if len(raw) > 8192:
+            if response.status == 404 and method == 'GET':
+                raw = _read_absence_body(response)
+            else:
+                raw = bytearray()
+                # read1 can close the response file and its HTTP/1.0 socket
+                # once Content-Length reaches zero.
+                while not response.isclosed():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError()
+                    sock.settimeout(remaining)
+                    chunk = response.read1(min(1024, RESPONSE_LIMIT + 1 - len(raw)))
+                    if not chunk:
+                        break
+                    raw.extend(chunk)
+                    if len(raw) > RESPONSE_LIMIT:
+                        raise ValueError('invalid_payment_response')
+                if response.length not in (None, 0):
                     raise ValueError('invalid_payment_response')
-            if response.length not in (None, 0):
-                raise ValueError('invalid_payment_response')
-            if response.status == 200:
-                if response.getheader('Content-Type', '').split(';')[0].strip().lower() != 'application/json':
+            if time.monotonic() >= deadline:
+                raise TimeoutError()
+            if response.status in (200, 404, 409):
+                types = response.headers.get_all('Content-Type', [])
+                if len(types) != 1 or types[0].split(';')[0].strip().lower() != 'application/json':
                     raise ValueError('invalid_payment_response')
                 payload = json.loads(raw, object_pairs_hook=_pairs,
                                      parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
-                if type(payload) is not dict or payload.get('success') is not True:
+                if type(payload) is not dict:
                     raise ValueError('invalid_payment_response')
-                return {'remote': validate_remote(payload.get('data'), reference, amount)}
-            if response.status == 404 and method == 'GET':
-                return {'outcome': 'NOT_SENT', 'checked': True}
-            if response.status == 409:
-                return {'outcome': 'CONFLICT'}
+                if response.status == 200 and payload.get('success') is True:
+                    return {'remote': validate_remote(payload.get('data'), reference, amount)}
+                # The KaiPay error contract has no reference field. It applies
+                # to the canonical reference in this request's exact path.
+                if (set(payload) == {'success', 'status', 'code', 'message'} and payload['success'] is False
+                        and type(payload['status']) is int and payload['status'] == response.status
+                        and type(payload['message']) is str and payload['message']):
+                    if response.status == 404 and method == 'GET' and payload['code'] == 'NOT_FOUND':
+                        return {'outcome': 'NOT_SENT', 'checked': True}
+                    if response.status == 409 and payload['code'] in ('IDEMPOTENCY_CONFLICT', 'RECOVERY_REQUIRED'):
+                        return {'outcome': 'CONFLICT'}
+                raise ValueError('invalid_payment_response')
             retry = response.getheader('Retry-After', '')
             retry = max(1, min(120, int(retry))) if re.fullmatch(r'[0-9]{1,3}', retry) else None
             with self.admission_lock:
@@ -318,24 +457,34 @@ class KaiPayClient:
         finally:
             if timer:
                 timer.cancel()
+            if response:
+                response.close()
             if connection:
                 connection.close()
-            elif 'sock' in locals():
+            if sock is not None:
                 sock.close()
-            self.slots.release()
 
 
 def perform_simulation(authority, credential, meal_id, participant_id, config, client, *, initiate=False):
-    intent = authority.payment_simulation(credential, meal_id, participant_id, config, create=initiate)
-    if not intent['exists'] or intent['state'] == 'NO_PAYMENT_NEEDED' or (initiate and intent['state'] in TERMINAL):
+    if not _wire_slot.acquire(blocking=False):
+        if initiate:
+            _require(authority.authenticate(credential, meal_id)[1], 'forbidden')
+        intent = simulation_intent(authority, credential, meal_id, participant_id, config)
+        if intent['state'] not in TERMINAL and (initiate or intent['exists']):
+            intent.update(retryAfter=2, retryReady=False)
+            if not intent['exists']:
+                intent['state'] = 'UNAVAILABLE'
         return intent
-    intent = authority.payment_simulation(credential, meal_id, participant_id, config)
-    if initiate:
-        actor, organizer = authority.authenticate(credential, meal_id)
-        _require(organizer, 'forbidden')
-    _require(not authority._db.in_transaction, 'storage_error')
-    method = 'PUT' if initiate else 'GET'
-    if initiate and intent['state'] == 'REQUEST_UNKNOWN' and not intent['retryReady']:
-        method = 'GET'
-    observation = client.request(method, intent['clientReference'], intent['basis']['amountCents'])
-    return authority.observe_payment_simulation(credential, meal_id, participant_id, config, observation)
+    try:
+        intent, may_dispatch = _simulation_intent(authority, credential, meal_id, participant_id, config,
+                                                   create=initiate, prepare_put=initiate)
+        if not intent['exists'] or intent['state'] == 'NO_PAYMENT_NEEDED' or (initiate and intent['state'] in TERMINAL):
+            return intent
+        if initiate:
+            _require(authority.authenticate(credential, meal_id)[1], 'forbidden')
+        _require(not authority._db.in_transaction, 'storage_error')
+        method = 'PUT' if may_dispatch else 'GET'
+        observation = client.request(method, intent['clientReference'], intent['basis']['amountCents'])
+        return authority.observe_payment_simulation(credential, meal_id, participant_id, config, observation)
+    finally:
+        _wire_slot.release()

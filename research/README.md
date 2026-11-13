@@ -10,6 +10,8 @@ Publication preparation2026-10-17: see [safe checkpoint and reproducibility note
 
 ## Evidence conventions
 
+12 November 2026. The owner accepted the [bounded SettleTable–KaiPay synthetic integration](../docs/agents/phase-transitions.md#2026-11-12--settletable-kaipay-integration-06). The acceptance record summarizes the verified organizer flow and financial invariants. The exact execution evidence is retained locally.
+
 29 October 2026: [two focused independent-UAT UI corrections](phase-3/uat-ui-corrections.md), including real receipt DOM regressions, allocation affordance checks and independent reviews. The original incomplete UAT scenarios remain open for separate independent retest.
 
 - **Verified / Fact:** inspected source at an exact revision or current primary documentation.

@@ -1,0 +1,12 @@
+# Explicitly opt in with -f docker-compose.yml -f docker-compose.kaipay.yml.
+services:
+  settletable:
+    environment:
+      SETTLETABLE_KAIPAY_CREDENTIALS_FILE: /run/secrets/settletable-kaipay.json
+    volumes:
+      - type: bind
+        source: ${SETTLETABLE_KAIPAY_CREDENTIALS_HOST_FILE:?Set an absolute path to the private KaiPay credential file}
+        target: /run/secrets/settletable-kaipay.json
+        read_only: true
+        bind:
+          create_host_path: false
