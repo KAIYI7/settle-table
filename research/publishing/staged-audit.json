@@ -1,12 +1,12 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 4,
+  "staged_files": 5,
   "staged_bytes_excluding_report": 381869,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 365,
   "untracked_files": 0,
   "ignored_files": 27931,
-  "valid_json_files": 0,
+  "valid_json_files": 1,
   "findings": [],
   "files": [
     {
