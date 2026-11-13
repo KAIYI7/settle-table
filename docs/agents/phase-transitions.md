@@ -1,5 +1,21 @@
 # Phase transition decisions
 
+## 2026-11-13 — UX Writing, Content Density & Information Hierarchy Refinement (PR #70)
+
+**Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** In response to real-device UAT feedback identifying text-heavy screens, redundant explanations, developer cryptographic jargon, and nested card clutter on finalized meals:
+1. **Diner-Centric Natural Phrasing**: Removed developer/cryptographic terminology ("deterministic cent conservation", "RapidOCR ONNX local inference", "immutable meal record", "Compact Mode <= 40 blocks", "confirm physical digest") and replaced with clear, natural language ("calculated to the exact cent", "Receipt Scanner: Private & Local", "saved with this meal", "Totals confirmed by X • Verification ID {digest}").
+2. **Visual Hierarchy & Unnested Card Architecture**: Unnested `#finalized-receipt-photo-card`, `#notion-export-card`, and `#diner-notion-card` from within `#apportionment-section`, flattening them into clean top-level sibling cards. This eliminates mobile double borders, tightens nested padding, and improves vertical scannability without breaking any existing DOM selectors, interactive buttons, or zoom modals.
+3. **Progressive Disclosure & De-duplication**: Condensed repetitive instructions across Restaurant Payers & Bill Funding, Peer Settlements & Reimbursements, Sharing & Access Hub, and Welcome/Recovery flows into concise single-line directions and contextual action buttons.
+4. **Safety & Financial Safeguard Invariance**: All four critical warnings (payment non-custodial disclaimer, Notion external permissions notice, organizer recovery link warning, receipt photo privacy notice) remain prominently displayed at their respective decision points. Zero changes to backend financial formulas, SQLite schema, or authentication checks.
+5. **Testing & Independent Review**: 434 Python tests passed (100% OK); 10 real browser Chrome CDP suites passed 100% (including `verify_ux_polish.mjs`, `verify_receipt_photo_flow.mjs`, and `e2e_browser_test.mjs`); repository audit clean (0 findings); independent review confirmed PASS on Standards and Spec. Merged autonomously via PR #70 into `main`.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Reproducible Local Working Release | **PASS**: 434 Python tests passing locally and in CI; 10 Chrome CDP suites pass 100%. |
+| Gate 2: Publicly Reachable Restricted Online Pilot (`v0.9.0-beta.1`) | **PILOT COMPLETED & CONTROLLER COMPLETED**: Real-meal pilot completed and snapshotted. On-demand hosting and local development safely managed via hardened `tools/SettleTable-Control.ps1`. |
+| Gate 3: Unrestricted Public Product Access & Multi-Tenant Identity | **PASS (COLLABORATIVE SETTLEMENTS & SELF-SERVICE ACCESS)**: Diners actively participate in recording counter payments and sent reimbursements with strict two-party confirmation. Public room creation without persistent account databases is fully operational. |
+| Gate 4: Public GitHub Repository & Portfolio Demonstration | **PASS (Product Owner Decision)**: Repository visibility public on GitHub; All Rights Reserved licensing preserved. Always-accessible showcase deployed at `https://kaiyi7.github.io/settle-table/`. |
+
 ## 2026-11-13 — Join Request Cancellation & Routing Trap Resolution (PR #64)
 
 **Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** In response to usability issues reported during real device testing where non-organizer diners were unable to press "Cancel Request" after requesting to join a meal via general link:
