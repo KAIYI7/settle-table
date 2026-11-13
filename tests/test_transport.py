@@ -1149,6 +1149,58 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(replay_res['status'], 400)
         self.assertEqual(replay_res['json']['error'], 'invalid_join_request')
 
+    def test_cancel_join_request_endpoint(self):
+        # Bootstrap meal
+        boot = self.client.post('/api/meals/m_cancel_jr/bootstrap', body={
+            'participants': [{'id': 'O', 'name': 'Host', 'organizer': True},
+                             {'id': 'D1', 'name': 'Diner1', 'organizer': False},
+                             {'id': 'D2', 'name': 'Diner2', 'organizer': False}]
+        })
+        self.assertEqual(boot['status'], 201)
+        org_cred = boot['json']['sessions'][0]['credential']
+
+        # 1. Create join request
+        create_res = self.client.post('/api/meals/m_cancel_jr/join-requests', body={'display_name': 'Diner1'})
+        self.assertEqual(create_res['status'], 201)
+        req_id = create_res['json']['request_id']
+        token = create_res['json']['claim_token']
+
+        # 2. Cancel join request with claim token
+        cancel_res = self.client.post(f'/api/meals/m_cancel_jr/join-requests/{req_id}/cancel',
+                                      body={'claim_token': token})
+        self.assertEqual(cancel_res['status'], 200)
+        self.assertTrue(cancel_res['json']['ok'])
+        self.assertEqual(cancel_res['json']['status'], 'cancelled')
+
+        # 3. Inspect confirms cancelled
+        inspect_res = self.client.get(f'/api/meals/m_cancel_jr/join-requests/{req_id}',
+                                      headers={'HTTP_X_CLAIM_TOKEN': token})
+        self.assertEqual(inspect_res['status'], 200)
+        self.assertEqual(inspect_res['json']['status'], 'cancelled')
+
+        # 4. Organizer does not see cancelled request in active list
+        list_res = self.client.get('/api/meals/m_cancel_jr/join-requests',
+                                   headers={'HTTP_AUTHORIZATION': f'Bearer {org_cred}'})
+        self.assertEqual(list_res['status'], 200)
+        self.assertEqual(len(list_res['json']['join_requests']), 0)
+
+        # 5. Diner1 can re-request immediately
+        recreate_res = self.client.post('/api/meals/m_cancel_jr/join-requests', body={'display_name': 'Diner1'})
+        self.assertEqual(recreate_res['status'], 201)
+
+        # 6a. Malformed token fails with invalid_token (400)
+        bad_token = self.client.post(f'/api/meals/m_cancel_jr/join-requests/{req_id}/cancel',
+                                     body={'claim_token': 'short'})
+        self.assertEqual(bad_token['status'], 400)
+        self.assertEqual(bad_token['json']['error'], 'invalid_token')
+
+        # 6b. Well-formed but non-matching token fails with invalid_join_request (400)
+        tampered_token = ('A' if token[0] != 'A' else 'B') + token[1:]
+        bad_cancel = self.client.post(f'/api/meals/m_cancel_jr/join-requests/{req_id}/cancel',
+                                      body={'claim_token': tampered_token})
+        self.assertEqual(bad_cancel['status'], 400)
+        self.assertEqual(bad_cancel['json']['error'], 'invalid_join_request')
+
     def test_organizer_claim_and_recovery_endpoints(self):
         # 1. Bootstrap returns organizer_claim info
         boot_res = self.client.post('/api/meals/m_org_claim/bootstrap', body={

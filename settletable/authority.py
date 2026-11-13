@@ -2065,6 +2065,32 @@ class Authority:
             self._rollback()
             raise AuthorityError('storage_error') from None
 
+    def cancel_join_request(self, meal_id, request_id, claim_token):
+        _id(meal_id)
+        _id(request_id)
+        verifier = _join_claim_verifier(claim_token)
+        try:
+            _require(self._db is not None, 'storage_error')
+            self._db.execute('BEGIN IMMEDIATE')
+            now = self._now()
+            row = self._db.execute('''SELECT status, expires
+                FROM join_requests WHERE id=? AND meal_id=? AND verifier=?''',
+                (request_id, meal_id, verifier)).fetchone()
+            _require(row is not None, 'invalid_join_request')
+            status, expires = row
+            if status == 'pending':
+                self._db.execute('''UPDATE join_requests SET status='cancelled' WHERE id=?''', (request_id,))
+            self._db.execute('COMMIT')
+            return True
+        except AuthorityError:
+            self._rollback()
+            raise
+        except sqlite3.Error as error:
+            self._storage_failure(error)
+        except Exception:
+            self._rollback()
+            raise AuthorityError('storage_error') from None
+
     def claim_join_request(self, meal_id, request_id, claim_token, *, session_ttl=3600):
         _id(meal_id)
         _id(request_id)

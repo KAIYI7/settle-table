@@ -1,23 +1,43 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 2,
-  "staged_bytes_excluding_report": 424394,
+  "staged_files": 6,
+  "staged_bytes_excluding_report": 687101,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 364,
+  "tracked_files": 365,
   "untracked_files": 1,
-  "ignored_files": 27920,
+  "ignored_files": 27931,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
-      "path": "PROJECT_STATUS.md",
-      "bytes": 199389,
-      "sha256": "cb9615d1a2ae376aaf0cb43d7454640a04bb58e67c77bcd717c749d161c8eaad"
+      "path": "settletable/authority.py",
+      "bytes": 167240,
+      "sha256": "b91a02eb5d9071f7c95658ba3f952210dc9c84924ff4212956cb2016bea125c4"
     },
     {
-      "path": "docs/agents/phase-transitions.md",
-      "bytes": 225005,
-      "sha256": "aff8bd39d0eb984838180ab0bc657ff30dc41471279c32ebb440d7e64626c8b2"
+      "path": "settletable/static/app.js",
+      "bytes": 311713,
+      "sha256": "ef7c04c5e09f3de953c810305e300554cc1fbd84d2c14cb8929fc8c926adfdbf"
+    },
+    {
+      "path": "settletable/transport.py",
+      "bytes": 95268,
+      "sha256": "a5f39ce0a4d9c53d2a175f3303f238dd2d0dec3bc34af242ba6ec721a1544ecb"
+    },
+    {
+      "path": "tests/test_invitation_lifecycle.py",
+      "bytes": 24901,
+      "sha256": "50c93ca7ec1a5f11e8fd51f7882dacfb28b8725ab80e76f57e465c1b552c625d"
+    },
+    {
+      "path": "tests/test_transport.py",
+      "bytes": 71282,
+      "sha256": "6adba6f0b751d4eaaeee4aff0d2284a12fb91b27b50af5f992bf21728ce4bc35"
+    },
+    {
+      "path": "tools/verify_cancel_join_ux.mjs",
+      "bytes": 16697,
+      "sha256": "5b4a62d383ea236115aa02a4126603378c58db5164c9c3baedee89dd1f17fcc4"
     }
   ]
 }
