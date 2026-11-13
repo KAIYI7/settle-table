@@ -1232,7 +1232,7 @@ async function renderWelcome() {
           ${rows}
         </div>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin: 10px 0 0 0; line-height: 1.4;">
-          Rooms open automatically on this device. SettleTable requires no accounts or passwords.
+          Reopen rooms directly while your session remains active on this device. SettleTable requires no accounts or passwords.
         </p>
       </div>
     `;
@@ -2236,10 +2236,10 @@ function renderOrganizerSection(snap) {
       <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">RECEIPT SCANNER</span>
-          <span style="font-size: 0.75rem; color: #a7f3d0; font-weight: 600;">Private & Local</span>
+          <span style="font-size: 0.75rem; color: #a7f3d0; font-weight: 600;">Server-Side OCR</span>
         </div>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">
-          Upload a receipt photo (JPEG, PNG, WebP) to automatically detect items and charges. Review and adjust everything before saving.
+          Upload a receipt photo (JPEG, PNG, WebP) to automatically detect items and charges on the server. Review and adjust everything before saving.
         </p>
         <input type="file" id="ocr-file-input" accept="image/jpeg,image/png,image/webp" style="display: none;">
         <button type="button" id="ocr-upload-btn" class="btn btn-secondary btn-sm btn-block">📷 Scan Receipt Image</button>
@@ -3454,8 +3454,8 @@ function formatNotionSuccessHtml(exp) {
             <button type="button" class="btn btn-secondary btn-sm" id="test-shared-incognito-btn" data-url="${escapeHtml(publicUrl)}">
               🔍 Test in Private Window
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" id="clear-notion-public-url-btn" style="color: var(--accent-rose);">
-              Stop Sharing with Diners
+            <button type="button" class="btn btn-secondary btn-sm" id="clear-notion-public-url-btn" style="color: var(--accent-rose);" title="Remove this report link from SettleTable (does not change Notion permissions)">
+              Remove Shared Link
             </button>
           </div>
           <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 6px;">
@@ -6184,7 +6184,7 @@ function bindEvents(snap) {
   const clearNotionPubBtn = document.getElementById('clear-notion-public-url-btn');
   if (clearNotionPubBtn) {
     clearNotionPubBtn.addEventListener('click', async () => {
-      if (!confirm('Stop sharing report with diners? Diners will no longer see the link to this Notion page.')) {
+      if (!confirm('Remove shared Notion link from SettleTable?\n\nDiners viewing this room will no longer see this link. Note: This does not unpublish or revoke access in Notion itself.')) {
         return;
       }
       clearNotionPubBtn.disabled = true;
@@ -6194,14 +6194,14 @@ function bindEvents(snap) {
         if (res?.ok) {
           if (state.notionExport) state.notionExport.public_url = null;
           if (state.snapshot) state.snapshot.notion_public_url = null;
-          showAlert('Public Notion report link removed.', 'success');
+          showAlert('Shared Notion link removed from SettleTable. (External Notion access is unchanged.)', 'success');
           updateMealUI();
         }
       } catch (err) {
-        showAlert('Failed to remove Notion public link.', 'error');
+        showAlert('Failed to remove Notion shared link.', 'error');
       } finally {
         clearNotionPubBtn.disabled = false;
-        clearNotionPubBtn.textContent = 'Stop Sharing with Diners';
+        clearNotionPubBtn.textContent = 'Remove Shared Link';
       }
     });
   }
