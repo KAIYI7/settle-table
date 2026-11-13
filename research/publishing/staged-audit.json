@@ -1,43 +1,33 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 6,
-  "staged_bytes_excluding_report": 687101,
+  "staged_files": 4,
+  "staged_bytes_excluding_report": 381869,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
   "tracked_files": 365,
-  "untracked_files": 1,
+  "untracked_files": 0,
   "ignored_files": 27931,
   "valid_json_files": 0,
   "findings": [],
   "files": [
     {
-      "path": "settletable/authority.py",
-      "bytes": 167240,
-      "sha256": "b91a02eb5d9071f7c95658ba3f952210dc9c84924ff4212956cb2016bea125c4"
-    },
-    {
       "path": "settletable/static/app.js",
-      "bytes": 311713,
-      "sha256": "ef7c04c5e09f3de953c810305e300554cc1fbd84d2c14cb8929fc8c926adfdbf"
+      "bytes": 310624,
+      "sha256": "d6b06722c2ff5cf5facb2c9c5604233a65100f1540ff3405e9c104e9c652d05c"
     },
     {
-      "path": "settletable/transport.py",
-      "bytes": 95268,
-      "sha256": "a5f39ce0a4d9c53d2a175f3303f238dd2d0dec3bc34af242ba6ec721a1544ecb"
+      "path": "settletable/static/index.html",
+      "bytes": 3136,
+      "sha256": "1f138bdb5dff199fc7cc9cfb484013445dcbc5a875a388f9664b3ed0e561125e"
     },
     {
-      "path": "tests/test_invitation_lifecycle.py",
-      "bytes": 24901,
-      "sha256": "50c93ca7ec1a5f11e8fd51f7882dacfb28b8725ab80e76f57e465c1b552c625d"
+      "path": "tools/verify_receipt_photo_flow.mjs",
+      "bytes": 29110,
+      "sha256": "78bb72d8e45b17e6b212a24fd497c74974c936c79cde590a6a4457551b738b92"
     },
     {
-      "path": "tests/test_transport.py",
-      "bytes": 71282,
-      "sha256": "6adba6f0b751d4eaaeee4aff0d2284a12fb91b27b50af5f992bf21728ce4bc35"
-    },
-    {
-      "path": "tools/verify_cancel_join_ux.mjs",
-      "bytes": 16697,
-      "sha256": "5b4a62d383ea236115aa02a4126603378c58db5164c9c3baedee89dd1f17fcc4"
+      "path": "tools/verify_ux_polish.mjs",
+      "bytes": 38999,
+      "sha256": "198ab2c6ea78fcc4af06db8544d4e3a0ac8df0ce202ac7069b567d08d2a801c1"
     }
   ]
 }

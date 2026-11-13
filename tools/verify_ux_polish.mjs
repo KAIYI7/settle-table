@@ -607,7 +607,7 @@ async function run() {
     });
 
     // Check Restaurant Funding Card copy
-    if (!copyChecks.fundingDesc.includes('Who paid the restaurant bill? Record how much each person actually paid at the counter.')) {
+    if (!copyChecks.fundingDesc.includes('Record how much each person paid at the counter')) {
       throw new Error(`Unexpected funding description: ${copyChecks.fundingDesc}`);
     }
     const expectedFundingHeaders = ['Participant', 'Amount Consumed', 'Paid to Restaurant', 'Base Net (Paid − Consumed)', 'Status'];
@@ -619,7 +619,7 @@ async function run() {
     console.log('   ✓ Restaurant Funding description and distinguished column headers verified');
 
     // Check Peer Settlement Card copy
-    if (!copyChecks.settleDesc.includes('Who needs to reimburse whom? Suggested transfers help everyone pay their fair share after the restaurant bill has been covered.')) {
+    if (!copyChecks.settleDesc.includes('Suggested transfers to balance everyone\'s fair share.')) {
       throw new Error(`Unexpected peer settlement description: ${copyChecks.settleDesc}`);
     }
     const hasExpectedNotice = copyChecks.settleNotice.includes('Organizer-recorded settlements: SettleTable calculates suggested peer transfers and tracks reimbursements recorded by the organizer. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.') ||
