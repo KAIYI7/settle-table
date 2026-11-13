@@ -1232,7 +1232,7 @@ async function renderWelcome() {
           ${rows}
         </div>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin: 10px 0 0 0; line-height: 1.4;">
-          Rooms open using this browser's active session cookie. SettleTable does not store passwords or accounts.
+          Rooms open automatically on this device. SettleTable requires no accounts or passwords.
         </p>
       </div>
     `;
@@ -1254,7 +1254,7 @@ async function renderWelcome() {
 
     <div style="text-align: center; margin-top: 16px;">
       <button id="welcome-clear-session-btn" class="btn btn-secondary btn-sm" style="font-size: 0.85rem; color: var(--text-muted);" title="Clear current session cookie">
-        Exit / Clear Active Session Cookie
+        Log Out / Clear Active Session
       </button>
     </div>
   `;
@@ -1884,10 +1884,9 @@ async function loadMeal(mealId) {
       app.innerHTML = `
         <div class="card">
           <h2 class="card-title" style="color: var(--accent-rose)">Session Required</h2>
-          <p class="card-desc">You are not authenticated for meal <strong>${escapeHtml(mealId)}</strong>.</p>
-          <p class="card-desc">If you are a diner, open the invitation link sent by the organizer.</p>
+          <p class="card-desc">You are not authenticated for meal <strong>${escapeHtml(mealId)}</strong>. If you are a diner, open the invitation link sent by your organizer.</p>
           <a href="#/" class="btn btn-secondary btn-block">Back to Home</a>
-          <button id="clear-invalid-session-btn" class="btn btn-secondary btn-block" style="margin-top: 10px;">Clear Active Session Cookie</button>
+          <button id="clear-invalid-session-btn" class="btn btn-secondary btn-block" style="margin-top: 10px;">Clear Active Session</button>
         </div>
       `;
       document.getElementById('clear-invalid-session-btn')?.addEventListener('click', handleLeaveRoom);
@@ -2048,8 +2047,8 @@ function updateMealUI() {
           <button type="button" id="dismiss-emergency-claim-btn" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 0.75rem;">Dismiss</button>
         </div>
         <p style="margin: 0 0 8px 0; font-size: 0.85rem; line-height: 1.4;">
-          SettleTable has no accounts or passwords. Your session cookie is active now.
-          Save this <strong>one-time disaster recovery link</strong> in your notes before switching devices or clearing cookies:
+          SettleTable uses private browser cookies instead of accounts.
+          Save this <strong>one-time recovery link</strong> to restore organizer access if you switch devices or clear browser data:
         </p>
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <input type="text" readonly value="${escapeHtml(state.emergencyRecoveryUrl)}" id="emergency-claim-url-input" style="flex: 1; min-width: 220px; font-size: 0.8rem; background: var(--surface-bg); padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 4px;" />
@@ -2236,16 +2235,16 @@ function renderOrganizerSection(snap) {
       <!-- Local OCR Receipt Scanner -->
       <div style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md); margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">LOCAL RECEIPT OCR SCANNER</span>
-          <span style="font-size: 0.75rem; color: #a7f3d0; font-weight: 600;">Server-Side Local Inference</span>
+          <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">RECEIPT SCANNER</span>
+          <span style="font-size: 0.75rem; color: #a7f3d0; font-weight: 600;">Private & Local</span>
         </div>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px;">
-          Upload a receipt photo (JPEG/PNG/WebP) to automatically extract items, taxes, and service charges via local server-side inference (RapidOCR ONNX). Requires physical verification before sealing.
+          Upload a receipt photo (JPEG, PNG, WebP) to automatically detect items and charges. Review and adjust everything before saving.
         </p>
         <input type="file" id="ocr-file-input" accept="image/jpeg,image/png,image/webp" style="display: none;">
         <button type="button" id="ocr-upload-btn" class="btn btn-secondary btn-sm btn-block">📷 Scan Receipt Image</button>
         <div id="ocr-spinner" style="display: none; text-align: center; margin-top: 8px; font-size: 0.85rem; color: var(--accent-indigo);">
-          Analyzing receipt via local server-side inference (RapidOCR ONNX)...
+          Scanning receipt image...
         </div>
       </div>
 
@@ -2461,9 +2460,9 @@ function renderOrganizerSection(snap) {
 
       <!-- Review & Verification Card -->
       <div id="review-section" class="review-section" style="background: var(--bg-main); padding: 14px; border-radius: var(--radius-md);">
-        <div id="review-heading" class="review-heading workflow-section-heading" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted);" tabindex="-1">HUMAN RECEIPT REVIEW</div>
+        <div id="review-heading" class="review-heading workflow-section-heading" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--text-muted);" tabindex="-1">VERIFY RECEIPT TOTALS</div>
         <p style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px;">
-          Examine the items above against the merchant receipt. Confirm the digest before finalization.
+          Check that items and totals match the paper bill before finalization.
         </p>
         <label class="review-confirm-label">
           <input type="checkbox" id="review-confirm-check" ${reviewConfirmed ? 'checked disabled' : ''} ${state.ocrCandidate && !reviewConfirmed ? 'disabled title="Accept or discard staged candidate before confirming physical bill"' : ''}>
@@ -2484,7 +2483,7 @@ function renderOrganizerSection(snap) {
             <div class="verified-details">
               <div class="verified-heading">Receipt Verified & Sealed</div>
               <div class="verified-subtext">
-                Physical totals confirmed by ${escapeHtml(reviewerName)} &bull; Digest <code>${escapeHtml(shortDigest)}</code>
+                Totals confirmed by ${escapeHtml(reviewerName)} &bull; Verification ID <code>${escapeHtml(shortDigest)}</code>
               </div>
             </div>
           </div>
@@ -2507,7 +2506,7 @@ function renderSharingAndAccessSection(snap) {
         <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; font-size: 0.72rem;">Organizer Only</span>
       </div>
       <p class="card-desc" style="margin-bottom: 14px;">
-        Manage diner invitations, join requests, Notion report sharing, and organizer recovery. Different links grant different permissions and must not be confused.
+        Manage diner invitations, Notion report sharing, and organizer recovery.
       </p>
 
       <!-- 1. Invite Diners to Meal -->
@@ -2519,7 +2518,7 @@ function renderSharingAndAccessSection(snap) {
           <span class="badge" style="font-size: 0.7rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa;">Diner Permissions</span>
         </div>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin: 0 0 10px 0; line-height: 1.4;">
-          Grants dining companions access to view items, claim portions, and see their share. Diners cannot edit organizer settings.
+          Invite dining companions to view items, claim portions, and see their share.
         </p>
 
         <!-- General Table Join Link Box -->
@@ -2555,7 +2554,7 @@ function renderSharingAndAccessSection(snap) {
           <span class="badge" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.15); color: #10b981;">View-Only Document</span>
         </div>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin: 0 0 10px 0; line-height: 1.4;">
-          Shares a view-only external summary for records and receipts.
+          Share a view-only Notion summary for expense records and receipts.
         </p>
 
         ${!isFinalized ? `
@@ -3195,9 +3194,9 @@ function renderClaimsSection(snap) {
 
   return `
     <div id="allocation-section" class="card">
-      <h3 id="allocation-heading" class="card-title workflow-section-heading" tabindex="-1">Item Allocation (Organizer & Collaborative)</h3>
+      <h3 id="allocation-heading" class="card-title workflow-section-heading" tabindex="-1">Item Allocation</h3>
       <p class="card-desc">
-        Item-first allocation: tap an available diner to quickly assign 1 portion, or open Details / Split for custom fractions and equal sharing.
+        Tap a diner to assign a portion, or use Details / Split to divide custom shares or split equally.
       </p>
       ${itemsHtml}
     </div>
@@ -3460,7 +3459,7 @@ function formatNotionSuccessHtml(exp) {
             </button>
           </div>
           <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: 6px;">
-            ℹ️ Saved in SettleTable. Saving does not alter your Notion workspace permissions. Ensure access is verified in a private browsing window.
+            ℹ️ Saved in SettleTable. This does not change your Notion permissions. Verify view access in a private window.
           </div>
 
           <!-- Option to update link -->
@@ -3619,7 +3618,7 @@ function renderFinalizedCalculation(snap) {
   return `
     <div id="apportionment-section" class="card">
       <div id="apportionment-heading" class="card-title workflow-section-heading" style="color: var(--accent-emerald);" tabindex="-1">Final Apportionment Summary</div>
-      <p class="card-desc">Every cent accounted for. Apportionment rounded deterministically with cent conservation.</p>
+      <p class="card-desc">Each person's share of the bill, calculated to the exact cent.</p>
       ${snap.payment_simulation_enabled ? '<p class="simulation-notice">Simulation only — no money moved; reimbursement unchanged.</p>' : ''}
 
       <table class="breakdown-table">
@@ -3637,87 +3636,87 @@ function renderFinalizedCalculation(snap) {
           </tr>
         </tbody>
       </table>
+    </div>
 
-      ${(snap.has_receipt_photo && (snap.is_organizer || snap.receipt_photo_shared)) ? `
-        <div class="card" id="finalized-receipt-photo-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; color: #818cf8;">
-            <span>📷 Original Receipt Photo</span>
-            <button type="button" class="btn btn-secondary btn-sm" id="view-finalized-photo-btn">🔍 View & Zoom</button>
+    ${(snap.has_receipt_photo && (snap.is_organizer || snap.receipt_photo_shared)) ? `
+      <div class="card" id="finalized-receipt-photo-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; color: #818cf8;">
+          <span>📷 Original Receipt Photo</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="view-finalized-photo-btn">🔍 View & Zoom</button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 14px; margin-top: 8px;">
+          <div class="receipt-thumbnail-wrapper" id="finalized-receipt-thumb-btn" role="button" tabindex="0" title="Click to view and zoom receipt photo" aria-label="View receipt photo fullscreen">
+            <img src="/api/meals/${mealId}/receipt/photo" alt="Thumbnail of original receipt" class="receipt-thumbnail-img" />
           </div>
-          <div style="display: flex; align-items: center; gap: 14px; margin-top: 8px;">
-            <div class="receipt-thumbnail-wrapper" id="finalized-receipt-thumb-btn" role="button" tabindex="0" title="Click to view and zoom receipt photo" aria-label="View receipt photo fullscreen">
-              <img src="/api/meals/${mealId}/receipt/photo" alt="Thumbnail of original receipt" class="receipt-thumbnail-img" />
-            </div>
-            <div style="font-size: 0.85rem; color: var(--text-muted);">
-              <div>${snap.is_organizer ? 'Original merchant receipt preserved with immutable meal record.' : 'Original merchant receipt shared by organizer for transparency.'}</div>
-              <small style="color: var(--text-dim);">${snap.receipt_photo ? `${(snap.receipt_photo.byte_size / 1024).toFixed(0)} KB • ${snap.receipt_photo.width}×${snap.receipt_photo.height}px` : 'Archived receipt photo'}</small>
-            </div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">
+            <div>${snap.is_organizer ? 'Receipt photo saved with this meal.' : 'Receipt photo shared by organizer for transparency.'}</div>
+            <small style="color: var(--text-dim);">${snap.receipt_photo ? `${(snap.receipt_photo.byte_size / 1024).toFixed(0)} KB • ${snap.receipt_photo.width}×${snap.receipt_photo.height}px` : 'Archived receipt photo'}</small>
           </div>
-          ${snap.is_organizer ? `
-            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(99, 102, 241, 0.2);">
-              <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.85rem; margin: 0;">
-                <input type="checkbox" id="share-receipt-photo-checkbox" ${snap.receipt_photo_shared ? 'checked' : ''} style="margin-top: 2px;" />
-                <div>
-                  <strong style="color: var(--text-main);">Allow authenticated diners to view receipt photo</strong>
-                  <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 2px;">
-                    ⚠️ Privacy Warning: Merchant receipts may show cardholder payment details, server names, or cashier notes. Only enable if trusted.
-                  </div>
+        </div>
+        ${snap.is_organizer ? `
+          <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(99, 102, 241, 0.2);">
+            <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.85rem; margin: 0;">
+              <input type="checkbox" id="share-receipt-photo-checkbox" ${snap.receipt_photo_shared ? 'checked' : ''} style="margin-top: 2px;" />
+              <div>
+                <strong style="color: var(--text-main);">Allow authenticated diners to view receipt photo</strong>
+                <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 2px;">
+                  ⚠️ Privacy Warning: Merchant receipts may show cardholder payment details, server names, or cashier notes. Only enable if trusted.
                 </div>
-              </label>
-            </div>
-          ` : ''}
-        </div>
-      ` : ''}
-
-      ${snap.is_organizer ? `
-        <div class="card" id="notion-export-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
-          <div class="card-title" style="color: #818cf8;">📤 Notion Archive & Reporting</div>
-          <p class="card-desc">Export an immutable, structured summary to your Notion workspace in Compact Mode (&le; 40 blocks).</p>
-
-          ${isExported ? `
-            ${exportResultHtml}
-            <details style="margin-top: 0.75rem;">
-              <summary style="font-size: 0.82rem; color: var(--text-muted); cursor: pointer; padding: 4px 0;">
-                Re-export or change Notion destination ▾
-              </summary>
-              <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-subtle);">
-                ${exportControlsHtml}
               </div>
-            </details>
-          ` : `
-            ${exportControlsHtml}
-            ${exportResultHtml}
-          `}
-
-          <div id="notion-export-spinner" style="display: none; text-align: center; padding: 1rem; color: var(--text-muted);">
-            ⏳ Creating structured Notion page...
-          </div>
-        </div>
-      ` : `
-        ${(snap.notion_export_status === 'completed' || state.notionExport?.status === 'completed' || state.notionExport?.status === 'already_exported') ? `
-          <div class="card" id="diner-notion-card" style="margin-top: 1.5rem; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04);">
-            <div class="card-title" style="color: #6ee7b7; display: flex; justify-content: space-between; align-items: center;">
-              <span>📤 Notion Report</span>
-              <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-size: 0.72rem;">${snap.notion_public_url || state.notionExport?.public_url ? 'View-Only' : 'Archived'}</span>
-            </div>
-            ${(snap.notion_public_url || state.notionExport?.public_url) ? `
-              <p class="card-desc" style="margin-bottom: 8px;">The organizer has shared a view-only Notion report for this meal:</p>
-              <a href="${escapeHtml(snap.notion_public_url || state.notionExport?.public_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display: inline-block; color: #6ee7b7; font-weight: 700; text-decoration: none;">
-                Open Published Report ↗
-              </a>
-            ` : `
-              <p class="card-desc" style="margin-bottom: 0;">This finalized meal was archived to the organizer's private Notion workspace.</p>
-              <small style="color: var(--text-dim); display: block; margin-top: 4px;">Private Archive. Contact the organizer if you need a shared web link.</small>
-            `}
-          </div>
-        ` : (snap.notion_export_status === 'in_progress' || state.notionExport?.status === 'in_progress') ? `
-          <div class="card" id="diner-notion-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.2); background: rgba(99, 102, 241, 0.03);">
-            <div class="card-title" style="color: #818cf8;">📤 Notion Archive</div>
-            <p class="card-desc" style="margin-bottom: 0;">The organizer is currently archiving this meal to Notion...</p>
+            </label>
           </div>
         ` : ''}
-      `}
-    </div>
+      </div>
+    ` : ''}
+
+    ${snap.is_organizer ? `
+      <div class="card" id="notion-export-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.05);">
+        <div class="card-title" style="color: #818cf8;">📤 Export to Notion</div>
+        <p class="card-desc">Save a structured bill breakdown and receipt summary to your Notion workspace.</p>
+
+        ${isExported ? `
+          ${exportResultHtml}
+          <details style="margin-top: 0.75rem;">
+            <summary style="font-size: 0.82rem; color: var(--text-muted); cursor: pointer; padding: 4px 0;">
+              Re-export or change Notion destination ▾
+            </summary>
+            <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-subtle);">
+              ${exportControlsHtml}
+            </div>
+          </details>
+        ` : `
+          ${exportControlsHtml}
+          ${exportResultHtml}
+        `}
+
+        <div id="notion-export-spinner" style="display: none; text-align: center; padding: 1rem; color: var(--text-muted);">
+          ⏳ Creating structured Notion page...
+        </div>
+      </div>
+    ` : `
+      ${(snap.notion_export_status === 'completed' || state.notionExport?.status === 'completed' || state.notionExport?.status === 'already_exported') ? `
+        <div class="card" id="diner-notion-card" style="margin-top: 1.5rem; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04);">
+          <div class="card-title" style="color: #6ee7b7; display: flex; justify-content: space-between; align-items: center;">
+            <span>📤 Notion Report</span>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-size: 0.72rem;">${snap.notion_public_url || state.notionExport?.public_url ? 'View-Only' : 'Archived'}</span>
+          </div>
+          ${(snap.notion_public_url || state.notionExport?.public_url) ? `
+            <p class="card-desc" style="margin-bottom: 8px;">The organizer has shared a view-only Notion report for this meal:</p>
+            <a href="${escapeHtml(snap.notion_public_url || state.notionExport?.public_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display: inline-block; color: #6ee7b7; font-weight: 700; text-decoration: none;">
+              Open Published Report ↗
+            </a>
+          ` : `
+            <p class="card-desc" style="margin-bottom: 0;">This finalized meal was archived to the organizer's private Notion workspace.</p>
+            <small style="color: var(--text-dim); display: block; margin-top: 4px;">Private Archive. Contact the organizer if you need a shared web link.</small>
+          `}
+        </div>
+      ` : (snap.notion_export_status === 'in_progress' || state.notionExport?.status === 'in_progress') ? `
+        <div class="card" id="diner-notion-card" style="margin-top: 1.5rem; border-color: rgba(99, 102, 241, 0.2); background: rgba(99, 102, 241, 0.03);">
+          <div class="card-title" style="color: #818cf8;">📤 Notion Archive</div>
+          <p class="card-desc" style="margin-bottom: 0;">The organizer is currently archiving this meal to Notion...</p>
+        </div>
+      ` : ''}
+    `}
   `;
 }
 
@@ -3967,7 +3966,7 @@ function renderRestaurantFundingCard(snap) {
         ${badgeHtml}
       </div>
       <p class="card-desc">
-        Who paid the restaurant bill? Record how much each person actually paid at the counter. Diner meal shares are locked; restaurant contributions reconcile who covered the bill.
+        Record how much each person paid at the counter to reconcile who covered the bill.
       </p>
 
       <!-- Funding Progress Bar -->
@@ -4013,11 +4012,11 @@ function renderRestaurantFundingCard(snap) {
         </div>
         ${status !== 'fully_funded' ? `
           <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(245, 158, 11, 0.1); border-left: 3px solid #f59e0b; border-radius: 4px;">
-            ℹ️ <strong>Outstanding restaurant obligation:</strong> The net sum discrepancy (${formatSen(unfunded)}) represents remaining debt to the restaurant. Peer reimbursements cannot be settled until the restaurant bill is fully funded.
+            ℹ️ <strong>Unfunded bill balance:</strong> ${formatSen(unfunded)} remains owed to the restaurant. Peer reimbursements can be settled once the cashier bill is fully covered.
           </p>
         ` : `
           <p style="font-size: 0.82rem; color: #10b981; margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; border-radius: 4px;">
-            ✓ <strong>Restaurant bill is 100% funded.</strong> Net balances are fully balanced (sum = RM 0.00).
+            ✓ <strong>Restaurant bill is fully paid.</strong> Net balances are ready for peer settlement.
           </p>
         `}
       </div>
@@ -4570,7 +4569,7 @@ function renderPeerSettlementCard(snap) {
             ${dinerXferFormHtml}
             ${unfundedBlocker > 0 ? `<div style="font-size: 0.8rem; color: #f59e0b; margin-top: 6px;">⚠️ ${formatSen(unfundedBlocker)} of the restaurant bill remains unfunded. Direct peer settlement is pending cashier funding.</div>` : ''}
             <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(239, 68, 68, 0.15);">
-              ℹ️ Transfer your share to the recipient(s) above, then click <strong>I've Sent Payment</strong> so the recipient can confirm receipt on the ledger.
+              ℹ️ Transfer your share to the recipient above, then tap <strong>I've Sent Payment</strong> so they can confirm receipt.
             </div>
           </div>
         `;
@@ -4592,7 +4591,7 @@ function renderPeerSettlementCard(snap) {
             </div>
             ${incomingLines ? `<div style="margin: 6px 0;">${incomingLines}</div>` : ''}
             <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(16, 185, 129, 0.15);">
-              ℹ️ Once you receive repayment from peers, click <strong>Confirm Received</strong> in the pending section below to mark it complete.
+              ℹ️ When you receive repayment, tap <strong>Confirm Received</strong> below to complete settlement.
             </div>
           </div>
         `;
@@ -4610,21 +4609,21 @@ function renderPeerSettlementCard(snap) {
 
   return `
     <div class="card" id="peer-settlement-card" style="margin-top: 1.5rem;">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 8px;">
         <div>
           <div style="font-weight: 700; font-size: 1.15rem; color: var(--text-main);">
             Peer Settlements & Reimbursements
           </div>
           <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 2px;">
-            Who needs to reimburse whom? Suggested transfers help everyone pay their fair share after the restaurant bill has been covered.
+            Suggested transfers to balance everyone's fair share.
           </div>
         </div>
         ${statusBadgeHtml}
       </div>
 
       <!-- Collaborative Settlement Notice -->
-      <div class="settlement-attestation-notice" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 12px; font-size: 0.83rem; color: var(--text-muted); line-height: 1.45;">
-        ℹ️ <strong>Collaborative Settlement Tracking:</strong> Diners can report sent reimbursements, which update the ledger once confirmed by the recipient. The organizer can also record attested payments directly. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.
+      <div class="settlement-attestation-notice" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 8px 12px; margin-bottom: 12px; font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">
+        ℹ️ <strong>Collaborative Settlement Tracking:</strong> Diners report transfers; recipients confirm receipt. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.
       </div>
 
       ${dinerPersonalCardHtml}
