@@ -742,6 +742,17 @@ class SettleTableApp:
             headers = self._default_headers()
             return 200, headers, serialize_json({'ok': True, **info})
 
+        # Cancel Join Request POST /api/meals/{meal_id}/join-requests/{request_id}/cancel
+        m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/join-requests/([A-Za-z0-9_-]+)/cancel', path)
+        if m and method == 'POST':
+            meal_id, request_id = m.group(1), m.group(2)
+            claim_token = body_data.get('claim_token') or environ.get('HTTP_X_CLAIM_TOKEN', '')
+            if not isinstance(claim_token, str) or not claim_token:
+                raise TransportError('invalid_input', 400)
+            authority.cancel_join_request(meal_id, request_id, claim_token)
+            headers = self._default_headers()
+            return 200, headers, serialize_json({'ok': True, 'status': 'cancelled'})
+
         # Claim Join Request POST /api/meals/{meal_id}/join-requests/{request_id}/claim
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/join-requests/([A-Za-z0-9_-]+)/claim', path)
         if m and method == 'POST':

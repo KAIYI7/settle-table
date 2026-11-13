@@ -767,6 +767,60 @@ function route() {
   const path = window.location.pathname;
   const hash = window.location.hash;
 
+  // 0. If user explicitly requested home hash (#/ or #/welcome), prioritize home over path-based landing
+  if (hash === '#/' || hash === '#/welcome') {
+    if (path !== '/') {
+      window.history.replaceState(null, '', '/#/');
+    }
+    renderWelcome();
+    return;
+  }
+
+  // 0b. If user explicitly navigated to a hash route while on a path-based landing, prioritize hash and normalize path
+  if (hash.startsWith('#/meal/')) {
+    const mealId = hash.replace('#/meal/', '').trim();
+    if (mealId) {
+      if (path !== '/') {
+        window.history.replaceState(null, '', `/#/meal/${mealId}`);
+      }
+      loadMeal(mealId);
+      return;
+    }
+  }
+
+  if (hash.startsWith('#/invite/')) {
+    const token = hash.replace('#/invite/', '').trim();
+    if (token) {
+      if (path !== '/') {
+        window.history.replaceState(null, '', `/#/invite/${token}`);
+      }
+      renderInviteLanding(token);
+      return;
+    }
+  }
+
+  if (hash.startsWith('#/claim-organizer/') || hash.startsWith('#/claim/')) {
+    const token = hash.replace(/^#\/(?:claim-organizer|claim)\//, '').trim();
+    if (token) {
+      if (path !== '/') {
+        window.history.replaceState(null, '', `/#/claim/${token}`);
+      }
+      renderOrganizerClaimLanding(token);
+      return;
+    }
+  }
+
+  if (hash.startsWith('#/join/')) {
+    const mealId = hash.replace('#/join/', '').trim();
+    if (mealId) {
+      if (path !== '/') {
+        window.history.replaceState(null, '', `/#/join/${mealId}`);
+      }
+      renderGeneralJoinLanding(mealId);
+      return;
+    }
+  }
+
   // 1. Check path for invitation landing /invite/{token}
   const inviteMatch = path.match(/^\/invite\/([A-Za-z0-9_-]{43})$/);
   if (inviteMatch) {
@@ -788,47 +842,6 @@ function route() {
     return;
   }
 
-  // 2. Hash routing
-  if (hash.startsWith('#/invite/')) {
-    const token = hash.replace('#/invite/', '').trim();
-    if (token) {
-      renderInviteLanding(token);
-      return;
-    }
-  }
-
-  if (hash.startsWith('#/claim-organizer/')) {
-    const token = hash.replace('#/claim-organizer/', '').trim();
-    if (token) {
-      renderOrganizerClaimLanding(token);
-      return;
-    }
-  }
-
-  if (hash.startsWith('#/claim/')) {
-    const token = hash.replace('#/claim/', '').trim();
-    if (token) {
-      renderOrganizerClaimLanding(token);
-      return;
-    }
-  }
-
-  if (hash.startsWith('#/meal/')) {
-    const mealId = hash.replace('#/meal/', '').trim();
-    if (mealId) {
-      loadMeal(mealId);
-      return;
-    }
-  }
-
-  if (hash.startsWith('#/join/')) {
-    const mealId = hash.replace('#/join/', '').trim();
-    if (mealId) {
-      renderGeneralJoinLanding(mealId);
-      return;
-    }
-  }
-
   renderWelcome();
 }
 
@@ -838,6 +851,16 @@ window.addEventListener('hashchange', () => {
 });
 window.addEventListener('DOMContentLoaded', () => {
   syncHeaderHeight();
+  document.querySelectorAll('.brand-link, #nav-home-btn').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      clearJoinPolling();
+      if (window.location.pathname !== '/' || (window.location.hash !== '#/' && window.location.hash !== '')) {
+        e.preventDefault();
+        window.history.replaceState(null, '', '/#/');
+        renderWelcome();
+      }
+    });
+  });
   route();
 });
 window.addEventListener('beforeunload', () => {
@@ -1555,7 +1578,7 @@ async function renderOrganizerClaimLanding(token) {
 }
 
 // --- View 2b: General Table Join Landing ---
-async function renderGeneralJoinLanding(mealId) {
+async function renderGeneralJoinLanding(mealId, infoMessage = null) {
   clearJoinPolling();
   const app = document.getElementById('app');
 
@@ -1563,6 +1586,8 @@ async function renderGeneralJoinLanding(mealId) {
     <div class="card" style="max-width: 500px; margin: 40px auto;">
       <h2 class="card-title">Join Dining Table</h2>
       <p class="card-desc">Request to join meal room <strong>${escapeHtml(mealId)}</strong></p>
+
+      ${infoMessage ? `<div class="alert alert-info" style="margin-bottom: 16px;">${escapeHtml(infoMessage)}</div>` : ''}
 
       <div style="margin-bottom: 20px;">
         <label for="join-name-input" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: var(--text-heading);">
@@ -1591,15 +1616,25 @@ async function renderGeneralJoinLanding(mealId) {
         Request to Join
       </button>
 
-      <a href="#/" class="btn btn-secondary btn-block" style="text-align: center; min-height: 44px; display: flex; align-items: center; justify-content: center;">
+      <button id="join-cancel-home-btn" class="btn btn-secondary btn-block" style="text-align: center; min-height: 44px; display: flex; align-items: center; justify-content: center; width: 100%;">
         Cancel & Return to Home
-      </a>
+      </button>
     </div>
   `;
 
   const nameInput = document.getElementById('join-name-input');
   const submitBtn = document.getElementById('submit-join-req-btn');
   const errorBox = document.getElementById('join-error-box');
+  const cancelHomeBtn = document.getElementById('join-cancel-home-btn');
+
+  if (cancelHomeBtn) {
+    cancelHomeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      clearJoinPolling();
+      window.history.replaceState(null, '', '/#/');
+      renderWelcome();
+    });
+  }
 
   nameInput.focus();
 
@@ -1666,23 +1701,54 @@ function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
 
       <div id="join-status-alert" style="display: none; margin-bottom: 16px;"></div>
 
-      <button id="cancel-join-btn" class="btn btn-secondary btn-block" style="min-height: 44px;">
-        Cancel Request
-      </button>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button id="cancel-join-btn" class="btn btn-secondary btn-block" style="min-height: 44px;">
+          Cancel Request
+        </button>
+        <button id="cancel-join-home-btn" class="btn btn-secondary btn-block" style="min-height: 44px; opacity: 0.85;">
+          Cancel & Return to Home
+        </button>
+      </div>
     </div>
   `;
 
-  document.getElementById('cancel-join-btn').addEventListener('click', () => {
-    clearJoinPolling();
-    window.location.hash = '#/';
-  });
+  const cancelBtn = document.getElementById('cancel-join-btn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', async () => {
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = 'Cancelling Request...';
+      clearJoinPolling();
+      try {
+        await apiCall(`/api/meals/${mealId}/join-requests/${requestId}/cancel`, 'POST', { claim_token: claimToken });
+      } catch (err) {
+        console.warn('Error cancelling join request on server:', err);
+      }
+      renderGeneralJoinLanding(mealId, 'Your join request was cancelled.');
+    });
+  }
+
+  const cancelHomeBtn = document.getElementById('cancel-join-home-btn');
+  if (cancelHomeBtn) {
+    cancelHomeBtn.addEventListener('click', async () => {
+      cancelHomeBtn.disabled = true;
+      cancelHomeBtn.textContent = 'Cancelling...';
+      clearJoinPolling();
+      try {
+        await apiCall(`/api/meals/${mealId}/join-requests/${requestId}/cancel`, 'POST', { claim_token: claimToken });
+      } catch (err) {
+        console.warn('Error cancelling join request on server:', err);
+      }
+      window.history.replaceState(null, '', '/#/');
+      renderWelcome();
+    });
+  }
 
   const pollStatus = async () => {
     try {
       const inspectRes = await apiCall(`/api/meals/${mealId}/join-requests/${requestId}`, 'GET', null, {
         'X-Claim-Token': claimToken,
       });
-      if (!inspectRes?.ok) return;
+      if (!joinPollTimer || !inspectRes?.ok) return;
 
       if (inspectRes.status === 'approved') {
         clearJoinPolling();
@@ -1711,6 +1777,28 @@ function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
         if (spinner) spinner.style.display = 'none';
         const statusText = document.getElementById('join-poll-status-text');
         if (statusText) statusText.textContent = 'Request Declined';
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = 'Back to Table Join';
+          cancelBtn.onclick = () => renderGeneralJoinLanding(mealId);
+        }
+      } else if (inspectRes.status === 'cancelled') {
+        clearJoinPolling();
+        const alertBox = document.getElementById('join-status-alert');
+        if (alertBox) {
+          alertBox.className = 'alert alert-info';
+          alertBox.textContent = 'This join request was cancelled.';
+          alertBox.style.display = 'block';
+        }
+        const spinner = document.querySelector('.spinner');
+        if (spinner) spinner.style.display = 'none';
+        const statusText = document.getElementById('join-poll-status-text');
+        if (statusText) statusText.textContent = 'Request Cancelled';
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = 'Back to Table Join';
+          cancelBtn.onclick = () => renderGeneralJoinLanding(mealId);
+        }
       } else if (inspectRes.status === 'expired') {
         clearJoinPolling();
         const alertBox = document.getElementById('join-status-alert');
@@ -1718,6 +1806,15 @@ function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
           alertBox.className = 'alert alert-error';
           alertBox.textContent = 'This join request has expired.';
           alertBox.style.display = 'block';
+        }
+        const spinner = document.querySelector('.spinner');
+        if (spinner) spinner.style.display = 'none';
+        const statusText = document.getElementById('join-poll-status-text');
+        if (statusText) statusText.textContent = 'Request Expired';
+        if (cancelBtn) {
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = 'Back to Table Join';
+          cancelBtn.onclick = () => renderGeneralJoinLanding(mealId);
         }
       }
     } catch (err) {

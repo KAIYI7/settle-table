@@ -448,6 +448,30 @@ class InvitationLifecycleTests(unittest.TestCase):
             self.assertIsNotNone(row)
             self.assertEqual(row[0], 'rejected')
 
+    def test_join_request_cancel_flow(self):
+        req_id, token, part_id, name = self.authority.create_join_request('meal-1', 'Charlie')
+        snap_org = self.authority.snapshot(self.organizer_cred, 'meal-1')
+        self.assertEqual(len(snap_org.join_requests), 1)
+
+        res = self.authority.cancel_join_request('meal-1', req_id, token)
+        self.assertTrue(res)
+
+        inspect_data = self.authority.inspect_join_request('meal-1', req_id, token)
+        self.assertEqual(inspect_data['status'], 'cancelled')
+
+        snap_org2 = self.authority.snapshot(self.organizer_cred, 'meal-1')
+        self.assertEqual(len(snap_org2.join_requests), 0)
+
+        req_id2, token2, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        self.assertNotEqual(req_id, req_id2)
+
+    def test_join_request_cancel_tampered_token_rejected(self):
+        req_id, token, _, _ = self.authority.create_join_request('meal-1', 'Charlie')
+        tampered_token = ('A' if token[0] != 'A' else 'B') + token[1:]
+        with self.assertRaises(AuthorityError) as ctx:
+            self.authority.cancel_join_request('meal-1', req_id, tampered_token)
+        self.assertEqual(ctx.exception.code, 'invalid_join_request')
+
 
 if __name__ == '__main__':
     unittest.main()
