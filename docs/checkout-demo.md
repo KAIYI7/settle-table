@@ -72,7 +72,12 @@ Errors: `checkout_demo_stale` (409), `checkout_demo_active` (409),
 The meal snapshot carries only a static organizer-only `checkout_demo_enabled`
 flag. Demo status is never read on the 3 s snapshot poll. The browser reads the
 dedicated endpoint at elapsed 2/5/10/30/60/90/120 seconds while the intent is
-open, then stops; it pauses while the page is hidden.
+open, then stops; it pauses while the page is hidden. It also reads it once when
+a snapshot shows that the finalized meal's suggested transfers changed (a
+contribution or confirmed transfer recorded after finalization), so the eligible
+list and the stale flag stay current. If a read is still in flight at that point,
+one more read follows it; while the page is hidden, that read waits until the page
+is visible again. These reads do not restart the polling schedule.
 
 ## Intent, reference and eligibility
 

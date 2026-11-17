@@ -36,6 +36,7 @@ const state = {
   checkoutDemoTimers: [],
   checkoutDemoSeq: 0,
   checkoutDemoEpoch: 0,
+  checkoutDemoRereadPending: null,
   allocationTargetId: null,
   expandedHybridItemIds: new Set(),
   activeMobileSheetItemId: null,
@@ -919,6 +920,11 @@ document.addEventListener('visibilitychange', () => {
       if (['PENDING', 'REQUEST_UNKNOWN'].includes(value.state)) scheduleSimulationReads(id);
     }
     if (checkoutDemoNeedsPolling(state.checkoutDemo)) scheduleCheckoutDemoReads();
+    const reread = state.checkoutDemoRereadPending;
+    if (reread && !state.checkoutDemoBusy) {
+      state.checkoutDemoRereadPending = null;
+      requestCheckoutDemo(null, reread.schedule);
+    }
   }
 });
 
@@ -1020,6 +1026,12 @@ async function fetchSnapshot(force = false) {
           loadSimulationReads(snap);
           loadCheckoutDemo(snap);
         }
+      }
+      // After finalize, contributions and confirmed transfers change the suggested transfers
+      // (the demo's eligible targets and stale flag) with no finalize transition: re-read once.
+      if (prevFinalized && snap.finalized
+          && checkoutDemoSuggestionKey(prevSnap) !== checkoutDemoSuggestionKey(snap)) {
+        loadCheckoutDemo(snap, false);
       }
       if (state.allocationConflictPending) {
         state.allocationConflictPending = false;
@@ -3356,6 +3368,7 @@ function resetCheckoutDemoView() {
   state.checkoutDemoEpoch++;
   state.checkoutDemo = null;
   state.checkoutDemoBusy = false;
+  state.checkoutDemoRereadPending = null;
 }
 
 function scheduleCheckoutDemoReads() {
@@ -3366,8 +3379,20 @@ function scheduleCheckoutDemoReads() {
   }, seconds * 1000));
 }
 
-function loadCheckoutDemo(snap) {
-  if (snap.finalized && snap.is_organizer && snap.checkout_demo_enabled) requestCheckoutDemo(null);
+function checkoutDemoSuggestionKey(snap) {
+  return JSON.stringify((snap?.settlement?.suggested_transfers || [])
+    .map(t => [t.sender_id, t.receiver_id, t.amount_sen]));
+}
+
+function loadCheckoutDemo(snap, schedule = true) {
+  if (!snap.finalized || !snap.is_organizer || !snap.checkout_demo_enabled) return;
+  if (state.checkoutDemoBusy || document.visibilityState === 'hidden') {
+    // The read in flight may have been answered before this change: read again once it settles
+    // (or once the page is visible again).
+    state.checkoutDemoRereadPending = {schedule: schedule || Boolean(state.checkoutDemoRereadPending?.schedule)};
+    return;
+  }
+  requestCheckoutDemo(null, schedule);
 }
 
 async function requestCheckoutDemo(target = null, schedule = true) {
@@ -3411,7 +3436,12 @@ async function requestCheckoutDemo(target = null, schedule = true) {
     if (state.mealId === meal && state.checkoutDemoEpoch === epoch) {
       state.checkoutDemoBusy = false;
       updateMealUI();
-      if (refreshAfter) requestCheckoutDemo(null);
+      const reread = state.checkoutDemoRereadPending;
+      // While hidden a queued re-read is kept for the visibilitychange handler.
+      if ((refreshAfter || reread) && document.visibilityState !== 'hidden') {
+        state.checkoutDemoRereadPending = null;
+        requestCheckoutDemo(null, refreshAfter || reread.schedule);
+      }
     }
   }
 }
