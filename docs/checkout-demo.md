@@ -39,7 +39,9 @@ native SettleTable process calling `http://127.0.0.1:28082`. Any other
 destination needs HTTPS with certificate and hostname verification, using
 `_CA_FILE` through `ssl.create_default_context(cafile=...)` for this client
 only. `SSL_CERT_FILE` is never set or required. DNS is resolved and pinned at
-startup. Requests use direct sockets, ignore proxy environment variables, do not
+startup; each request tries the pinned addresses in order within its deadline
+(so `localhost` resolving to `::1` and `127.0.0.1` reaches a bridge bound only
+to `127.0.0.1`). Without `_CA_FILE`, HTTPS uses the default trust store. Requests use direct sockets, ignore proxy environment variables, do not
 follow redirects and send no cookies, names, receipt content or participant
 credentials. No Compose override ships with this feature; a container
 deployment would need a separately reviewed, opt-in, read-only credential mount.
@@ -118,12 +120,17 @@ A success is `200` (or `201` for a PUT that created the checkout) with
 | PUT 409 `SAME_AMOUNT_HELD` | `NOT_CREATED`: "Another demo checkout holds this amount. It can last up to 40 minutes." |
 | PUT 409 `REFERENCE_CONFLICT` | `CONFLICT`; automatic actions stop |
 | PUT timeout, 503 `STORE_UNAVAILABLE`, any other answer | `REQUEST_UNKNOWN`; the next explicit action is a GET |
-| GET 404 `REFERENCE_NOT_FOUND`, no checkout ever bound | Checked absence: `NOT_CREATED`; one explicit identical re-PUT is allowed |
+| GET 404 `REFERENCE_NOT_FOUND`, no checkout ever bound | Checked absence: `NOT_CREATED`; each explicit organizer action may send one identical re-PUT (same reference) while the suggestion is unchanged |
 | GET 404 `REFERENCE_NOT_FOUND`, checkout bound | Snapshot loss: shown `UNAVAILABLE` until the operator decides; never recreated |
 | Other 404s, malformed bodies, transport failure on GET | `UNAVAILABLE` for that check; the stored state is kept |
 | A different `checkoutId`, amount, reference or `createdAt` | `CONFLICT` |
 | 400/401/403 | Client suspended until operator correction and restart |
-| 429 | Shared bounded `Retry-After` cooldown |
+| 429 | Shared bounded `Retry-After` cooldown (1–120 s) |
+
+For a PUT answered 400/401/403/429 the response shows `UNAVAILABLE` for that
+check while the stored state stays `REQUEST_UNKNOWN`, so the next action is a
+GET. While the client is suspended or cooling down, a request freezes no new
+intent and sends nothing.
 
 A lower `revision` than the stored one is ignored. An equal revision with
 different content fails closed. A higher revision with no visible change is a
@@ -143,7 +150,17 @@ Display mapping (evidence is checked first; any evidence other than `NONE` or
 | any other combination | Unexpected demo checkout status — automatic actions stopped |
 
 `CONFLICT` and `UNEXPECTED_STATUS` are latched: no further bridge request is sent
-for that intent. The client allows a two-second connect timeout, a five-second
+for that intent.
+
+**Known limitation — operator recovery.** `UNEXPECTED_STATUS` is latched but not
+finished, and a snapshot-loss `UNAVAILABLE` stays open until the bridge returns
+the same checkout at the same or a higher revision. A restored *older* bridge
+snapshot (lower revision) is therefore ignored and the intent stays
+`UNAVAILABLE`. In both cases the demo for that meal stays blocked; the meal's own
+balances, reports and transfers are unaffected. No in-app or scripted operator
+override ships: investigate, then run the demo with a fresh synthetic meal. Any
+manual database change would need its own reviewed procedure. After 50 attempts
+a meal also refuses further demo requests (`resource_limit`). The client allows a two-second connect timeout, a five-second
 whole-request deadline and an 8 KiB response limit. Admission controls are
 process-local and reset on restart.
 

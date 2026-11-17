@@ -139,7 +139,7 @@ class CheckoutDemoConfig:
             if ca_file is not None and not ca_file:
                 raise ValueError()
             # Its own namespace: never share the I06 installation namespace.
-            if env.get('SETTLETABLE_KAIPAY_NAMESPACE') == namespace:
+            if str(env.get('SETTLETABLE_KAIPAY_NAMESPACE', '')).lower() == str(namespace).lower():
                 raise ValueError()
             return cls(namespace, base_url, credential, ca_file)
         except (KeyError, ValueError, TypeError, OSError, RecursionError):
@@ -222,17 +222,36 @@ class CheckoutDemoClient:
     def _transport(self, method, retry=None):
         return {'transport': 'REQUEST_UNKNOWN' if method == 'PUT' else 'UNAVAILABLE', 'retry_after': retry}
 
-    def request(self, method, reference, amount):
-        """At most one request. Returns {'checkout'}, {'error'} or {'transport'}."""
-        if method not in ('GET', 'PUT'):
-            raise ValueError('invalid_method')
-        canonical_uuid(reference)
+    def admission(self):
+        """The refusal a request would get right now without any I/O, or None."""
         with self.admission_lock:
             if self.suspended:
                 return {'transport': 'UNAVAILABLE', 'retry_after': None}
             if time.monotonic() < self.retry_not_before:
                 return {'transport': 'UNAVAILABLE',
                         'retry_after': max(1, int(self.retry_not_before - time.monotonic()) + 1)}
+        return None
+
+    def _connect(self, deadline):
+        """Try each pinned address in order inside the whole-request deadline."""
+        for address in self.addresses:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                return socket.create_connection((address, self.port), timeout=min(2, remaining))
+            except OSError:
+                continue
+        raise TimeoutError()
+
+    def request(self, method, reference, amount):
+        """At most one request. Returns {'checkout'}, {'error'} or {'transport'}."""
+        if method not in ('GET', 'PUT'):
+            raise ValueError('invalid_method')
+        canonical_uuid(reference)
+        refused = self.admission()
+        if refused is not None:
+            return refused
         connection = None
         timer = None
         sock = None
@@ -246,7 +265,7 @@ class CheckoutDemoClient:
                     pass
         try:
             deadline = time.monotonic() + 5
-            sock = socket.create_connection((self.addresses[0], self.port), timeout=2)
+            sock = self._connect(deadline)
             sockets.append(sock)
             timer = threading.Timer(max(0.001, deadline - time.monotonic()), abort)
             timer.daemon = True
@@ -331,8 +350,15 @@ def _finalize_basis(authority, meal_id, state):
             _require(command.get('kind') == accepted.get('kind') == 'Finalize', BASIS_ERROR)
             _require(_wire(command) == body and _wire(accepted) == result
                      and digest == hashlib.sha256(b'settletable-command-digest-v1\0' + body).digest(), BASIS_ERROR)
+            _id(actor)
+            _id(command_id)
             _require(command.get('command_id') == accepted.get('command_id') == command_id, BASIS_ERROR)
-            _require(accepted.get('financial_revision') == state['financial_revision']
+            # The same consistency checks as Authority._finalized_allocation.
+            revision, financial_revision = accepted.get('revision'), accepted.get('financial_revision')
+            _require(type(revision) is int and 1 <= revision <= state['revision']
+                     and type(financial_revision) is int and financial_revision == state['financial_revision']
+                     and command.get('expected_revision') == revision - 1
+                     and command.get('expected_financial_revision') == financial_revision
                      and accepted.get('calculation') == state['calculation'], BASIS_ERROR)
             found.append((actor, command_id))
     _require(len(found) == 1, BASIS_ERROR)
@@ -590,6 +616,13 @@ def request_checkout_demo(authority, credential, meal_id, config, client, sender
     if not _wire_slot.acquire(blocking=False):
         return _projection(_read(authority, credential, meal_id, config), 'BUSY', 2)
     try:
+        # A suspended or cooling-down client would send nothing: freeze nothing either.
+        refused = client.admission() if hasattr(client, 'admission') else None
+        if refused is not None:
+            ctx = _read(authority, credential, meal_id, config)
+            _decide(ctx, sender_id, amount_sen)  # Still report stale/active/confirmed refusals.
+            return _projection(ctx, 'UNAVAILABLE', refused.get('retry_after'))
+
         def work():
             ctx = _context(authority, credential, meal_id, config)
             action, latest = _decide(ctx, sender_id, amount_sen)
