@@ -326,9 +326,13 @@ try {
   const ids = await ev(a, 'window.demoIds');
   const cardText = await ev(a, "document.getElementById('checkout-demo-card').innerText");
   assert(cardText.includes('Experimental checkout demo (synthetic)'), 'Card title missing');
-  for (const banned of ['TNG', 'KaiPay', 'paid', 'settled', 'Settled']) {
-    assert(!cardText.includes(banned), `Card copy must not say "${banned}": ${cardText}`);
-  }
+  const checkCopy = async label => {
+    const text = await ev(a, "document.getElementById('checkout-demo-card').innerText");
+    for (const banned of ['TNG', 'KaiPay', 'paid', 'settled', 'Settled']) {
+      assert(!text.includes(banned), `Card copy (${label}) must not say "${banned}": ${text}`);
+    }
+  };
+  await checkCopy('initial');
   assert((await bridgeCalls()).length === 0, 'Loading the card before any intent must not call the bridge');
   const financialBefore = await ev(a, "JSON.stringify({s:state.snapshot.settlement,f:state.snapshot.funding,t:state.snapshot.transfers,c:state.snapshot.contributions,p:state.snapshot.pending_transfers})");
   const buttonBox = await ev(a, "(()=>{const r=document.querySelector('[data-checkout-demo-action=\"request\"]').getBoundingClientRect();return {w:r.width,h:r.height}})()");
@@ -368,6 +372,7 @@ try {
   await wait(a, "document.getElementById('checkout-demo-status')?.textContent.includes('Organizer marked the synthetic demo checkout confirmed')", 8000);
   const confirmedText = await ev(a, "document.getElementById('checkout-demo-status').textContent");
   assert(confirmedText.includes('no money moved; balance unchanged'), `Confirmed copy wrong: ${confirmedText}`);
+  await checkCopy('confirmed');
   await wait(a, 'state.checkoutDemoTimers.length===0', 3000);
   const getsAtConfirm = demoRequests.filter(r => r.method === 'GET').length;
   await new Promise(r => setTimeout(r, 7000));  // Snapshot poll keeps running; demo polling has stopped.
@@ -391,6 +396,7 @@ try {
   await ev(a, `(async()=>{const s=state.snapshot; await apiCall('/api/meals/demo-meal/apply','POST',{kind:'RecordTransfer',command_id:'partial',expected_revision:s.revision,sender_id:'${ids.other}',receiver_id:'${ids.org}',amount_sen:100}); await fetchSnapshot(true);})()`);
   await ev(a, "document.getElementById('checkout-demo-refresh-btn').click()");
   await wait(a, "document.getElementById('checkout-demo-stale')");
+  await checkCopy('stale');
   const putsBefore = (await bridgeCalls()).filter(c => c[0] === 'PUT').length;
   const stale = await ev(a, `fetch('/api/meals/demo-meal/checkout-demo',{method:'POST',headers:{'Content-Type':'application/json','X-SettleTable-Action':'1'},body:JSON.stringify({sender_id:'${ids.other}',amount_sen:500})}).then(async r=>[r.status,(await r.json()).error])`);
   assert(stale[0] === 409 && stale[1] === 'checkout_demo_stale', `Stale request not refused: ${stale}`);
@@ -402,6 +408,7 @@ try {
   await ev(a, "document.getElementById('checkout-demo-refresh-btn').click()");
   await wait(a, "document.getElementById('checkout-demo-status')?.textContent.includes('Expired — you may request again')");
   await wait(a, `[...document.querySelectorAll('[data-checkout-demo-action="request"]')].some(b=>b.dataset.senderId==='${ids.other}' && b.dataset.amountSen==='400')`);
+  await checkCopy('expired');
   console.log('   ✓ Expired state offers the recomputed RM4.00 suggestion');
 
   console.log('[7/7] Hidden page pauses demo polling...');

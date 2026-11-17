@@ -127,6 +127,8 @@ class StubBridge:
                 if stub.control_nonce and self.path.startswith(f'/__control/{stub.control_nonce}/'):
                     return self._send(*stub._control(method, self.path, raw))
                 stub.calls.append((method, self.path, dict(self.headers), raw))
+                if method not in ('GET', 'PUT'):
+                    return self._send(405, {'error': 'METHOD_INVALID'})
                 match = PATH.fullmatch(self.path)
                 if self.headers.get('Authorization') != 'Bearer ' + stub.token:
                     return self._send(401, {'error': 'UNAUTHORIZED'})

@@ -454,6 +454,33 @@ class RecoveryTests(DemoFixture):
         self.bridge.checkouts[reference] = saved  # Operator restores the snapshot backup.
         self.assertEqual(self.status()['intent']['state'], 'AWAITING_EVIDENCE')
 
+    def test_restore_of_an_older_bridge_snapshot_stays_unavailable(self):
+        self.finalize()
+        reference = self.request()['intent']['reference']
+        older = self.bridge.only()[1]
+        self.bridge.simulate_candidate(reference)
+        self.assertEqual(self.status()['intent']['revision'], 2)
+        self.bridge.lose_snapshot()
+        self.assertTrue(self.status()['intent']['referenceLost'])
+        self.bridge.checkouts[reference] = older  # Revision 1: older than what SettleTable saw.
+        restored = self.status()['intent']
+        self.assertEqual((restored['state'], restored['referenceLost'], restored['revision']), ('UNAVAILABLE', True, 2))
+        self.assertEqual([m for m, _ in self.wire()].count('PUT'), 1)
+
+    def test_suspended_client_freezes_no_intent(self):
+        self.finalize()
+        self.client.suspended = True
+        refused = self.request()
+        self.assertEqual((refused['intent'], refused['lastCheck']), (None, 'UNAVAILABLE'))
+        self.assertEqual((self.rows(), self.bridge.calls), ([], []))
+        self.assertEqual(self.code(lambda: self.request('B', 1)), 'checkout_demo_stale')
+        self.client.suspended = False
+        self.client.retry_not_before = demo.time.monotonic() + 30
+        cooling = self.request()
+        self.assertEqual((cooling['intent'], cooling['lastCheck']), (None, 'UNAVAILABLE'))
+        self.assertGreaterEqual(cooling['retryAfter'], 29)
+        self.assertEqual(self.rows(), [])
+
     def test_other_404s_and_malformed_bodies_are_transient_unavailable(self):
         self.finalize()
         self.request()
@@ -703,6 +730,51 @@ class WireClientTests(unittest.TestCase):
             self.client.request('POST', self.reference, 5)
         with self.assertRaises(ValueError):
             self.client.request('GET', self.reference.upper(), 5)
+
+    def test_400_and_403_suspend_and_retry_after_is_bounded(self):
+        for status in (400, 403):
+            client = CheckoutDemoClient(self.client.config)
+            self.bridge.fail = (status, {'error': 'X'})
+            self.assertEqual(client.request('GET', self.reference, 1)['transport'], 'UNAVAILABLE')
+            self.bridge.fail = None
+            calls = len(self.bridge.calls)
+            self.assertEqual(client.request('GET', self.reference, 1)['transport'], 'UNAVAILABLE')
+            self.assertEqual(len(self.bridge.calls), calls, f'{status} did not suspend')
+        for header, expected in (('999', 120), ('0', 1), ('abc', 1), ('30', 30)):
+            client = CheckoutDemoClient(self.client.config)
+            self.bridge.fail = None
+            with patch.object(StubBridge, '_get', lambda _self, ref: (429, {'error': 'RATE_LIMITED'})):
+                original = self.bridge.server.RequestHandlerClass.send_header
+
+                def send_header(handler, key, value, _h=header, _o=original):
+                    _o(handler, key, value)
+                    if key == 'Content-Type':
+                        _o(handler, 'Retry-After', _h)
+                with patch.object(self.bridge.server.RequestHandlerClass, 'send_header', send_header):
+                    client.request('GET', self.reference, 1)
+            remaining = client.retry_not_before - demo.time.monotonic()
+            with self.subTest(header=header):
+                self.assertTrue(expected - 1 <= remaining <= expected, remaining)
+
+    def test_connect_falls_back_across_pinned_addresses(self):
+        port = self.bridge.server.server_port
+        infos = [(None, None, None, None, ('::1', port)), (None, None, None, None, ('127.0.0.1', port))]
+        with patch('socket.getaddrinfo', return_value=infos):
+            client = CheckoutDemoClient(CheckoutDemoConfig(NAMESPACE, f'http://localhost:{port}', self.bridge_token))
+        self.assertEqual(client.addresses, ('::1', '127.0.0.1'))
+        self.assertIn('checkout', client.request('PUT', self.reference, 9))
+
+    def test_whole_request_deadline_on_a_silent_server(self):
+        import socket
+        listener = socket.socket()
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+        client = CheckoutDemoClient(CheckoutDemoConfig(NAMESPACE, f'http://127.0.0.1:{listener.getsockname()[1]}',
+                                                       self.bridge_token))
+        started = demo.time.monotonic()
+        self.assertEqual(client.request('PUT', self.reference, 9)['transport'], 'REQUEST_UNKNOWN')
+        self.assertLess(demo.time.monotonic() - started, 6.5)
 
     def test_wrong_content_type_and_proxy_environment_are_ignored(self):
         body = self.client.request('PUT', self.reference, 7)['checkout']
