@@ -617,7 +617,7 @@ def request_checkout_demo(authority, credential, meal_id, config, client, sender
         return _projection(_read(authority, credential, meal_id, config), 'BUSY', 2)
     try:
         # A suspended or cooling-down client would send nothing: freeze nothing either.
-        refused = client.admission() if hasattr(client, 'admission') else None
+        refused = client.admission()
         if refused is not None:
             ctx = _read(authority, credential, meal_id, config)
             _decide(ctx, sender_id, amount_sen)  # Still report stale/active/confirmed refusals.

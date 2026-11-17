@@ -41,6 +41,9 @@ class RecordingClient:
         self.calls = []
         self.outcomes = list(outcomes) or [{'transport': 'REQUEST_UNKNOWN', 'retry_after': None}]
 
+    def admission(self):
+        return None
+
     def request(self, method, reference, amount):
         self.calls.append((method, reference, amount))
         return self.outcomes.pop(0) if len(self.outcomes) > 1 else self.outcomes[0]
