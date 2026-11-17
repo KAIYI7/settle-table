@@ -845,6 +845,21 @@ class Authority:
                     PRIMARY KEY(integration_id,meal_id,finalize_actor_id,finalize_command_id,participant_id,purpose_version),
                     UNIQUE(integration_id,client_reference),
                     FOREIGN KEY(meal_id,participant_id) REFERENCES participants(meal_id,id));
+                -- Additive, nonfinancial: an experimental synthetic checkout demo intent.
+                CREATE TABLE IF NOT EXISTS checkout_demos (
+                    meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+                    attempt INTEGER NOT NULL CHECK(attempt >= 1),
+                    finalize_actor_id TEXT NOT NULL, finalize_command_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL, receiver_id TEXT NOT NULL,
+                    amount_sen INTEGER NOT NULL CHECK(amount_sen >= 1),
+                    reference TEXT NOT NULL UNIQUE,
+                    initiated_by TEXT NOT NULL, created_at REAL NOT NULL,
+                    state TEXT NOT NULL CHECK(state IN ('REQUEST_UNKNOWN','NOT_CREATED','OBSERVED',
+                        'REFERENCE_LOST','CONFLICT','UNEXPECTED_STATUS')),
+                    not_created_reason TEXT, dispatch_count INTEGER NOT NULL DEFAULT 0,
+                    checkout_id TEXT, bridge_status TEXT, evidence TEXT, revision INTEGER,
+                    bridge_created_at TEXT, expires_at TEXT, review_expires_at TEXT, observed_at REAL,
+                    PRIMARY KEY(meal_id, attempt));
                 CREATE TABLE IF NOT EXISTS payer_contributions (
                     meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
                     contribution_id TEXT NOT NULL,
