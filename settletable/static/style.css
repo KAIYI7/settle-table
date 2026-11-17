@@ -28,6 +28,15 @@
 .simulation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .simulation-actions .btn { min-height: 40px; padding: 8px 10px; font-size: 0.8rem; white-space: normal; }
 .simulation-actions .btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+.checkout-demo-notice { color: var(--text-main); font-size: 0.9rem; margin: 6px 0 12px; }
+.checkout-demo-status, .checkout-demo-target { font-weight: 600; margin: 4px 0; overflow-wrap: anywhere; }
+.checkout-demo-note, .checkout-demo-attempt { color: var(--text-muted); font-size: 0.8rem; font-weight: 400; margin: 3px 0; overflow-wrap: anywhere; }
+.checkout-demo-stale { color: #f59e0b; font-size: 0.85rem; margin: 4px 0; }
+.checkout-demo-options { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.checkout-demo-option { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.checkout-demo-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.checkout-demo-btn { min-height: 44px; white-space: normal; }
+.checkout-demo-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
 
 *, *::before, *::after {
   box-sizing: border-box;

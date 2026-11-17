@@ -31,6 +31,11 @@ const state = {
   paymentReadSeq: new Map(),
   paymentTimers: new Map(),
   paymentEpoch: 0,
+  checkoutDemo: null,
+  checkoutDemoBusy: false,
+  checkoutDemoTimers: [],
+  checkoutDemoSeq: 0,
+  checkoutDemoEpoch: 0,
   allocationTargetId: null,
   expandedHybridItemIds: new Set(),
   activeMobileSheetItemId: null,
@@ -907,11 +912,13 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     stopPolling();
     clearSimulationTimers();
+    clearCheckoutDemoTimers();
   } else if (state.mealId && !state.pollTimer) {
     startPolling();
     for (const [id, value] of state.paymentSimulations) {
       if (['PENDING', 'REQUEST_UNKNOWN'].includes(value.state)) scheduleSimulationReads(id);
     }
+    if (checkoutDemoNeedsPolling(state.checkoutDemo)) scheduleCheckoutDemoReads();
   }
 });
 
@@ -1009,7 +1016,10 @@ async function fetchSnapshot(force = false) {
 
       if (force || hasChanged) {
         updateMealUI();
-        if (snap.finalized && !prevFinalized) loadSimulationReads(snap);
+        if (snap.finalized && !prevFinalized) {
+          loadSimulationReads(snap);
+          loadCheckoutDemo(snap);
+        }
       }
       if (state.allocationConflictPending) {
         state.allocationConflictPending = false;
@@ -1048,6 +1058,7 @@ async function handleLeaveRoom() {
   }
   stopPolling();
   resetSimulationView();
+  resetCheckoutDemoView();
   if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
     URL.revokeObjectURL(state.localPhotoUrl);
   }
@@ -1828,6 +1839,7 @@ function renderJoinWaitingState(mealId, requestId, claimToken, displayName) {
 // --- View 3: Meal Room ---
 async function loadMeal(mealId) {
   resetSimulationView();
+  resetCheckoutDemoView();
   if (state.localPhotoUrl && state.localPhotoUrl.startsWith('blob:')) {
     URL.revokeObjectURL(state.localPhotoUrl);
   }
@@ -1872,6 +1884,7 @@ async function loadMeal(mealId) {
 
       updateMealUI();
       loadSimulationReads(snap);
+      loadCheckoutDemo(snap);
       startPolling();
 
       // If in-progress export, resume active polling for organizer
@@ -2074,6 +2087,7 @@ function updateMealUI() {
     html += renderFinalizedCalculation(snap);
     html += renderRestaurantFundingCard(snap);
     html += renderPeerSettlementCard(snap);
+    html += renderCheckoutDemoCard(snap);
     if (state.isOrganizer) {
       html += renderSharingAndAccessSection(snap);
     }
@@ -3299,6 +3313,159 @@ async function loadSimulationReads(snap) {
     if ((snap.is_organizer || participant.id === snap.current_participant_id)
         && !snap.inactive_participant_ids?.includes(participant.id)) await requestSimulation(participant.id);
   }
+}
+
+// --- Experimental checkout demo (synthetic, display only) ---
+// Reads use their own endpoint on the allocation simulation schedule; they are
+// never part of the 3 s snapshot poll. Copy never claims that money moved.
+const CHECKOUT_DEMO_POLL_SECONDS = [2, 5, 10, 30, 60, 90, 120];
+const CHECKOUT_DEMO_LABELS = {
+  REQUEST_UNKNOWN: 'Request outcome unknown — refresh status before requesting again',
+  AWAITING_EVIDENCE: 'Awaiting synthetic evidence',
+  EVIDENCE_DETECTED: 'Synthetic evidence detected — awaiting organizer review',
+  NEEDS_REVIEW: 'Needs organizer review in the demo checkout',
+  MANUALLY_CONFIRMED: 'Organizer marked the synthetic demo checkout confirmed — no money moved; balance unchanged',
+  EXPIRED: 'Expired — you may request again',
+  CONFLICT: 'Demo checkout conflict — automatic actions stopped',
+  UNEXPECTED_STATUS: 'Unexpected demo checkout status — automatic actions stopped',
+  UNAVAILABLE: 'Demo checkout status unavailable — refresh to check again',
+};
+
+function checkoutDemoLabel(intent) {
+  if (intent.state === 'NOT_CREATED') {
+    return intent.notCreatedReason === 'SAME_AMOUNT_HELD'
+      ? 'Another demo checkout holds this amount. It can last up to 40 minutes.'
+      : 'Demo checkout was not created — you may request it again';
+  }
+  if (intent.referenceLost) return 'Demo checkout record missing from the bridge — unavailable until the operator checks it';
+  return CHECKOUT_DEMO_LABELS[intent.state] || CHECKOUT_DEMO_LABELS.UNEXPECTED_STATUS;
+}
+
+function checkoutDemoNeedsPolling(result) {
+  const intent = result?.intent;
+  return Boolean(intent) && !intent.terminal && !intent.latched;
+}
+
+function clearCheckoutDemoTimers() {
+  state.checkoutDemoTimers.forEach(clearTimeout);
+  state.checkoutDemoTimers = [];
+}
+
+function resetCheckoutDemoView() {
+  clearCheckoutDemoTimers();
+  state.checkoutDemoEpoch++;
+  state.checkoutDemo = null;
+  state.checkoutDemoBusy = false;
+}
+
+function scheduleCheckoutDemoReads() {
+  clearCheckoutDemoTimers();
+  const epoch = state.checkoutDemoEpoch;
+  state.checkoutDemoTimers = CHECKOUT_DEMO_POLL_SECONDS.map(seconds => setTimeout(() => {
+    if (state.checkoutDemoEpoch === epoch && document.visibilityState !== 'hidden') requestCheckoutDemo(null, false);
+  }, seconds * 1000));
+}
+
+function loadCheckoutDemo(snap) {
+  if (snap.finalized && snap.is_organizer && snap.checkout_demo_enabled) requestCheckoutDemo(null);
+}
+
+async function requestCheckoutDemo(target = null, schedule = true) {
+  if (!state.mealId || state.checkoutDemoBusy || document.visibilityState === 'hidden') return;
+  const meal = state.mealId;
+  const epoch = state.checkoutDemoEpoch;
+  const seq = ++state.checkoutDemoSeq;
+  let refreshAfter = false;
+  state.checkoutDemoBusy = true;
+  updateMealUI();
+  try {
+    const result = await apiCall(`/api/meals/${encodeURIComponent(meal)}/checkout-demo`, target ? 'POST' : 'GET',
+      target ? {sender_id: target.senderId, amount_sen: target.amountSen} : null);
+    if (state.mealId !== meal || state.checkoutDemoEpoch !== epoch || state.checkoutDemoSeq !== seq) return;
+    const next = result.checkout_demo;
+    const prior = state.checkoutDemo?.intent;
+    if (prior && next.intent && prior.attempt === next.intent.attempt && prior.revision != null
+        && next.intent.revision != null && next.intent.revision < prior.revision) return;
+    state.checkoutDemo = next;
+    if (!checkoutDemoNeedsPolling(next)) clearCheckoutDemoTimers();
+    else if (schedule || target) scheduleCheckoutDemoReads();
+  } catch (err) {
+    if (state.mealId !== meal || state.checkoutDemoEpoch !== epoch) return;
+    if (err.status === 401 || err.status === 403) {
+      resetCheckoutDemoView();
+      showAlert('Demo checkout access expired or was revoked. Reload your meal session.', 'error');
+    } else if (['checkout_demo_stale', 'checkout_demo_active', 'checkout_demo_already_confirmed'].includes(err.code)) {
+      showAlert({
+        checkout_demo_stale: 'Balances changed. Review the current suggestion before requesting a demo checkout.',
+        checkout_demo_active: 'Another experimental checkout demo is still open for this meal.',
+        checkout_demo_already_confirmed: 'This suggestion already has an organizer-confirmed demo checkout.',
+      }[err.code], 'conflict');
+      refreshAfter = true;
+    } else {
+      // A failed request may still have reached the server: never assume it did not.
+      state.checkoutDemo = {...(state.checkoutDemo || {intent: null}), eligible: [],
+        lastCheck: target ? 'REQUEST_UNKNOWN' : 'UNAVAILABLE'};
+      if (target) scheduleCheckoutDemoReads();
+    }
+  } finally {
+    if (state.mealId === meal && state.checkoutDemoEpoch === epoch) {
+      state.checkoutDemoBusy = false;
+      updateMealUI();
+      if (refreshAfter) requestCheckoutDemo(null);
+    }
+  }
+}
+
+function renderCheckoutDemoCard(snap) {
+  if (!snap.checkout_demo_enabled || !snap.is_organizer || !snap.finalized) return '';
+  const demo = state.checkoutDemo;
+  const busy = state.checkoutDemoBusy;
+  const names = new Map((snap.participants || []).map(p => [p.id, p.name]));
+  const who = id => escapeHtml(names.get(id) || id);
+  const intent = demo?.intent;
+  const status = text => `<p class="checkout-demo-status" id="checkout-demo-status" role="status">${escapeHtml(text)}</p>`;
+  let statusHtml = status('Demo checkout status not loaded');
+  if (busy) {
+    statusHtml = status('Checking demo checkout…');
+  } else if (intent) {
+    const lastKnown = intent.state === 'UNAVAILABLE' && !intent.referenceLost && intent.lastKnownState !== 'UNAVAILABLE'
+      ? `<p class="checkout-demo-note">Last known: ${escapeHtml(checkoutDemoLabel({...intent, state: intent.lastKnownState}))}</p>` : '';
+    statusHtml = `
+      <div class="checkout-demo-intent" data-checkout-demo-state="${escapeHtml(intent.state)}">
+        <p class="checkout-demo-target">${who(intent.senderId)} → ${who(intent.receiverId)} ${formatSen(intent.amountSen)} <span class="checkout-demo-attempt">(demo request ${Number(intent.attempt)})</span></p>
+        ${status(checkoutDemoLabel(intent))}
+        ${intent.stale ? '<p class="checkout-demo-stale" id="checkout-demo-stale">Stale — balances changed. No further request is sent for this demo checkout.</p>' : ''}
+        ${lastKnown}
+        <p class="checkout-demo-note">Demo reference ${escapeHtml(intent.reference)}${intent.observedAt ? ` · last checked ${escapeHtml(new Date(intent.observedAt * 1000).toLocaleTimeString())}` : ''}</p>
+      </div>`;
+  } else if (demo && demo.lastCheck === 'REQUEST_UNKNOWN') {
+    statusHtml = status(CHECKOUT_DEMO_LABELS.REQUEST_UNKNOWN);
+  } else if (demo && demo.lastCheck === 'UNAVAILABLE') {
+    statusHtml = status(CHECKOUT_DEMO_LABELS.UNAVAILABLE);
+  } else if (demo) {
+    statusHtml = status('No demo checkout requested yet');
+  }
+  const busyNote = demo?.lastCheck === 'BUSY'
+    ? '<p class="checkout-demo-note">Another demo checkout check is in progress. Try again in a moment.</p>' : '';
+  const options = (demo?.eligible || []).map(e => `
+      <li class="checkout-demo-option">
+        <span>${who(e.senderId)} → ${who(e.receiverId)} ${formatSen(e.amountSen)}</span>
+        <button type="button" class="btn btn-secondary checkout-demo-btn" data-checkout-demo-action="request"
+                data-sender-id="${escapeHtml(e.senderId)}" data-amount-sen="${Number(e.amountSen)}" ${busy ? 'disabled' : ''}>
+          ${e.action === 'RETRY' ? 'Request the same demo checkout again' : 'Request experimental checkout (synthetic demo)'}
+        </button>
+      </li>`).join('');
+  return `
+    <div class="card checkout-demo-card" id="checkout-demo-card">
+      <h3 class="card-title">🧪 Experimental checkout demo (synthetic)</h3>
+      <p class="checkout-demo-notice">Synthetic and nonpayable: no money moves and balances stay unchanged. You give the payer code and review the demo in the separate checkout bridge. This card only shows the outcome and never records a transfer.</p>
+      ${statusHtml}
+      ${busyNote}
+      ${options ? `<ul class="checkout-demo-options">${options}</ul>` : ''}
+      <div class="checkout-demo-actions">
+        <button type="button" class="btn btn-secondary checkout-demo-btn" data-checkout-demo-action="refresh" id="checkout-demo-refresh-btn" ${busy ? 'disabled' : ''}>Refresh demo status</button>
+      </div>
+    </div>`;
 }
 
 function validateNotionSharingUrl(rawUrl) {
@@ -4828,6 +4995,10 @@ function bindEvents(snap) {
 
   document.querySelectorAll('[data-simulation-action]').forEach(button => {
     button.addEventListener('click', () => requestSimulation(button.dataset.participantId, button.dataset.simulationAction === 'initiate'));
+  });
+  document.querySelectorAll('[data-checkout-demo-action]').forEach(button => {
+    button.addEventListener('click', () => requestCheckoutDemo(button.dataset.checkoutDemoAction === 'request'
+      ? {senderId: button.dataset.senderId, amountSen: Number(button.dataset.amountSen)} : null));
   });
   // 1. Add Item Form
   document.querySelectorAll('[data-action="service-all-items"], [data-action="service-fixed-items"]').forEach(button => {

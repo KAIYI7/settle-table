@@ -120,6 +120,10 @@ STATUS_MAP = {
     'active_peer_transfers_exist': 409,
     'invalid_participant': 400,
     'simulation_conflict': 409,
+    'checkout_demo_conflict': 409,
+    'checkout_demo_stale': 409,
+    'checkout_demo_active': 409,
+    'checkout_demo_already_confirmed': 409,
     'export_in_progress': 409,
     'claimed_item_deletion': 409,
     'retired_source': 409,
@@ -148,6 +152,7 @@ STATUS_MAP = {
     'busy': 503,
     'ocr_unavailable': 503,
     'simulation_disabled': 503,
+    'checkout_demo_disabled': 503,
     'public_creation_disabled': 503,
     'notion_auth_error': 400,
     # 507 Insufficient Storage
@@ -297,6 +302,7 @@ class SettleTableApp:
     def __init__(self, db_path, allowed_hosts=('localhost:8000', '127.0.0.1:8000', 'testserver'),
                  server_origin='http://localhost:8000', clock=None, logger=None, ocr_engine=None,
                  notion_client=None, allow_sync_export=False, simulation_config=None, simulation_client=None,
+                 checkout_demo_config=None, checkout_demo_client=None,
                  storage_dir=None, session_ttl=None, public_creation_config=None, public_creation_gate=None):
         self.db_path = str(db_path)
         self.storage_dir = Path(storage_dir) if storage_dir is not None else None
@@ -310,6 +316,11 @@ class SettleTableApp:
         from settletable.payment_simulation import SimulationConfig, KaiPayClient
         self.simulation_config = simulation_config if simulation_config is not None else SimulationConfig.from_env()
         self.simulation_client = (simulation_client or KaiPayClient(self.simulation_config)) if self.simulation_config else None
+        from settletable.checkout_demo import CheckoutDemoConfig, CheckoutDemoClient
+        self.checkout_demo_config = (checkout_demo_config if checkout_demo_config is not None
+                                     else CheckoutDemoConfig.from_env())
+        self.checkout_demo_client = ((checkout_demo_client or CheckoutDemoClient(self.checkout_demo_config))
+                                     if self.checkout_demo_config else None)
         self.allow_sync_export = (
             bool(allow_sync_export)
             or os.environ.get('SETTLETABLE_ALLOW_SYNC_EXPORT') == '1'
@@ -979,6 +990,8 @@ class SettleTableApp:
             out['current_participant_id'] = part_id
             out['is_organizer'] = is_org
             out['payment_simulation_enabled'] = self.simulation_config is not None
+            # A static, organizer-only flag. Demo status is never read on this 3 s path.
+            out['checkout_demo_enabled'] = self.checkout_demo_config is not None and bool(is_org)
             return 200, self._default_headers(), serialize_json(out)
 
         # Allocation simulation has its own organizer/self permission boundary.
@@ -997,6 +1010,34 @@ class SettleTableApp:
                                         self.simulation_config, self.simulation_client, initiate=method == 'POST')
             code = 202 if result['state'] in ('PENDING', 'REQUEST_UNKNOWN') else 200
             return code, self._default_headers(), serialize_json({'ok': True, 'payment_simulation': result})
+
+        # Experimental synthetic checkout demo: organizer only, display only.
+        m_demo = re.fullmatch(r'/api/meals/([A-Za-z0-9][A-Za-z0-9_.:-]{0,63})/checkout-demo', path)
+        if m_demo and method in ('POST', 'GET'):
+            if not active_cred:
+                raise TransportError('invalid_session', 401)
+            meal_id = m_demo.group(1)
+            if self.checkout_demo_config is None:
+                # Authenticate before disclosing even the feature's availability.
+                authority.authenticate(active_cred, meal_id)
+                raise TransportError('checkout_demo_disabled', 503)
+            from settletable import checkout_demo
+            if method == 'POST':
+                if (type(body_data) is not dict or set(body_data) != {'sender_id', 'amount_sen'}
+                        or type(body_data['sender_id']) is not str
+                        or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}', body_data['sender_id'])
+                        or type(body_data['amount_sen']) is not int
+                        or not 1 <= body_data['amount_sen'] <= 1_000_000_000):
+                    raise TransportError('invalid_input', 400)
+                result = checkout_demo.request_checkout_demo(
+                    authority, active_cred, meal_id, self.checkout_demo_config, self.checkout_demo_client,
+                    body_data['sender_id'], body_data['amount_sen'])
+            else:
+                result = checkout_demo.checkout_demo_status(
+                    authority, active_cred, meal_id, self.checkout_demo_config, self.checkout_demo_client)
+            intent = result['intent']
+            uncertain = result['lastCheck'] == 'BUSY' or (intent is not None and intent['state'] == 'REQUEST_UNKNOWN')
+            return 202 if uncertain else 200, self._default_headers(), serialize_json({'ok': True, 'checkout_demo': result})
 
         # Rotate Session POST /api/meals/{meal_id}/session/rotate
         m = re.fullmatch(r'/api/meals/([A-Za-z0-9_-]+)/session/rotate', path)
