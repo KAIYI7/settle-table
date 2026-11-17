@@ -41,7 +41,8 @@ destination needs HTTPS with certificate and hostname verification, using
 only. `SSL_CERT_FILE` is never set or required. DNS is resolved and pinned at
 startup; each request tries the pinned addresses in order within its deadline
 (so `localhost` resolving to `::1` and `127.0.0.1` reaches a bridge bound only
-to `127.0.0.1`). Without `_CA_FILE`, HTTPS uses the default trust store. Requests use direct sockets, ignore proxy environment variables, do not
+to `127.0.0.1`, at the cost of up to 2 s per request; prefer the literal
+`http://127.0.0.1:28082`). Without `_CA_FILE`, HTTPS uses the default trust store. Requests use direct sockets, ignore proxy environment variables, do not
 follow redirects and send no cookies, names, receipt content or participant
 credentials. No Compose override ships with this feature; a container
 deployment would need a separately reviewed, opt-in, read-only credential mount.
@@ -160,7 +161,9 @@ snapshot (lower revision) is therefore ignored and the intent stays
 balances, reports and transfers are unaffected. No in-app or scripted operator
 override ships: investigate, then run the demo with a fresh synthetic meal. Any
 manual database change would need its own reviewed procedure. After 50 attempts
-a meal also refuses further demo requests (`resource_limit`). The client allows a two-second connect timeout, a five-second
+a meal also refuses further demo requests (`resource_limit`).
+
+The client allows a two-second connect timeout, a five-second
 whole-request deadline and an 8 KiB response limit. Admission controls are
 process-local and reset on restart.
 
