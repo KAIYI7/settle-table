@@ -318,10 +318,17 @@ try {
     await fetchSnapshot(true);
     s=state.snapshot; await apply({kind:'Finalize',command_id:'final',expected_revision:s.revision,expected_financial_revision:s.financial_revision});
     await fetchSnapshot(true);
-    s=state.snapshot; await apply({kind:'RecordContribution',command_id:'pay',expected_revision:s.revision,participant_id:org,amount_sen:2363,payment_method:'card'});
-    await fetchSnapshot(true);
     window.demoIds={org,diner,other};
   })()`);
+  // Pin the order that hosted CI hit: the read started by the Finalize transition
+  // completes before any contribution exists, so it lists no eligible suggestion.
+  await wait(a, "state.checkoutDemo && !state.checkoutDemoBusy && state.checkoutDemo.eligible.length===0");
+  await ev(a, `(async()=>{
+    const s=state.snapshot;
+    await apiCall('/api/meals/demo-meal/apply','POST',{kind:'RecordContribution',command_id:'pay',expected_revision:s.revision,participant_id:window.demoIds.org,amount_sen:2363,payment_method:'card'});
+    await fetchSnapshot(true);
+  })()`);
+  // The contribution changes the suggestions, so the card must re-read on its own.
   await wait(a, "document.getElementById('checkout-demo-card') && document.querySelectorAll('[data-checkout-demo-action=\"request\"]').length===2");
   const ids = await ev(a, 'window.demoIds');
   const cardText = await ev(a, "document.getElementById('checkout-demo-card').innerText");
@@ -393,9 +400,28 @@ try {
   console.log('[5/7] Stale suggestion is shown and refused...');
   await ev(a, `document.querySelector('[data-checkout-demo-action="request"][data-sender-id="${ids.other}"]').click()`);
   await wait(a, "document.getElementById('checkout-demo-status')?.textContent.includes('Awaiting synthetic evidence') && state.checkoutDemo.intent.attempt===2");
+  // A status read is answered before the transfer but delivered after it. Scheduled reads are
+  // cleared so only the deferred re-read can reveal the stale state.
+  // Clearing the timers and checking for idle in one evaluation means no scheduled read can start after it.
+  await wait(a, '(()=>{ clearCheckoutDemoTimers(); return !state.checkoutDemoBusy; })()');
+  const seqBeforeHeld = await ev(a, 'state.checkoutDemoSeq');
+  await ev(a, `(()=>{
+    let release; const held = new Promise(r => { release = r; });
+    window.__demoHold = { held, release };
+    const original = window.fetch;
+    window.fetch = async (url, opts = {}) => {
+      const response = await original(url, opts);
+      if (window.__demoHold && String(url).includes('/checkout-demo') && (opts.method || 'GET') === 'GET') await window.__demoHold.held;
+      return response;
+    };
+    window.__restoreFetch = () => { window.fetch = original; };
+    void requestCheckoutDemo(null, false);
+  })()`);
+  assert(await ev(a, `state.checkoutDemoBusy && state.checkoutDemoSeq===${seqBeforeHeld}+1`), 'The held status read did not start');
   await ev(a, `(async()=>{const s=state.snapshot; await apiCall('/api/meals/demo-meal/apply','POST',{kind:'RecordTransfer',command_id:'partial',expected_revision:s.revision,sender_id:'${ids.other}',receiver_id:'${ids.org}',amount_sen:100}); await fetchSnapshot(true);})()`);
-  await ev(a, "document.getElementById('checkout-demo-refresh-btn').click()");
-  await wait(a, "document.getElementById('checkout-demo-stale')");
+  assert(await ev(a, 'state.checkoutDemoBusy && Boolean(state.checkoutDemoRereadPending)'), 'A suggestion change during a read must queue a re-read');
+  await ev(a, 'window.__demoHold.release(); window.__demoHold = null; window.__restoreFetch()');
+  await wait(a, "document.getElementById('checkout-demo-stale')", 5000);
   await checkCopy('stale');
   const putsBefore = (await bridgeCalls()).filter(c => c[0] === 'PUT').length;
   const stale = await ev(a, `fetch('/api/meals/demo-meal/checkout-demo',{method:'POST',headers:{'Content-Type':'application/json','X-SettleTable-Action':'1'},body:JSON.stringify({sender_id:'${ids.other}',amount_sen:500})}).then(async r=>[r.status,(await r.json()).error])`);
@@ -417,8 +443,13 @@ try {
   await a.send('Emulation.setFocusEmulationEnabled', { enabled: false }).catch(() => {});
   await ev(a, "Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'}); document.dispatchEvent(new Event('visibilitychange'))");
   assert(await ev(a, 'state.checkoutDemoTimers.length===0'), 'Hidden page kept demo timers');
+  // A suggestion change seen while hidden is kept, not dropped, and read once when visible.
+  await wait(a, '!state.checkoutDemoBusy');
+  const seqHidden = await ev(a, 'loadCheckoutDemo(state.snapshot, false); state.checkoutDemoSeq');
+  assert(await ev(a, `Boolean(state.checkoutDemoRereadPending) && state.checkoutDemoSeq===${seqHidden}`), 'Hidden page must queue, not send, a re-read');
   await ev(a, "Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'}); document.dispatchEvent(new Event('visibilitychange'))");
   assert(await ev(a, 'state.checkoutDemoTimers.length===7'), 'Visible page did not resume demo polling');
+  assert(await ev(a, `state.checkoutDemoRereadPending===null && state.checkoutDemoSeq===${seqHidden}+1`), 'Visible page did not send the queued re-read');
   console.log('   ✓ Polling pauses while hidden and resumes when visible');
   console.log('CHECKOUT DEMO BROWSER REGRESSION OK');
 } catch (e) {
