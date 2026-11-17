@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-18 — Experimental synthetic checkout demo (PR #65, merge commit `06c0fee`)
+
+**Orchestrator decision: PASS / MERGED WITH EXPLICIT OWNER APPROVAL.** Risk class **HIGH** (persistence, a security-sensitive outbound API, an authenticated endpoint). The owner explicitly approved the merge and marking the PR ready for review; the autonomous merge policy was not relied on.
+
+1. **Scope:** an experimental, synthetic, display-only checkout demo, disabled by default: `settletable/checkout_demo.py`, an additive `checkout_demos` table, organizer-only `GET`/`POST /api/meals/{meal}/checkout-demo`, a separate UI card with its own 2/5/10/30/60/90/120 s polling, and [the contract](../checkout-demo.md). No contribution, report, transfer or accepted command is written by any outcome. `settletable/payment_simulation.py` is byte-identical (SHA-256 `0a35e36e…49ab0`).
+2. **Hosted CI defect and fix:** the first hosted run at `3207336` (now `697f768`) failed in `tools/verify_checkout_demo.mjs`. The organizer card read the demo status only on meal load and on the Finalize transition, so a contribution or confirmed transfer recorded after finalization left the eligible list and stale flag out of date. Whether the test passed depended on request ordering. Fixed in `776a867` (now `c69cdd6`): one re-read when the finalized meal's suggested transfers change (polling schedule not restarted), and one queued re-read when a read is in flight or the page is hidden. The regression now pins both orderings and the hidden-page case; each new check fails with its half of the fix removed.
+3. **Delivery:** feature branch `feature/checkout-demo` merged into `main` with a merge commit (now `06c0fee`, parents `9e63178` and `c69cdd6`). The `main` tree equals the reviewed PR head tree. On 2026-11-18, with explicit owner approval, the PR commits and the merge commit were rewritten and force-pushed only to remove AI co-author trailers; every tree is unchanged. Old to new: `ba88c34`→`4c62f6c`, `d041ad9`→`d7770f0`, `3207336`→`697f768`, `776a867`→`c69cdd6`, `6ad3703`→`06c0fee`. The rewritten merge commit is no longer GitHub-signed.
+
+| Gate | Disposition |
+| --- | --- |
+| Independent source, security and adversarial review | **PASS.** Feature: two rounds, final APPROVE. CI fix: two rounds, final APPROVE (two minor findings fixed, one pre-existing nit accepted). |
+| Failure-injection and regression tests | **PASS.** 480 Python tests (46 for this feature, including client limits, absence and conflict rules, and financial invariance) and 10 Chrome CDP browser suites, locally at `776a867` (tree-identical to `c69cdd6`). |
+| Hosted CI on the exact head | **PASS.** Run `44113712627` at `776a867` (tree-identical to `c69cdd6`): `tests` and `docker-smoke` success. |
+| Base and diff recheck before merge | **PASS.** Base `main` was `9e63178` and an ancestor of the head; mergeable, CLEAN; no review comments. |
+| Financial invariance | **PASS.** Display only; the financial-invariance test and the browser settlement-bytes check pass. |
+| Exposure | **NOT APPLICABLE.** Disabled by default; no deployment, container or Compose change ships. |
+
 ## 2026-11-13 — UX Writing, Content Density & Information Hierarchy Refinement (`feat/ux-writing-hierarchy-refinement`, merge commit `3f23d9d`)
 
 **Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** In response to real-device UAT feedback identifying text-heavy screens, redundant explanations, developer cryptographic jargon, and nested card clutter on finalized meals:
