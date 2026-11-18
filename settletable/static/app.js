@@ -3343,7 +3343,43 @@ const CHECKOUT_DEMO_LABELS = {
   UNAVAILABLE: 'Demo checkout status unavailable — refresh to check again',
 };
 
-function checkoutDemoLabel(intent) {
+// Observed-evidence mode (KP-SETTLETABLE-TNG-02 D2): the bridge observed the organizer's own
+// wallet notification. Display only; the first five rows are the design's mapping, word for word.
+const CHECKOUT_DEMO_OBSERVED_LABELS = {
+  AWAITING_EVIDENCE: "Waiting for the organizer's own wallet notification. Nothing is recorded in SettleTable. Transfer at most once; if already sent, do not send again.",
+  EVIDENCE_DETECTED: 'Notification observed — unverified. The organizer checks their own wallet history in the bridge.',
+  MANUALLY_CONFIRMED: 'Notification observed, unverified, manually confirmed by the organizer — SettleTable balance unchanged',
+  NEEDS_REVIEW: 'Needs organizer review — not confirmed. Do not transfer again.',
+  EXPIRED: 'Ended without confirmation. If money was sent, check your wallet history; do not transfer again.',
+  REQUEST_UNKNOWN: 'Request outcome unknown — do not transfer. Refresh status before anything else.',
+  CONFLICT: 'Demo checkout conflict — automatic actions stopped. Do not transfer.',
+  UNEXPECTED_STATUS: 'Unexpected demo checkout status — automatic actions stopped. Do not transfer.',
+  UNAVAILABLE: 'Demo checkout status unavailable — refresh to check again. Do not send money while it is unavailable.',
+};
+const CHECKOUT_DEMO_OBSERVED_PAYER_LINE = "Test transfer between the organizer's own wallets; the named diner did not pay.";
+
+function checkoutDemoObservedLabel(intent) {
+  if (intent.state === 'CONFLICT' && ['OBSERVED_CHECKOUT_SPENT', 'OBSERVED_AMOUNT_MISMATCH'].includes(intent.notCreatedReason)) {
+    return 'Not created — do not transfer';
+  }
+  if (intent.state === 'UNEXPECTED_STATUS' && intent.notCreatedReason === 'EVIDENCE_MODE_MISMATCH') {
+    return 'Bridge mode does not match this SettleTable configuration — do not transfer';
+  }
+  if (intent.state === 'NOT_CREATED') {
+    return intent.notCreatedReason === 'REFERENCE_NOT_FOUND'
+      ? 'Demo checkout was not created — do not transfer. You may request the same checkout again.'
+      : 'Demo checkout was not created — do not transfer.';
+  }
+  if (intent.referenceLost) return 'Demo checkout record missing from the bridge — unavailable until the operator checks it. Do not transfer again.';
+  return CHECKOUT_DEMO_OBSERVED_LABELS[intent.state] || CHECKOUT_DEMO_OBSERVED_LABELS.UNEXPECTED_STATUS;
+}
+
+function checkoutDemoIsObserved(snap) {
+  return snap?.checkout_demo_observed === true || state.checkoutDemo?.observed === true;
+}
+
+function checkoutDemoLabel(intent, observed = false) {
+  if (observed) return checkoutDemoObservedLabel(intent);
   if (intent.state === 'NOT_CREATED') {
     return intent.notCreatedReason === 'SAME_AMOUNT_HELD'
       ? 'Another demo checkout holds this amount. It can last up to 40 minutes.'
@@ -3450,6 +3486,8 @@ function renderCheckoutDemoCard(snap) {
   if (!snap.checkout_demo_enabled || !snap.is_organizer || !snap.finalized) return '';
   const demo = state.checkoutDemo;
   const busy = state.checkoutDemoBusy;
+  const observed = checkoutDemoIsObserved(snap);
+  const labels = observed ? CHECKOUT_DEMO_OBSERVED_LABELS : CHECKOUT_DEMO_LABELS;
   const names = new Map((snap.participants || []).map(p => [p.id, p.name]));
   const who = id => escapeHtml(names.get(id) || id);
   const intent = demo?.intent;
@@ -3459,19 +3497,19 @@ function renderCheckoutDemoCard(snap) {
     statusHtml = status('Checking demo checkout…');
   } else if (intent) {
     const lastKnown = intent.state === 'UNAVAILABLE' && !intent.referenceLost && intent.lastKnownState !== 'UNAVAILABLE'
-      ? `<p class="checkout-demo-note">Last known: ${escapeHtml(checkoutDemoLabel({...intent, state: intent.lastKnownState}))}</p>` : '';
+      ? `<p class="checkout-demo-note">Last known: ${escapeHtml(checkoutDemoLabel({...intent, state: intent.lastKnownState}, observed))}</p>` : '';
     statusHtml = `
       <div class="checkout-demo-intent" data-checkout-demo-state="${escapeHtml(intent.state)}">
         <p class="checkout-demo-target">${who(intent.senderId)} → ${who(intent.receiverId)} ${formatSen(intent.amountSen)} <span class="checkout-demo-attempt">(demo request ${Number(intent.attempt)})</span></p>
-        ${status(checkoutDemoLabel(intent))}
+        ${status(checkoutDemoLabel(intent, observed))}
         ${intent.stale ? '<p class="checkout-demo-stale" id="checkout-demo-stale">Stale — balances changed. No further request is sent for this demo checkout.</p>' : ''}
         ${lastKnown}
         <p class="checkout-demo-note">Demo reference ${escapeHtml(intent.reference)}${intent.observedAt ? ` · last checked ${escapeHtml(new Date(intent.observedAt * 1000).toLocaleTimeString())}` : ''}</p>
       </div>`;
   } else if (demo && demo.lastCheck === 'REQUEST_UNKNOWN') {
-    statusHtml = status(CHECKOUT_DEMO_LABELS.REQUEST_UNKNOWN);
+    statusHtml = status(labels.REQUEST_UNKNOWN);
   } else if (demo && demo.lastCheck === 'UNAVAILABLE') {
-    statusHtml = status(CHECKOUT_DEMO_LABELS.UNAVAILABLE);
+    statusHtml = status(labels.UNAVAILABLE);
   } else if (demo) {
     statusHtml = status('No demo checkout requested yet');
   }
@@ -3482,9 +3520,25 @@ function renderCheckoutDemoCard(snap) {
         <span>${who(e.senderId)} → ${who(e.receiverId)} ${formatSen(e.amountSen)}</span>
         <button type="button" class="btn btn-secondary checkout-demo-btn" data-checkout-demo-action="request"
                 data-sender-id="${escapeHtml(e.senderId)}" data-amount-sen="${Number(e.amountSen)}" ${busy ? 'disabled' : ''}>
-          ${e.action === 'RETRY' ? 'Request the same demo checkout again' : 'Request experimental checkout (synthetic demo)'}
+          ${observed
+            ? (e.action === 'RETRY' ? 'Request the same checkout again' : 'Request observed-notification checkout')
+            : (e.action === 'RETRY' ? 'Request the same demo checkout again' : 'Request experimental checkout (synthetic demo)')}
         </button>
       </li>`).join('');
+  if (observed) {
+    return `
+    <div class="card checkout-demo-card" id="checkout-demo-card" data-checkout-demo-mode="observed">
+      <h3 class="card-title">🧪 Experimental checkout demo (observed notification)</h3>
+      <p class="checkout-demo-notice">Display only. The experimental checkout bridge observes the organizer's own wallet notification; it does not verify or settle payments. This card never records a contribution or transfer, and SettleTable balances stay unchanged. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.</p>
+      <p class="checkout-demo-payer" id="checkout-demo-payer-line">${escapeHtml(CHECKOUT_DEMO_OBSERVED_PAYER_LINE)}</p>
+      ${statusHtml}
+      ${busyNote}
+      ${options ? `<ul class="checkout-demo-options">${options}</ul>` : ''}
+      <div class="checkout-demo-actions">
+        <button type="button" class="btn btn-secondary checkout-demo-btn" data-checkout-demo-action="refresh" id="checkout-demo-refresh-btn" ${busy ? 'disabled' : ''}>Refresh demo status</button>
+      </div>
+    </div>`;
+  }
   return `
     <div class="card checkout-demo-card" id="checkout-demo-card">
       <h3 class="card-title">🧪 Experimental checkout demo (synthetic)</h3>
