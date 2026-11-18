@@ -53,7 +53,7 @@ LATCHED = frozenset({'CONFLICT', 'UNEXPECTED_STATUS'})
 # Terminal under the eligibility rule: a new attempt may follow.
 TERMINAL = frozenset({'NOT_CREATED', 'CONFLICT', 'EXPIRED', 'MANUALLY_CONFIRMED'})
 FINAL_BRIDGE = frozenset({'MANUALLY_CONFIRMED', 'EXPIRED', 'REVIEW_EXPIRED'})
-# Observed-evidence mode only (KP-SETTLETABLE-TNG-02 D2).
+# Observed-evidence mode only.
 OBSERVED_FLAG = PREFIX + 'OBSERVED_EVIDENCE'
 EVIDENCE_MODE = 'OBSERVED_NOTIFICATION'
 OBSERVED_FIELDS = CHECKOUT_FIELDS | {'evidenceMode'}

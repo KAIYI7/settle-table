@@ -3343,8 +3343,8 @@ const CHECKOUT_DEMO_LABELS = {
   UNAVAILABLE: 'Demo checkout status unavailable — refresh to check again',
 };
 
-// Observed-evidence mode (KP-SETTLETABLE-TNG-02 D2): the bridge observed the organizer's own
-// wallet notification. Display only; the first five rows are the design's mapping, word for word.
+// Observed-evidence mode: the bridge observed the organizer's own wallet notification.
+// Display only; the first five rows are the documented observed mapping, word for word.
 const CHECKOUT_DEMO_OBSERVED_LABELS = {
   AWAITING_EVIDENCE: "Waiting for the organizer's own wallet notification. Nothing is recorded in SettleTable. Transfer at most once; if already sent, do not send again.",
   EVIDENCE_DETECTED: 'Notification observed — unverified. The organizer checks their own wallet history in the bridge.',

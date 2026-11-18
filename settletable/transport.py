@@ -992,9 +992,9 @@ class SettleTableApp:
             out['payment_simulation_enabled'] = self.simulation_config is not None
             # A static, organizer-only flag. Demo status is never read on this 3 s path.
             out['checkout_demo_enabled'] = self.checkout_demo_config is not None and bool(is_org)
-            if self.checkout_demo_config is not None and self.checkout_demo_config.observed:
-                # Observed-evidence mode only: lets the card show observed copy before its first read.
-                out['checkout_demo_observed'] = bool(is_org)
+            if self.checkout_demo_config is not None and self.checkout_demo_config.observed and is_org:
+                # Observed-evidence mode, organizer only: the card shows observed copy before its first read.
+                out['checkout_demo_observed'] = True
             return 200, self._default_headers(), serialize_json(out)
 
         # Allocation simulation has its own organizer/self permission boundary.

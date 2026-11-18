@@ -206,8 +206,9 @@ create nothing. They latch the intent as `CONFLICT` with that code as the reason
 (`REQUEST_UNKNOWN`).
 
 **One attempt per meal.** After the first PUT for a meal, no new attempt is ever
-offered or accepted, whatever the outcome; an explicit request answers
-`resource_limit`. The only further PUT is the identical re-PUT of the **same**
+offered or accepted, whatever the outcome; an explicit request is refused
+(`resource_limit`, or `checkout_demo_active` while the checkout is open, or
+`checkout_demo_already_confirmed` after a confirmation). The only further PUT is the identical re-PUT of the **same**
 reference after a checked absence: the intent is `NOT_CREATED` with reason
 `REFERENCE_NOT_FOUND` and no `checkoutId` was ever bound. A `SAME_AMOUNT_HELD`
 refusal offers no re-PUT. Once a checkout is bound, the only action is a GET.
@@ -237,6 +238,12 @@ that anything was settled. The organizer's snapshot carries
 `checkout_demo_observed: true` (only in this mode) so the card shows the observed
 copy before its first read; the status response carries `observed: true`,
 `synthetic: false` and `evidenceMode`.
+
+**Fresh database.** Use a database with no `checkout_demos` rows for this mode.
+The local state does not record which mode wrote a row, so a row written by the
+synthetic demo could be shown with the observed copy until its next bridge read
+fails closed (a mode mismatch or a missing reference). Restarting the same
+observed run on its own database is fine.
 
 **One-sen meals.** A suggestion of RM0.01 works: for example one RM0.02 item shared
 equally by the organizer and the test counterparty and paid by the organizer

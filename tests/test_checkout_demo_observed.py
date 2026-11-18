@@ -425,6 +425,18 @@ class ObservedLatchTests(ObservedFixture):
                 self.assert_no_further_attempt()
 
 
+class StoreGuardTests(ObservedFixture):
+    def test_observed_refusal_codes_are_ignored_by_a_synthetic_store_step(self):
+        """Defence in depth behind the client allowlist: without the flag the codes are not refusals."""
+        self.finalize()
+        synthetic = CheckoutDemoConfig(NAMESPACE, self.bridge.base_url, self.bridge_token)
+        recording = RecordingClient({'error': 'OBSERVED_CHECKOUT_SPENT'})
+        self.assertEqual(self.code(lambda: demo.request_checkout_demo(
+            self.authority, self.cred['A'], 'meal', synthetic, recording, 'B', 863)), 'invalid_input')
+        self.assertEqual(self.rows(), [(1, 'REQUEST_UNKNOWN', 1)])
+        self.assertIsNone(self.authority._db.execute('SELECT not_created_reason FROM checkout_demos').fetchone()[0])
+
+
 class FlagAbsentAgainstObservedBridgeTests(ObservedFixture):
     def test_flag_absent_never_shows_waiting_and_stays_synthetic(self):
         self.finalize()
@@ -568,7 +580,8 @@ class ObservedHttpRouteTests(ObservedFixture):
         snapshot = json.loads(client.get('/api/meals/meal/snapshot', org)['body'])
         self.assertEqual((snapshot['checkout_demo_enabled'], snapshot['checkout_demo_observed']), (True, True))
         dsnap = json.loads(client.get('/api/meals/meal/snapshot', diner)['body'])
-        self.assertEqual((dsnap['checkout_demo_enabled'], dsnap['checkout_demo_observed']), (False, False))
+        self.assertFalse(dsnap['checkout_demo_enabled'])
+        self.assertNotIn('checkout_demo_observed', dsnap)  # A diner learns nothing about the mode.
         self.assertEqual(client.get('/api/meals/meal/checkout-demo', diner)['status'], 403)
         created = client.post('/api/meals/meal/checkout-demo', {'sender_id': 'B', 'amount_sen': 863}, org)
         payload = json.loads(created['body'])['checkout_demo']
