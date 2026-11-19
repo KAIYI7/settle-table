@@ -40,6 +40,7 @@ const state = {
   allocationTargetId: null,
   expandedHybridItemIds: new Set(),
   activeMobileSheetItemId: null,
+  editingReceiptItemId: null,
   selectedSplitDiners: new Map(),
   publicConfig: null,
   turnstileWidgetId: undefined,
@@ -1934,8 +1935,8 @@ function updateMealUI() {
 
   // Preserve receipt drafts during conflict recovery, including closing the sheet.
   const draftSelector = state.allocationConflictPending
-    ? '#new-item-label, #new-item-qty, #new-item-price, [id^="ocr-item-"], [id^="ocr-adj-"], #ocr-edit-included-tax'
-    : '#new-item-label, #new-item-qty, #new-item-price';
+    ? '#new-item-label, #new-item-qty, #new-item-price, [id^="ocr-item-"], [id^="ocr-adj-"], #ocr-edit-included-tax, [id^="edit-item-"]'
+    : '#new-item-label, #new-item-qty, #new-item-price, [id^="edit-item-"]';
   const conflictDrafts = Array.from(document.querySelectorAll(draftSelector)).map(el => [el.id, el.value]);
   const scopeDrafts = Array.from(document.querySelectorAll('details[data-service-scope]')).map(details => {
     const inputs = [...details.querySelectorAll('.service-scope-item')];
@@ -2179,6 +2180,47 @@ function renderOrganizerSection(snap) {
   
   let itemsRowsHtml = items.map((it, idx) => {
     const isComplimentary = it.line_sen === 0;
+    const isEditing = state.editingReceiptItemId === it.id;
+
+    if (isEditing) {
+      const qtyNum = ratToNum(it.quantity);
+      const priceVal = (it.line_sen / 100).toFixed(2);
+      return `
+        <div class="review-item-edit-box" id="edit-item-box-${escapeHtml(it.id)}" data-editing-id="${escapeHtml(it.id)}">
+          <form class="review-item-edit-form" data-item-id="${escapeHtml(it.id)}">
+            <div class="review-item-edit-header">
+              <span class="review-item-edit-title">✏️ Edit Receipt Item</span>
+              <span class="review-item-edit-id">${escapeHtml(it.id)}</span>
+            </div>
+            <div class="review-item-edit-fields">
+              <div class="form-group" style="margin-bottom: 8px;">
+                <label for="edit-item-label-${escapeHtml(it.id)}" style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 3px; font-weight: 600;">Item Name</label>
+                <input type="text" id="edit-item-label-${escapeHtml(it.id)}" class="form-input edit-item-label" value="${escapeHtml(it.label)}" placeholder="Item name" required style="width: 100%;">
+              </div>
+              <div class="review-item-edit-row">
+                <div style="flex: 1;">
+                  <label for="edit-item-qty-${escapeHtml(it.id)}" style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 3px; font-weight: 600;">Quantity</label>
+                  <div class="numeric-stepper" role="group" aria-label="Item quantity">
+                    <button type="button" class="stepper-btn edit-item-qty-dec" data-item-id="${escapeHtml(it.id)}" aria-label="Decrease quantity" ${qtyNum <= 1 ? 'disabled aria-disabled="true"' : ''}>−</button>
+                    <input type="number" id="edit-item-qty-${escapeHtml(it.id)}" class="stepper-input edit-item-qty" value="${qtyNum}" min="1" step="1" required aria-label="Item quantity">
+                    <button type="button" class="stepper-btn edit-item-qty-inc" data-item-id="${escapeHtml(it.id)}" aria-label="Increase quantity">+</button>
+                  </div>
+                </div>
+                <div style="flex: 1;">
+                  <label for="edit-item-price-${escapeHtml(it.id)}" style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 3px; font-weight: 600;">Line Price (RM)</label>
+                  <input type="text" id="edit-item-price-${escapeHtml(it.id)}" class="form-input edit-item-price" value="${priceVal}" placeholder="0.00" inputmode="decimal" required style="width: 100%;">
+                </div>
+              </div>
+            </div>
+            <div class="review-item-edit-buttons">
+              <button type="submit" class="btn btn-primary btn-sm save-edit-item-btn" data-item-id="${escapeHtml(it.id)}" style="flex: 1;">Save Changes</button>
+              <button type="button" class="btn btn-secondary btn-sm cancel-edit-item-btn" data-item-id="${escapeHtml(it.id)}" style="flex: 1;">Cancel</button>
+            </div>
+          </form>
+        </div>
+      `;
+    }
+
     const priceDisplay = isComplimentary
       ? `<span class="complimentary-badge">Complimentary · RM 0.00</span>`
       : `<span style="font-weight: 600;">${formatSen(it.line_sen)}</span>`;
@@ -2188,7 +2230,13 @@ function renderOrganizerSection(snap) {
         <strong>${escapeHtml(it.label)}</strong>
         <span style="color: var(--text-dim); font-size: 0.85rem;">(x${formatRat(it.quantity)})</span>
       </div>
-      <div class="review-item-price-group">${priceDisplay}</div>
+      <div class="review-item-meta-group">
+        <div class="review-item-price-group">${priceDisplay}</div>
+        <div class="review-item-actions">
+          <button type="button" class="review-item-action-btn edit-receipt-item-btn" data-item-id="${escapeHtml(it.id)}" title="Edit item" aria-label="Edit item ${escapeHtml(it.label)}" ${state.ocrCandidate ? 'disabled title="Accept or discard staged candidate first"' : ''}>✏️</button>
+          <button type="button" class="review-item-action-btn delete-receipt-item-btn" data-item-id="${escapeHtml(it.id)}" title="Delete item" aria-label="Delete item ${escapeHtml(it.label)}" ${state.ocrCandidate ? 'disabled title="Accept or discard staged candidate first"' : ''}>🗑️</button>
+        </div>
+      </div>
     </div>
   `;
   }).join('');
@@ -5199,6 +5247,265 @@ function bindEvents(snap) {
       }
     });
   }
+
+  // 1a. Edit & Delete Receipt Items
+  document.querySelectorAll('.edit-receipt-item-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const itemId = btn.getAttribute('data-item-id');
+      state.editingReceiptItemId = itemId;
+      updateMealUI();
+      const labelInput = document.getElementById(`edit-item-label-${itemId}`);
+      if (labelInput) {
+        labelInput.focus();
+        labelInput.select();
+      }
+    });
+  });
+
+  document.querySelectorAll('.cancel-edit-item-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      state.editingReceiptItemId = null;
+      updateMealUI();
+    });
+  });
+
+  // Quantity steppers in receipt item edit forms
+  document.querySelectorAll('.edit-item-qty-dec').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const itemId = btn.getAttribute('data-item-id');
+      const input = document.getElementById(`edit-item-qty-${itemId}`);
+      if (!input) return;
+      const cur = parseInt(input.value, 10) || 1;
+      if (cur > 1) {
+        input.value = cur - 1;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      btn.disabled = (parseInt(input.value, 10) <= 1);
+    });
+  });
+
+  document.querySelectorAll('.edit-item-qty-inc').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const itemId = btn.getAttribute('data-item-id');
+      const input = document.getElementById(`edit-item-qty-${itemId}`);
+      if (!input) return;
+      const cur = parseInt(input.value, 10) || 1;
+      input.value = cur + 1;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      const decBtn = document.querySelector(`.edit-item-qty-dec[data-item-id="${itemId}"]`);
+      if (decBtn) decBtn.disabled = false;
+    });
+  });
+
+  document.querySelectorAll('.edit-item-qty').forEach(input => {
+    const syncDecState = () => {
+      const itemId = input.id.replace('edit-item-qty-', '');
+      const decBtn = document.querySelector(`.edit-item-qty-dec[data-item-id="${itemId}"]`);
+      if (decBtn) {
+        const val = parseInt(input.value, 10) || 1;
+        decBtn.disabled = (val <= 1);
+      }
+    };
+    input.addEventListener('input', syncDecState);
+    input.addEventListener('change', syncDecState);
+  });
+
+  // Submit edit receipt item form
+  document.querySelectorAll('.review-item-edit-form').forEach(form => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const itemId = form.getAttribute('data-item-id');
+      const labelInput = document.getElementById(`edit-item-label-${itemId}`);
+      const qtyInput = document.getElementById(`edit-item-qty-${itemId}`);
+      const priceInput = document.getElementById(`edit-item-price-${itemId}`);
+      if (!labelInput || !qtyInput || !priceInput) return;
+
+      const label = labelInput.value.trim();
+      const qty = parseInt(qtyInput.value, 10);
+      if (!label) {
+        showAlert('Item name is required', 'error');
+        labelInput.focus();
+        return;
+      }
+      if (!qty || qty < 1) {
+        showAlert('Quantity must be at least 1', 'error');
+        qtyInput.focus();
+        return;
+      }
+
+      let priceSen;
+      try {
+        priceSen = parseSen(priceInput.value);
+        if (priceSen < 0) {
+          showAlert('Price must not be negative', 'error');
+          priceInput.focus();
+          return;
+        }
+      } catch (err) {
+        showAlert(err.message, 'error');
+        priceInput.focus();
+        return;
+      }
+
+      const currentItems = snap.receipt?.items ? [...snap.receipt.items] : [];
+      const targetItem = currentItems.find(i => i.id === itemId);
+      if (!targetItem) {
+        showAlert('Item not found', 'error');
+        return;
+      }
+
+      const currentQtyNum = ratToNum(targetItem.quantity);
+      if (targetItem.label === label && currentQtyNum === qty && targetItem.line_sen === priceSen) {
+        state.editingReceiptItemId = null;
+        updateMealUI();
+        showAlert('No changes made.', 'info');
+        return;
+      }
+
+      const updatedItems = currentItems.map(it => {
+        if (it.id === itemId) {
+          return {
+            id: it.id,
+            label,
+            quantity: qty,
+            line_sen: priceSen,
+          };
+        }
+        return it;
+      });
+
+      const subtotalSen = updatedItems.reduce((acc, it) => acc + (it.line_sen || 0), 0);
+      const adjTotal = (snap.receipt?.adjustments || []).reduce((acc, a) => acc + (a.amount_sen || 0), 0);
+      const totalSen = subtotalSen + adjTotal;
+
+      state.mutationActive = true;
+      try {
+        await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
+          kind: 'ReplaceReceipt',
+          command_id: `rcpt-edit-${Date.now()}`,
+          expected_revision: snap.revision,
+          expected_financial_revision: snap.financial_revision,
+          receipt: {
+            items: updatedItems,
+            subtotal_sen: subtotalSen,
+            total_sen: totalSen,
+            adjustments: (snap.receipt?.adjustments || []).map(adj => {
+              if (adj.scope_mode === 'all_items') {
+                return { ...adj, eligible_item_ids: updatedItems.map(i => i.id) };
+              }
+              return adj;
+            }),
+            included_tax_sen: snap.receipt?.included_tax_sen || 0,
+          }
+        });
+        state.editingReceiptItemId = null;
+        state.mutationActive = false;
+        await fetchSnapshot(true);
+        showAlert(`Updated "${label}" ✓`, 'success');
+      } catch (err) {
+        state.mutationActive = false;
+        handleApiError(err);
+      } finally {
+        state.mutationActive = false;
+      }
+    });
+  });
+
+  // Delete receipt item
+  document.querySelectorAll('.delete-receipt-item-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const itemId = btn.getAttribute('data-item-id');
+      const currentItems = snap.receipt?.items ? [...snap.receipt.items] : [];
+      const targetItem = currentItems.find(i => i.id === itemId);
+      if (!targetItem) return;
+
+      const existingClaims = (snap.claims || []).filter(c => c.item_id === itemId);
+      if (existingClaims.length > 0) {
+        const participantNames = existingClaims.map(c => {
+          const p = snap.participants?.find(part => part.id === c.participant_id);
+          return p ? p.name : c.participant_id;
+        }).join(', ');
+        const confirmClear = window.confirm(
+          `"${targetItem.label}" is currently allocated to ${participantNames}.\n\nClear allocations and delete this item?`
+        );
+        if (!confirmClear) return;
+
+        // Clear allocations first
+        const stateItem = snap.items?.find(i => i.item_id === itemId);
+        const itemRev = stateItem ? stateItem.item_revision : 0;
+        state.mutationActive = true;
+        try {
+          await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
+            command_id: `alloc-clear-${Date.now()}`,
+            kind: 'SetItemAllocations',
+            item_id: itemId,
+            allocations: [],
+            expected_item_revision: itemRev,
+            expected_financial_revision: snap.financial_revision,
+          });
+          await fetchSnapshot(true);
+        } catch (err) {
+          state.mutationActive = false;
+          handleApiError(err);
+          return;
+        }
+      } else {
+        const confirmDel = window.confirm(`Delete receipt item "${targetItem.label}"?`);
+        if (!confirmDel) return;
+      }
+
+      // Proceed with deleting item using latest snapshot
+      const latestSnap = state.snapshot;
+      const remainingItems = (latestSnap.receipt?.items || []).filter(i => i.id !== itemId);
+      const subtotalSen = remainingItems.reduce((acc, it) => acc + (it.line_sen || 0), 0);
+
+      let updatedAdjustments = [];
+      if (remainingItems.length > 0) {
+        updatedAdjustments = (latestSnap.receipt?.adjustments || []).map(adj => {
+          if (adj.scope_mode === 'all_items') {
+            return { ...adj, eligible_item_ids: remainingItems.map(i => i.id) };
+          } else {
+            return { ...adj, eligible_item_ids: (adj.eligible_item_ids || []).filter(id => id !== itemId) };
+          }
+        }).filter(adj => adj.eligible_item_ids.length > 0);
+      }
+      const adjTotal = updatedAdjustments.reduce((acc, a) => acc + (a.amount_sen || 0), 0);
+      const totalSen = subtotalSen + adjTotal;
+
+      state.mutationActive = true;
+      try {
+        await apiCall(`/api/meals/${state.mealId}/apply`, 'POST', {
+          kind: 'ReplaceReceipt',
+          command_id: `rcpt-del-${Date.now()}`,
+          expected_revision: latestSnap.revision,
+          expected_financial_revision: latestSnap.financial_revision,
+          receipt: {
+            items: remainingItems,
+            subtotal_sen: subtotalSen,
+            total_sen: totalSen,
+            adjustments: updatedAdjustments,
+            included_tax_sen: remainingItems.length > 0 ? (latestSnap.receipt?.included_tax_sen || 0) : 0,
+          }
+        });
+        if (state.editingReceiptItemId === itemId) {
+          state.editingReceiptItemId = null;
+        }
+        state.mutationActive = false;
+        await fetchSnapshot(true);
+        showAlert(`Deleted "${targetItem.label}" ✓`, 'success');
+      } catch (err) {
+        state.mutationActive = false;
+        handleApiError(err);
+      } finally {
+        state.mutationActive = false;
+      }
+    });
+  });
 
   // 1b. OCR Receipt Scanner Upload
   const ocrBtn = document.getElementById('ocr-upload-btn');
