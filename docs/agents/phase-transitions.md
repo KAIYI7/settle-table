@@ -1,5 +1,22 @@
 # Phase transition decisions
 
+## 2026-11-20 — Editable & Deletable Receipt Items (`feat/editable-receipt-items`)
+
+**Orchestrator decision: PASS / MERGED AUTONOMOUSLY.** Risk class **MEDIUM** (ordinary feature development, frontend workflow affordances using existing `ReplaceReceipt` and `SetItemAllocations` authority commands; zero financial algorithm or database schema changes).
+
+1. **Scope & Problem Solved:** Addressed user-reported defect where receipt items, once added, could not be modified or deleted. Added inline editing (item name, numeric stepper quantity, line price) and delete affordances to receipt items for organizers prior to meal finalization.
+2. **Deterministic Re-calculation & Validation:** Form submission validates name, quantity (>= 1), and price (using `parseSen()`, supporting RM0.00 complimentary items and rejecting negatives), recalculates subtotal and total deterministically, and dispatches authoritative `ReplaceReceipt`, which resets review verification to "Needs Review" (`review = None`).
+3. **Allocation Protection on Deletion:** Before deleting an item, active claims are inspected via `(snap.claims || []).filter(c => c.item_id === itemId)`. If allocated, the organizer is alerted with affected diner names and prompted to confirm clearing allocations. On confirmation, `SetItemAllocations` clears claims before `ReplaceReceipt` removes the item, preventing backend `claimed_item_deletion` rejections.
+4. **Mobile Accessibility:** Minimum touch targets >= 40×40px on mobile viewports (<= 639px), full ARIA labeling (`aria-label="Edit item {label}"`, `aria-label="Delete item {label}"`), and zero horizontal overflow across 320px–430px screens.
+5. **Testing & Independent Review:** 480 Python unit/integration tests passing (100% OK); full headless Chrome test `tools/verify_editable_receipt_items.mjs` passing 100%; `verify_ux_polish.mjs` and `e2e_browser_test.mjs` passing 100%; repository audit clean (0 findings); independent code and UX review passed with verdict **PASS**. Merged into `main` via `--no-ff`.
+
+| Gate | Disposition |
+| --- | --- |
+| Gate 1: Independent Code & UX Review | **PASS**: Independent review verified standards, accessibility, mobile layout, and financial invariants. |
+| Gate 2: Full Test Regression Suite | **PASS**: 480 Python tests (100% OK), 12-stage core browser E2E test, and dedicated `verify_editable_receipt_items.mjs` suite passing. |
+| Gate 3: Financial & Security Invariants | **PASS**: Integer sen cent conservation maintained ($$\sum \text{shares} = \text{total\_sen}$$); organizer-only authorization enforced; non-custodial boundaries strictly preserved. |
+| Gate 4: Clean Repository Audit | **PASS**: `tools/audit_repository.py` reports 0 findings. |
+
 ## 2026-11-18 — Experimental synthetic checkout demo (PR #65, merge commit `06c0fee`)
 
 **Orchestrator decision: PASS / MERGED WITH EXPLICIT OWNER APPROVAL.** Risk class **HIGH** (persistence, a security-sensitive outbound API, an authenticated endpoint). The owner explicitly approved the merge and marking the PR ready for review; the autonomous merge policy was not relied on.
