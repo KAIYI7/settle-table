@@ -314,6 +314,7 @@ node tools/verify_mobile_ux_remediation.mjs
 - [Windows Host Operations Runbook](docs/runbooks/windows_host_operations.md) — Step-by-step procedures for Docker Compose, Cloudflare Named Tunnel, volume pre-flights, and encrypted backups.
 - [Release & Deployment Plan](docs/plans/MVP_RELEASE_AND_DEPLOYMENT.md) — MVP release gates, architectural boundaries, and hosting evaluation.
 - [Account Identity & Roadmap](docs/plans/ACCOUNT_IDENTITY_AND_MY_MEALS.md) — Future architecture for multi-meal user accounts and authentication.
+- [Future Improvements & Product Roadmap](docs/plans/FUTURE_IMPROVEMENTS_ROADMAP.md) — Prioritized backlog covering DuitNow QR, offline PWA, multi-page OCR, and operational alerting.
 - [Deployment Boundary & Threat Model](docs/deployment-boundary.md) — Ingress specifications and two-tier security boundaries.
 - [Security Policy](SECURITY.md) — Vulnerability reporting and defense-in-depth guarantees.
 - [Domain Glossary](GLOSSARY.md) — Canonical terminology, invariants, and rounding contracts.
