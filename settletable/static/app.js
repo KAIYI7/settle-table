@@ -1907,10 +1907,16 @@ async function loadMeal(mealId) {
     }
   } catch (err) {
     if (err.status === 401) {
+      const recent = getRecentMeals().find(m => m.meal_id === mealId);
+      const isKnownOrg = recent?.role === 'organizer';
+      const desc = isKnownOrg
+        ? `Your organizer session for meal <strong>${escapeHtml(mealId)}</strong> is no longer active on this browser (it may have expired, been cleared, or replaced by another room).<br><br>To regain organizer access, use your saved <strong>Organizer Recovery Link</strong>, or generate a fresh link using the host CLI.`
+        : `You are not authenticated for meal <strong>${escapeHtml(mealId)}</strong>. If you are a diner, open the invitation link sent by your organizer.`;
+
       app.innerHTML = `
         <div class="card">
           <h2 class="card-title" style="color: var(--accent-rose)">Session Required</h2>
-          <p class="card-desc">You are not authenticated for meal <strong>${escapeHtml(mealId)}</strong>. If you are a diner, open the invitation link sent by your organizer.</p>
+          <p class="card-desc">${desc}</p>
           <a href="#/" class="btn btn-secondary btn-block">Back to Home</a>
           <button id="clear-invalid-session-btn" class="btn btn-secondary btn-block" style="margin-top: 10px;">Clear Active Session</button>
         </div>
