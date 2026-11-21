@@ -598,6 +598,17 @@ button:active, .btn:active {
   color: #ffffff;
 }
 
+.btn-warning {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.btn-warning:hover:not(:disabled) {
+  background-color: rgba(245, 158, 11, 0.3);
+  border-color: rgba(245, 158, 11, 0.6);
+}
+
 .btn-sm {
   min-height: 44px;
   min-width: 44px;
@@ -2192,6 +2203,15 @@ input[type=number].ocr-edit-item-qty:focus {
 
 .hybrid-item-card.is-complete {
   border-color: rgba(16, 185, 129, 0.45);
+}
+
+.hybrid-item-card.is-pending-confirmation,
+.item-card.is-pending-confirmation {
+  border-color: rgba(245, 158, 11, 0.55);
+}
+
+.progress-bar-fill.pending-confirmation {
+  background-color: var(--accent-amber);
 }
 
 .hybrid-item-card.is-over {

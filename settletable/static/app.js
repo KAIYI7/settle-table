@@ -667,7 +667,6 @@ function showFinalizeBlockedReason(snap) {
   if (!snap) return;
   const issues = snap.issues || [];
   const hasItems = Boolean(snap.receipt?.items?.length > 0);
-  const hasClaimIssues = issues.includes('incomplete_quantity') || issues.includes('pending_claim');
   const reviewConfirmed = Boolean(snap.review);
 
   if (!hasItems) {
@@ -676,7 +675,10 @@ function showFinalizeBlockedReason(snap) {
   } else if (!reviewConfirmed) {
     showAlert('Receipt must be verified and sealed before finalization.', 'error');
     navigateToWorkflowSection('review-section', 'review-heading');
-  } else if (hasClaimIssues) {
+  } else if (issues.includes('pending_claim')) {
+    showAlert('Item allocations need re-confirmation after receipt changes.', 'error');
+    navigateToWorkflowSection('allocation-section', 'allocation-heading');
+  } else if (issues.includes('incomplete_quantity')) {
     showAlert('All items must be fully claimed before finalization.', 'error');
     navigateToWorkflowSection('allocation-section', 'allocation-heading');
   } else if (issues.length > 0) {
@@ -2147,7 +2149,12 @@ function updateMealUI() {
     }
     if (!hasItems) {
       warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Add receipt items before finalization.</div>';
-    } else if (hasClaimIssues) {
+    } else if (issues.includes('pending_claim')) {
+      warningHtml += `<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">
+        ⚠️ Item allocations need re-confirmation after receipt changes.
+        <button type="button" id="reconfirm-all-btn" class="btn btn-warning btn-sm" style="margin-left: 8px; padding: 2px 10px; font-size: 0.8rem; vertical-align: middle;">Re-confirm Allocations</button>
+      </div>`;
+    } else if (issues.includes('incomplete_quantity')) {
       warningHtml += '<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ All items must be fully claimed before finalization.</div>';
     } else if (issues.length > 0) {
       warningHtml += `<div class="finalize-warning" role="status" aria-live="polite" tabindex="-1" style="color: var(--accent-amber); font-size: 0.85rem; margin-bottom: 8px;">⚠️ Issues detected: ${escapeHtml(issues.join(', '))}</div>`;
@@ -2858,6 +2865,107 @@ async function executeSetItemAllocations(itemId, allocations, expectedItemRevisi
   }
 }
 
+/**
+ * Automatically re-commits valid allocations for specified items after a receipt modification
+ * (such as item deletion, editing, or addition) that bumped the financial revision.
+ * This preserves unaffected diner allocations across organizer receipt adjustments.
+ */
+async function recommitAllocationsForItems(itemsToRecommit) {
+  for (const entry of itemsToRecommit) {
+    const currentSnap = state.snapshot;
+    if (!currentSnap || !currentSnap.meal_id) break;
+    const stateItem = currentSnap.items?.find(i => i.item_id === entry.itemId);
+    const itemRev = stateItem ? stateItem.item_revision : 0;
+    try {
+      await apiCall(`/api/meals/${currentSnap.meal_id}/apply`, 'POST', {
+        command_id: `alloc-p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        kind: 'SetItemAllocations',
+        item_id: entry.itemId,
+        allocations: entry.allocations,
+        expected_item_revision: itemRev,
+        expected_financial_revision: currentSnap.financial_revision,
+      });
+      await fetchSnapshot(true);
+    } catch (e) {
+      console.warn('Failed to re-commit allocation for item', entry.itemId, e);
+    }
+  }
+}
+
+/**
+ * Re-confirms pending allocations for a single item under the current financial revision.
+ */
+async function reconfirmItemAllocations(itemId) {
+  const snap = state.snapshot;
+  if (!snap || !snap.meal_id) return;
+  const stateItem = snap.items?.find(i => i.item_id === itemId);
+  const itemRev = stateItem ? stateItem.item_revision : 0;
+  const itemClaims = (snap.claims || []).filter(c => c.item_id === itemId);
+  const allocations = itemClaims.map(c => ({
+    participant_id: c.participant_id,
+    quantity: c.quantity,
+  }));
+  state.mutationActive = true;
+  try {
+    await apiCall(`/api/meals/${snap.meal_id}/apply`, 'POST', {
+      command_id: `reconf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      kind: 'SetItemAllocations',
+      item_id: itemId,
+      allocations: allocations,
+      expected_item_revision: itemRev,
+      expected_financial_revision: snap.financial_revision,
+    });
+    await fetchSnapshot(true);
+    showAlert('Item allocations re-confirmed ✓', 'success');
+  } catch (err) {
+    handleApiError(err);
+  } finally {
+    state.mutationActive = false;
+  }
+}
+
+/**
+ * Re-confirms all pending item allocations under the current financial revision.
+ */
+async function reconfirmAllPendingAllocations() {
+  const snap = state.snapshot;
+  if (!snap || !snap.meal_id || !snap.receipt?.items) return;
+  const pendingClaims = (snap.claims || []).filter(c => c.status === 'pending' || (c.financial_revision !== undefined && c.financial_revision !== snap.financial_revision));
+  const pendingItemIds = [...new Set(pendingClaims.map(c => c.item_id))];
+  if (pendingItemIds.length === 0) {
+    showAlert('No pending allocations to re-confirm.', 'info');
+    return;
+  }
+
+  state.mutationActive = true;
+  try {
+    for (const itemId of pendingItemIds) {
+      const currentSnap = state.snapshot;
+      const stateItem = currentSnap.items?.find(i => i.item_id === itemId);
+      const itemRev = stateItem ? stateItem.item_revision : 0;
+      const itemClaims = (currentSnap.claims || []).filter(c => c.item_id === itemId);
+      const allocations = itemClaims.map(c => ({
+        participant_id: c.participant_id,
+        quantity: c.quantity,
+      }));
+      await apiCall(`/api/meals/${currentSnap.meal_id}/apply`, 'POST', {
+        command_id: `reconf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        kind: 'SetItemAllocations',
+        item_id: itemId,
+        allocations: allocations,
+        expected_item_revision: itemRev,
+        expected_financial_revision: currentSnap.financial_revision,
+      });
+      await fetchSnapshot(true);
+    }
+    showAlert('All allocations re-confirmed successfully ✓', 'success');
+  } catch (err) {
+    handleApiError(err);
+  } finally {
+    state.mutationActive = false;
+  }
+}
+
 function renderHybridDetailContent(item, snap, activeParts, isModal = false) {
   if (item.line_sen === 0) {
     return `
@@ -3020,6 +3128,7 @@ function renderClaimsSection(snap) {
       const isComplimentary = item.line_sen === 0;
       const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
       const targetClaim = claims.find(c => c.participant_id === state.currentUserId);
+      const isPending = targetClaim && (targetClaim.status === 'pending' || (targetClaim.financial_revision !== undefined && targetClaim.financial_revision !== snap.financial_revision));
       const targetQty = targetClaim ? (Array.isArray(targetClaim.quantity) ? targetClaim.quantity[0]/targetClaim.quantity[1] : targetClaim.quantity) : 0;
 
       const totalClaimed = claims.reduce((acc, c) => acc + ratToNum(c.quantity), 0);
@@ -3030,6 +3139,8 @@ function renderClaimsSection(snap) {
       let statusBadge = '';
       if (isComplimentary) {
         statusBadge = '<span class="badge badge-complimentary">Complimentary · No allocation needed</span>';
+      } else if (isPending) {
+        statusBadge = '<span class="badge badge-pending">⚠️ Re-confirmation Needed</span>';
       } else if (Math.abs(totalClaimed - itemTotalQty) < 0.0001) {
         statusBadge = '<span class="badge badge-verified">✓ Fully Allocated</span>';
       } else if (totalClaimed < itemTotalQty) {
@@ -3120,6 +3231,7 @@ function renderClaimsSection(snap) {
     const itemRevision = stateItem ? stateItem.item_revision : 0;
     const isComplimentary = item.line_sen === 0;
     const claims = snap.claims?.filter(c => c.item_id === item.id) || [];
+    const hasPendingClaims = claims.length > 0 && claims.some(c => c.status === 'pending' || (c.financial_revision !== undefined && c.financial_revision !== snap.financial_revision));
 
     const totalClaimedRat = claims.reduce((acc, c) => addFractions(acc, c.quantity), 0);
     const totalClaimed = ratToNum(totalClaimedRat);
@@ -3127,10 +3239,12 @@ function renderClaimsSection(snap) {
     const isComplete = Math.abs(totalClaimed - itemTotalQty) < 0.0001;
     const isOver = totalClaimed > itemTotalQty;
     const unassignedRat = subtractFractions(item.quantity, totalClaimedRat);
-    const canQuickAssign = ratToNum(unassignedRat) >= 1;
-    const quickAssignHelp = ratToNum(unassignedRat) <= 0
-      ? 'Fully allocated. Use Details / Split to reallocate.'
-      : 'Use Details / Split for fractional portions.';
+    const canQuickAssign = !hasPendingClaims && ratToNum(unassignedRat) >= 1;
+    const quickAssignHelp = hasPendingClaims
+      ? 'Allocations need re-confirmation after receipt changes.'
+      : (ratToNum(unassignedRat) <= 0
+        ? 'Fully allocated. Use Details / Split to reallocate.'
+        : 'Use Details / Split for fractional portions.');
     const pct = Math.min(100, Math.round((totalClaimed / itemTotalQty) * 100));
     const isExpanded = state.expandedHybridItemIds.has(item.id);
 
@@ -3139,6 +3253,9 @@ function renderClaimsSection(snap) {
     if (isComplimentary) {
       statusBadge = '<span class="badge badge-complimentary">Complimentary · No allocation needed</span>';
       cardStatusClass = 'is-complimentary';
+    } else if (hasPendingClaims) {
+      statusBadge = '<span class="badge badge-pending">⚠️ Re-confirmation Needed</span>';
+      cardStatusClass = 'is-pending-confirmation';
     } else if (isComplete) {
       statusBadge = '<span class="badge badge-verified">✓ Fully Allocated</span>';
       cardStatusClass = 'is-complete';
@@ -3160,7 +3277,7 @@ function renderClaimsSection(snap) {
 
     const progressBarHtml = isComplimentary ? '' : `
       <div class="progress-bar-wrap">
-        <div class="progress-bar-fill ${isOver ? 'overclaimed' : ''}" style="width: ${pct}%"></div>
+        <div class="progress-bar-fill ${isOver ? 'overclaimed' : (hasPendingClaims ? 'pending-confirmation' : '')}" style="width: ${pct}%"></div>
       </div>
     `;
 
@@ -3205,6 +3322,13 @@ function renderClaimsSection(snap) {
         </button>
       </div>
       ${canQuickAssign ? '' : `<p class="item-meta" id="quick-assign-help-${item.id}">${quickAssignHelp}</p>`}
+      ${hasPendingClaims ? `
+        <div style="margin-top: 8px;">
+          <button type="button" class="btn btn-warning btn-sm reconfirm-item-btn" data-item="${item.id}" data-rev="${itemRevision}" style="font-size: 0.8rem; padding: 4px 10px;">
+            ✓ Re-confirm Allocation
+          </button>
+        </div>
+      ` : ''}
     `;
 
     let drawerHtml = '';
@@ -5462,6 +5586,19 @@ function bindEvents(snap) {
       const remainingItems = (latestSnap.receipt?.items || []).filter(i => i.id !== itemId);
       const subtotalSen = remainingItems.reduce((acc, it) => acc + (it.line_sen || 0), 0);
 
+      const remainingClaims = (latestSnap.claims || []).filter(c => c.item_id !== itemId);
+      const itemsToRecommit = [];
+      for (const it of remainingItems) {
+        if (it.line_sen === 0) continue;
+        const itClaims = remainingClaims.filter(c => c.item_id === it.id);
+        if (itClaims.length > 0) {
+          itemsToRecommit.push({
+            itemId: it.id,
+            allocations: itClaims.map(c => ({ participant_id: c.participant_id, quantity: c.quantity })),
+          });
+        }
+      }
+
       let updatedAdjustments = [];
       if (remainingItems.length > 0) {
         updatedAdjustments = (latestSnap.receipt?.adjustments || []).map(adj => {
@@ -5493,8 +5630,11 @@ function bindEvents(snap) {
         if (state.editingReceiptItemId === itemId) {
           state.editingReceiptItemId = null;
         }
-        state.mutationActive = false;
         await fetchSnapshot(true);
+        if (itemsToRecommit.length > 0) {
+          await recommitAllocationsForItems(itemsToRecommit);
+        }
+        state.mutationActive = false;
         showAlert(`Deleted "${targetItem.label}" ✓`, 'success');
       } catch (err) {
         state.mutationActive = false;
@@ -6430,6 +6570,23 @@ function bindEvents(snap) {
         updateMealUI();
       });
     });
+
+    // 10. Re-confirm Allocations (Individual & All)
+    document.querySelectorAll('.reconfirm-item-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const itemId = btn.getAttribute('data-item');
+        if (itemId) await reconfirmItemAllocations(itemId);
+      });
+    });
+
+    const reconfirmAllBtn = document.getElementById('reconfirm-all-btn');
+    if (reconfirmAllBtn) {
+      reconfirmAllBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        await reconfirmAllPendingAllocations();
+      });
+    }
   }
 
   // 5. Diner Self-Claiming Adjustments (+ / - / Claim All)
