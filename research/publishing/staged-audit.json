@@ -1,28 +1,12 @@
 {
   "scope": "staged bytes and all Git path categories; heuristic patterns plus independent human review",
-  "staged_files": 4,
-  "staged_bytes_excluding_report": 245519,
+  "staged_files": 0,
+  "staged_bytes_excluding_report": 0,
   "self_report_hash_excluded": "research/publishing/staged-audit.json",
-  "tracked_files": 372,
-  "untracked_files": 0,
-  "ignored_files": 27951,
-  "valid_json_files": 1,
+  "tracked_files": 374,
+  "untracked_files": 1,
+  "ignored_files": 27927,
+  "valid_json_files": 0,
   "findings": [],
-  "files": [
-    {
-      "path": "PROJECT_STATUS.md",
-      "bytes": 209566,
-      "sha256": "ce1e94437af1f690919918f3d70e888486a5d579424d31dfdcac5a0016e04533"
-    },
-    {
-      "path": "README.md",
-      "bytes": 23971,
-      "sha256": "ef848d1da98db263ad9414cc95b33c10dc9d1d444945b0678ecf0857b7c1ebcf"
-    },
-    {
-      "path": "docs/plans/FUTURE_IMPROVEMENTS_ROADMAP.md",
-      "bytes": 11982,
-      "sha256": "08f06c719b30c03384a70377987309e5e225063e631d0157ccae725241594a40"
-    }
-  ]
+  "files": []
 }

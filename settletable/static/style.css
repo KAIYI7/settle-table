@@ -609,6 +609,25 @@ button:active, .btn:active {
   width: 100%;
 }
 
+/* Disabled action wrappers for feedback and toasts */
+.finalize-btn-wrapper,
+.review-submit-wrapper {
+  display: block;
+  width: 100%;
+}
+
+.finalize-btn-wrapper.is-disabled,
+.review-submit-wrapper.is-disabled {
+  cursor: not-allowed;
+}
+
+.finalize-btn-wrapper.is-disabled button,
+.review-submit-wrapper.is-disabled button,
+.finalize-btn-wrapper button:disabled,
+.review-submit-wrapper button:disabled {
+  pointer-events: none;
+}
+
 /* Badges */
 .badge {
   display: inline-block;
@@ -2067,6 +2086,95 @@ input[type=number].ocr-edit-item-qty:focus {
     height: 44px;
     width: 118px;
   }
+
+  /* Mobile Typography & Line-Height Ergonomics */
+  body {
+    line-height: 1.55;
+    letter-spacing: -0.01em;
+  }
+
+  p,
+  .card-desc,
+  .item-meta,
+  .verified-subtext,
+  .sharing-subsection p {
+    line-height: 1.55;
+  }
+
+  .card-desc {
+    font-size: 0.88rem;
+    color: #94a3b8;
+    margin-bottom: 12px;
+  }
+
+  /* Enhanced secondary text contrast on small screens */
+  .room-revision-label,
+  .room-badge-label,
+  .recent-meal-meta {
+    color: #94a3b8;
+    font-size: 0.8rem;
+  }
+
+  /* Mobile Banner & Notice Breathing Room */
+  .prefill-transfer-banner,
+  .receipt-verified-banner,
+  .simulation-notice,
+  .checkout-demo-notice,
+  .info-callout {
+    font-size: 0.86rem;
+    line-height: 1.5;
+    padding: 10px 12px;
+  }
+
+  /* Financial Breakdown Tables Responsive Typography & Cell Spacing */
+  .breakdown-table {
+    font-size: 0.84rem;
+    width: 100%;
+  }
+
+  .breakdown-table th {
+    font-size: 0.74rem;
+    letter-spacing: 0.04em;
+    padding: 8px 6px;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+
+  .breakdown-table td {
+    padding: 9px 6px;
+    line-height: 1.4;
+  }
+
+  .breakdown-table td.amount {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .breakdown-total-row td {
+    font-size: 0.98rem;
+    padding: 10px 6px;
+  }
+
+  /* Smooth touch scrolling with momentum on mobile table containers */
+  div[style*="overflow-x: auto"],
+  .table-responsive {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  /* Device Session Progressive Disclosure Details on Mobile */
+  .session-info-details summary {
+    font-size: 0.82rem;
+    color: #cbd5e1;
+    padding: 4px 0;
+  }
+
+  .session-info-details p {
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: #94a3b8;
+  }
 }
 
 /* ========================================================= */
@@ -2961,6 +3069,34 @@ input[type=number].ocr-edit-item-qty:focus {
   color: var(--accent-rose, #ef4444);
   background: rgba(239, 68, 68, 0.1);
 }
+
+/* Device session progressive disclosure details */
+.session-info-details {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.session-info-details summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-weight: 500;
+  transition: color 0.15s ease;
+  user-select: none;
+}
+
+.session-info-details summary:hover,
+.session-info-details summary:focus-visible {
+  color: var(--text-muted);
+  outline: none;
+}
+
+.session-info-details p {
+  margin: 6px 0 0 0;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 
 
 

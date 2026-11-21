@@ -472,7 +472,7 @@ async function run() {
       };
     });
     console.log('DOM & State before clicking cancel edit:', domItems);
-    const item2Id = domItems.snapItems[1].id;
+    const item2Id = domItems.snapItems.find(i => i.id !== 'item-1')?.id || domItems.snapItems[1].id;
     console.log(`Second item ID: ${item2Id}`);
 
     const clicked = await page.evaluate((id) => {
