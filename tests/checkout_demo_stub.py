@@ -8,6 +8,14 @@ Test fixture only. It follows the design's wire contract and is not the bridge:
 - GET returns the 9-field allowlist or 404 {"error":"REFERENCE_NOT_FOUND"}.
 - Every other route 404 {"error":"NOT_FOUND"}; errors are {"error": CODE}.
 Control helpers mutate the store in-process (the organizer's bridge actions).
+
+Observed-evidence mode (``observed_amount`` set) follows the KP-SETTLETABLE-TNG-02
+v1.3 wire section that the G1 bridge implements: the PUT order for a new reference is
+pinned amount (409 OBSERVED_AMOUNT_MISMATCH) -> single use (409
+OBSERVED_CHECKOUT_SPENT) -> held amount; a replay of the bound reference still
+returns 200 first; success bodies carry one extra key, evidenceMode
+"OBSERVED_NOTIFICATION"; evidence is NOTIFICATION_UNVERIFIED. With
+``observed_amount=None`` every synthetic byte is unchanged.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -20,9 +28,10 @@ OPEN = {'AWAITING_PAYMENT', 'PAYMENT_DETECTED', 'AWAITING_VERIFICATION', 'AMBIGU
 
 
 class StubBridge:
-    def __init__(self, token, control_nonce=None):
+    def __init__(self, token, control_nonce=None, observed_amount=None):
         self.token = token
         self.control_nonce = control_nonce
+        self.observed_amount = observed_amount
         self.lock = threading.Lock()
         self.checkouts = {}        # reference -> allowlisted checkout dict
         self.other_holds = set()   # amounts held by non-integration checkouts
@@ -58,7 +67,25 @@ class StubBridge:
         return self.transition(reference, 'AWAITING_VERIFICATION', 'SYNTHETIC', '2026-11-17T04:30:00Z')
 
     def confirm(self, reference):
+        if self.observed_amount is not None:
+            return self.transition(reference, 'MANUALLY_CONFIRMED', 'NOTIFICATION_UNVERIFIED')
         return self.transition(reference, 'MANUALLY_CONFIRMED', 'SYNTHETIC')
+
+    def observe_notification(self, reference, status='PAYMENT_DETECTED'):
+        """Observed mode: a unique in-window wallet notification was matched (no text, no sender)."""
+        return self.transition(reference, status, 'NOTIFICATION_UNVERIFIED', '2026-11-17T04:40:00Z')
+
+    def ambiguous(self, reference):
+        return self.transition(reference, 'AMBIGUOUS')
+
+    def review_expire(self, reference):
+        return self.transition(reference, 'REVIEW_EXPIRED')
+
+    def synthetic_mode(self, reference=None):
+        """Browser tests only: from now on answer as a synthetic-only bridge (no evidenceMode key)."""
+        with self.lock:
+            self.observed_amount = None
+            return {'mode': 'synthetic'}
 
     def expire(self, reference):
         return self.transition(reference, 'EXPIRED')
@@ -88,6 +115,11 @@ class StubBridge:
                 if known['amountMinor'] != amount:
                     return 409, {'error': 'REFERENCE_CONFLICT'}
                 return 200, dict(known)
+            if self.observed_amount is not None:
+                if amount != self.observed_amount:
+                    return 409, {'error': 'OBSERVED_AMOUNT_MISMATCH'}
+                if self.checkouts:
+                    return 409, {'error': 'OBSERVED_CHECKOUT_SPENT'}
             held = {c['amountMinor'] for c in self.checkouts.values() if c['status'] in OPEN} | self.other_holds
             if amount in held:
                 return 409, {'error': 'SAME_AMOUNT_HELD'}
@@ -95,6 +127,8 @@ class StubBridge:
                         'status': 'AWAITING_PAYMENT', 'evidence': 'NONE',
                         'createdAt': '2026-11-17T04:00:00.123456789Z', 'expiresAt': '2026-11-17T04:10:00.123456789Z',
                         'reviewExpiresAt': None, 'revision': 1}
+            if self.observed_amount is not None:
+                checkout['evidenceMode'] = 'OBSERVED_NOTIFICATION'
             self.checkouts[reference] = checkout
             return 201, dict(checkout)
 
@@ -174,6 +208,10 @@ class StubBridge:
                 return 409, {'error': 'NO_CHECKOUT'}
             reference = list(self.checkouts)[-1]  # The most recently created checkout.
         actions = {'candidate': self.simulate_candidate, 'confirm': self.confirm, 'expire': self.expire}
+        if self.observed_amount is not None:
+            actions = {'notification': self.observe_notification, 'confirm': self.confirm, 'expire': self.expire,
+                       'ambiguous': self.ambiguous, 'review-expire': self.review_expire,
+                       'synthetic-mode': self.synthetic_mode}
         if action not in actions:
             return 404, {'error': 'NOT_FOUND'}
         return 200, actions[action](reference)

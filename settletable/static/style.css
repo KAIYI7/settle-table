@@ -32,6 +32,7 @@
 .checkout-demo-status, .checkout-demo-target { font-weight: 600; margin: 4px 0; overflow-wrap: anywhere; }
 .checkout-demo-note, .checkout-demo-attempt { color: var(--text-muted); font-size: 0.8rem; font-weight: 400; margin: 3px 0; overflow-wrap: anywhere; }
 .checkout-demo-stale { color: #f59e0b; font-size: 0.85rem; margin: 4px 0; }
+.checkout-demo-payer { font-size: 0.9rem; font-weight: 600; margin: 0 0 12px; overflow-wrap: anywhere; }
 .checkout-demo-options { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
 .checkout-demo-option { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .checkout-demo-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }

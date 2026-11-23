@@ -49,6 +49,8 @@ jobs:
         run: node tools/verify_mobile_ux_remediation.mjs
       - name: Experimental checkout demo (synthetic) browser regression
         run: node tools/verify_checkout_demo.mjs
+      - name: Experimental checkout demo (observed notification) browser regression
+        run: node tools/verify_checkout_demo_observed.mjs
 
   docker-smoke:
     runs-on: ubuntu-24.04

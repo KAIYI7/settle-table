@@ -10,6 +10,11 @@ It is separate from ``payment_simulation``: its own configuration, namespace,
 client, wire slot and suspension state. Only an opaque reference, an integer amount
 and the literal currency are sent. It never provisions credentials or enables a
 deployment.
+
+Observed-evidence mode (``SETTLETABLE_CHECKOUT_DEMO_OBSERVED_EVIDENCE=true``) is a
+separate opt-in for a bridge that observes the organizer's own wallet notification.
+It stays display only. Every branch it adds is guarded by ``config.observed``; when
+the variable is absent the behaviour is exactly the synthetic demo's.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -48,6 +53,14 @@ LATCHED = frozenset({'CONFLICT', 'UNEXPECTED_STATUS'})
 # Terminal under the eligibility rule: a new attempt may follow.
 TERMINAL = frozenset({'NOT_CREATED', 'CONFLICT', 'EXPIRED', 'MANUALLY_CONFIRMED'})
 FINAL_BRIDGE = frozenset({'MANUALLY_CONFIRMED', 'EXPIRED', 'REVIEW_EXPIRED'})
+# Observed-evidence mode only.
+OBSERVED_FLAG = PREFIX + 'OBSERVED_EVIDENCE'
+EVIDENCE_MODE = 'OBSERVED_NOTIFICATION'
+OBSERVED_FIELDS = CHECKOUT_FIELDS | {'evidenceMode'}
+# Bridge refusals that create nothing; latched as CONFLICT with this reason.
+OBSERVED_REFUSALS = frozenset({'OBSERVED_CHECKOUT_SPENT', 'OBSERVED_AMOUNT_MISMATCH'})
+# A success body without the observed marker: latched as UNEXPECTED_STATUS with this reason.
+MODE_MISMATCH = 'EVIDENCE_MODE_MISMATCH'
 # One WSGI worker: keep a status read from racing a PUT inside this process and
 # leave request threads free for ordinary meal work. Not shared with I06.
 _wire_slot = threading.Lock()
@@ -84,10 +97,13 @@ class CheckoutDemoConfig:
     base_url: str
     credential: str = field(repr=False)
     ca_file: str | None = None
+    observed: bool = False
 
     def __post_init__(self):
         try:
             canonical_uuid(self.namespace)
+            if type(self.observed) is not bool:
+                raise ValueError()
             if type(self.credential) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{32,256}', self.credential):
                 raise ValueError()
             if type(self.base_url) is not str or not re.fullmatch(r'[!-~]{1,512}', self.base_url):
@@ -111,8 +127,14 @@ class CheckoutDemoConfig:
     @classmethod
     def from_env(cls, environ=None):
         env = os.environ if environ is None else environ
+        # Exactly "true" opts in; any other present value, or the flag without the demo, fails startup.
+        observed = env.get(OBSERVED_FLAG)
+        if observed is not None and observed != 'true':
+            raise ValueError(CONFIG_ERROR)
         enabled = env.get(PREFIX + 'ENABLED', '0')
         if enabled == '0':
+            if observed is not None:
+                raise ValueError(CONFIG_ERROR)
             return None
         if enabled != '1':
             raise ValueError(CONFIG_ERROR)
@@ -141,6 +163,8 @@ class CheckoutDemoConfig:
             # Its own namespace: never share the I06 installation namespace.
             if str(env.get('SETTLETABLE_KAIPAY_NAMESPACE', '')).lower() == str(namespace).lower():
                 raise ValueError()
+            if observed is not None:
+                return cls(namespace, base_url, credential, ca_file, observed=True)
             return cls(namespace, base_url, credential, ca_file)
         except (KeyError, ValueError, TypeError, OSError, RecursionError):
             raise ValueError(CONFIG_ERROR) from None
@@ -154,8 +178,10 @@ def checkout_reference(namespace, meal_id, finalize_actor_id, finalize_command_i
     return str(uuid.uuid5(uuid.UUID(namespace), name))
 
 
-def display_status(status, evidence):
+def display_status(status, evidence, observed=False):
     """Evidence-checked mapping. The evidence check takes precedence on every row."""
+    if observed:
+        return _observed_display_status(status, evidence)
     if evidence not in ('NONE', 'SYNTHETIC'):
         return 'UNEXPECTED_STATUS'
     if status == 'AWAITING_PAYMENT' and evidence == 'NONE':
@@ -171,6 +197,23 @@ def display_status(status, evidence):
     return 'UNEXPECTED_STATUS'
 
 
+def _observed_display_status(status, evidence):
+    """Observed-mode mapping (design D2). Evidence first: SYNTHETIC or anything unknown is unexpected."""
+    if evidence not in ('NONE', 'NOTIFICATION_UNVERIFIED'):
+        return 'UNEXPECTED_STATUS'
+    if status == 'AWAITING_PAYMENT' and evidence == 'NONE':
+        return 'AWAITING_EVIDENCE'
+    if status in ('PAYMENT_DETECTED', 'AWAITING_VERIFICATION') and evidence == 'NOTIFICATION_UNVERIFIED':
+        return 'EVIDENCE_DETECTED'
+    if status == 'MANUALLY_CONFIRMED' and evidence == 'NOTIFICATION_UNVERIFIED':
+        return 'MANUALLY_CONFIRMED'
+    if status == 'AMBIGUOUS':
+        return 'NEEDS_REVIEW'
+    if status in ('EXPIRED', 'REVIEW_EXPIRED'):
+        return 'EXPIRED'
+    return 'UNEXPECTED_STATUS'
+
+
 def _timestamp(value, nullable=False):
     if value is None and nullable:
         return
@@ -180,9 +223,15 @@ def _timestamp(value, nullable=False):
         raise ValueError('invalid_checkout_response')
 
 
-def validate_checkout(data):
-    """The bridge GET/PUT body is an exact allowlist."""
-    if type(data) is not dict or set(data) != CHECKOUT_FIELDS:
+def validate_checkout(data, observed=False):
+    """The bridge GET/PUT body is an exact allowlist.
+
+    In observed mode the body may also carry ``evidenceMode``. Its value is not
+    judged here: a missing or different marker is a latched mode mismatch, decided
+    when the observation is stored, never a transient failure.
+    """
+    if type(data) is not dict or (set(data) != CHECKOUT_FIELDS
+                                  and not (observed and set(data) == OBSERVED_FIELDS)):
         raise ValueError('invalid_checkout_response')
     canonical_uuid(data['reference'])
     canonical_uuid(data['checkoutId'])
@@ -305,13 +354,15 @@ class CheckoutDemoClient:
             status = response.status
             json_body = response.getheader('Content-Type', '').split(';')[0].strip().lower() == 'application/json'
             if status in (200, 201) and json_body and (status == 200 or method == 'PUT'):
-                return {'checkout': validate_checkout(_strict_json(raw))}
+                return {'checkout': validate_checkout(_strict_json(raw), self.config.observed)}
             if json_body and status in (404, 409):
                 payload = _strict_json(raw)
                 code = payload.get('error') if type(payload) is dict and set(payload) == {'error'} else None
                 if status == 404 and method == 'GET' and code == 'REFERENCE_NOT_FOUND':
                     return {'error': code}
                 if status == 409 and method == 'PUT' and code in ('SAME_AMOUNT_HELD', 'REFERENCE_CONFLICT'):
+                    return {'error': code}
+                if status == 409 and method == 'PUT' and self.config.observed and code in OBSERVED_REFUSALS:
                     return {'error': code}
             retry = response.getheader('Retry-After', '')
             retry = max(1, min(120, int(retry))) if re.fullmatch(r'[0-9]{1,3}', retry) else None
@@ -395,9 +446,9 @@ def current_suggestions(authority, meal_id, state):
     return tuple((s.sender_id, s.receiver_id, s.amount_sen) for s in settlement.suggested_transfers)
 
 
-def _display(row):
+def _display(row, observed=False):
     if row['state'] == 'OBSERVED':
-        return display_status(row['bridge_status'], row['evidence'])
+        return display_status(row['bridge_status'], row['evidence'], observed)
     if row['state'] == 'REFERENCE_LOST':
         return 'UNAVAILABLE'
     return row['state']
@@ -428,23 +479,30 @@ def _context(authority, credential, meal_id, config):
                  'checkout_demo_conflict')
         rows.append(row)
     return {'meal_id': meal_id, 'actor': actor, 'finalize': (final_actor, final_command),
-            'suggestions': suggestions, 'rows': rows}
+            'suggestions': suggestions, 'rows': rows, 'observed': config.observed}
 
 
 def _decide(ctx, sender_id, amount_sen):
     """The single eligibility rule for both the eligible list and an explicit request."""
+    observed = ctx['observed']
     target = (sender_id, ctx['actor'], amount_sen)
     _require(target in ctx['suggestions'], 'checkout_demo_stale')
     # No repeated "confirmed" demos for the same unchanged debt.
-    _require(not any(_display(r) == 'MANUALLY_CONFIRMED' and _target(r) == target for r in ctx['rows']),
+    _require(not any(_display(r, observed) == 'MANUALLY_CONFIRMED' and _target(r) == target for r in ctx['rows']),
              'checkout_demo_already_confirmed')
     latest = ctx['rows'][-1] if ctx['rows'] else None
     if latest is None:
         return 'NEW', None
-    shown = _display(latest)
+    shown = _display(latest, observed)
     if shown not in TERMINAL:
         _require(_target(latest) == target and latest['state'] == 'REQUEST_UNKNOWN', 'checkout_demo_active')
         return 'CHECK', latest
+    if observed:
+        # One attempt per meal. The only further PUT is the identical same-reference re-PUT
+        # after a checked absence, and only while no checkout was ever bound.
+        _require(shown == 'NOT_CREATED' and latest['not_created_reason'] == 'REFERENCE_NOT_FOUND'
+                 and latest['checkout_id'] is None and _target(latest) == target, 'resource_limit')
+        return 'RETRY', latest
     if shown == 'NOT_CREATED' and _target(latest) == target:
         return 'RETRY', latest
     _require(latest['attempt'] < MAX_ATTEMPTS, 'resource_limit')
@@ -469,7 +527,7 @@ def _projection(ctx, last_check=None, retry_after=None):
     latest = ctx['rows'][-1] if ctx['rows'] else None
     intent = None
     if latest is not None:
-        shown = _display(latest)
+        shown = _display(latest, ctx['observed'])
         intent = {
             'attempt': latest['attempt'], 'reference': latest['reference'],
             'senderId': latest['sender_id'], 'receiverId': latest['receiver_id'], 'amountSen': latest['amount_sen'],
@@ -484,8 +542,11 @@ def _projection(ctx, last_check=None, retry_after=None):
             'stale': _target(latest) not in ctx['suggestions'],
             'terminal': shown in TERMINAL, 'latched': shown in LATCHED,
         }
-    return {'enabled': True, 'synthetic': True, 'intent': intent, 'eligible': _eligible(ctx),
-            'lastCheck': last_check, 'retryAfter': retry_after}
+    result = {'enabled': True, 'synthetic': True, 'intent': intent, 'eligible': _eligible(ctx),
+              'lastCheck': last_check, 'retryAfter': retry_after}
+    if ctx['observed']:
+        result.update(synthetic=False, observed=True, evidenceMode=EVIDENCE_MODE)
+    return result
 
 
 def _transaction_failure(authority, error, attempted):
@@ -529,8 +590,14 @@ def _apply_observation(authority, ctx, row, method, observation):
     if row['state'] in LATCHED:
         return None
     now = authority._now()
+    observed = ctx['observed']
     if 'checkout' in observation:
         data = observation['checkout']
+        if observed and data.get('evidenceMode') != EVIDENCE_MODE:
+            # A bridge in another mode answered: never bind it, and stop all further I/O.
+            _update(authority, ctx, row, state='UNEXPECTED_STATUS', not_created_reason=MODE_MISMATCH,
+                    observed_at=now)
+            return 'OK'
         if data['reference'] != row['reference'] or data['amountMinor'] != row['amount_sen']:
             _update(authority, ctx, row, state='CONFLICT', observed_at=now)
             return 'OK'
@@ -548,7 +615,7 @@ def _apply_observation(authority, ctx, row, method, observation):
             terminal_change = (row['bridge_status'] in FINAL_BRIDGE and data['status'] != row['bridge_status'])
         else:
             terminal_change = False
-        shown = display_status(data['status'], data['evidence'])
+        shown = display_status(data['status'], data['evidence'], observed)
         _update(authority, ctx, row,
                 state='UNEXPECTED_STATUS' if shown == 'UNEXPECTED_STATUS' or terminal_change else 'OBSERVED',
                 not_created_reason=None, checkout_id=data['checkoutId'], bridge_status=data['status'],
@@ -556,6 +623,11 @@ def _apply_observation(authority, ctx, row, method, observation):
                 expires_at=data['expiresAt'], review_expires_at=data['reviewExpiresAt'], observed_at=now)
         return 'OK'
     code = observation.get('error')
+    if observed and code in OBSERVED_REFUSALS and method == 'PUT':
+        # Nothing was created: a latched terminal refusal, never NOT_CREATED, so no RETRY follows.
+        _update(authority, ctx, row, state='CONFLICT', observed_at=now,
+                not_created_reason=code if row['checkout_id'] is None else None)
+        return 'OK'
     if code == 'REFERENCE_CONFLICT' and method == 'PUT':
         _update(authority, ctx, row, state='CONFLICT', observed_at=now)
         return 'OK'

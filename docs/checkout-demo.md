@@ -32,6 +32,7 @@ Configuration is read once at startup and creates no account or credential.
 | `SETTLETABLE_CHECKOUT_DEMO_CREDENTIAL` | Native mode only: the narrow bridge integration credential (`[A-Za-z0-9_-]{32,256}`) |
 | `SETTLETABLE_CHECKOUT_DEMO_CREDENTIALS_FILE` | Container mode instead of the variable above: a read-only mounted JSON file `{"credential":"..."}` |
 | `SETTLETABLE_CHECKOUT_DEMO_CA_FILE` | Optional, HTTPS only: a trust anchor for this client only |
+| `SETTLETABLE_CHECKOUT_DEMO_OBSERVED_EVIDENCE` | Optional. Exactly `true` selects [observed-evidence mode](#observed-evidence-mode); absent keeps the synthetic demo. Any other value, or setting it while the demo is disabled, fails startup. |
 
 Exactly one of `_CREDENTIAL` and `_CREDENTIALS_FILE` must be set. HTTP is
 accepted only when every resolved address is loopback; the supported demo is a
@@ -172,16 +173,97 @@ The client allows a two-second connect timeout, a five-second
 whole-request deadline and an 8 KiB response limit. Admission controls are
 process-local and reset on restart.
 
+## Observed-evidence mode
+
+`SETTLETABLE_CHECKOUT_DEMO_OBSERVED_EVIDENCE=true` is for a bridge started in its
+separate observed-evidence integration mode. In that mode the bridge's phone
+companion observes the organizer's own wallet notification for one test transfer
+between the organizer's own wallets, made by the organizer outside SettleTable.
+The bridge does not verify or settle payments, and a notification never proves
+settlement, payer identity or intent. Everything above still applies, with these
+differences. When the variable is absent, nothing below applies and the behaviour
+is the synthetic demo's.
+
+It stays **display only**: no contribution, pending report or transfer is written,
+accepted command and result bytes are unchanged, and suggested transfers and
+balances are unchanged by every outcome. Any real reimbursement record stays a
+separate, manual organizer action.
+
+**Mode check.** Success bodies must carry one extra key,
+`"evidenceMode":"OBSERVED_NOTIFICATION"`; no other extra key is accepted. A
+success body without it, or with any other value, is never bound and latches the
+intent as `UNEXPECTED_STATUS` with reason `EVIDENCE_MODE_MISMATCH`: "Bridge mode
+does not match this SettleTable configuration — do not transfer". The reverse also
+fails closed: without the variable, the extra key fails validation, so a PUT to an
+observed bridge stays `REQUEST_UNKNOWN` and later reads are `UNAVAILABLE` (that
+PUT does create the bridge checkout).
+
+**Refusals.** PUT 409 `OBSERVED_CHECKOUT_SPENT` (the bridge's single checkout is
+already used) and 409 `OBSERVED_AMOUNT_MISMATCH` (not the bridge's pinned amount)
+create nothing. They latch the intent as `CONFLICT` with that code as the reason:
+"Not created — do not transfer". They never become `REQUEST_UNKNOWN` or
+`NOT_CREATED`. Without the variable they are ordinary unknown answers
+(`REQUEST_UNKNOWN`).
+
+**One attempt per meal.** After the first PUT for a meal, no new attempt is ever
+offered or accepted, whatever the outcome; an explicit request is refused
+(`resource_limit`, or `checkout_demo_active` while the checkout is open, or
+`checkout_demo_already_confirmed` after a confirmation). The only further PUT is the identical re-PUT of the **same**
+reference after a checked absence: the intent is `NOT_CREATED` with reason
+`REFERENCE_NOT_FOUND` and no `checkoutId` was ever bound. A `SAME_AMOUNT_HELD`
+refusal offers no re-PUT. Once a checkout is bound, the only action is a GET.
+
+**Display mapping** (evidence is checked first; `SYNTHETIC` or any other evidence is
+`UNEXPECTED_STATUS`):
+
+| Bridge status and evidence | SettleTable shows |
+| --- | --- |
+| `AWAITING_PAYMENT`, `NONE` | Waiting for the organizer's own wallet notification. Nothing is recorded in SettleTable. Transfer at most once; if already sent, do not send again. |
+| `PAYMENT_DETECTED` or `AWAITING_VERIFICATION`, `NOTIFICATION_UNVERIFIED` | Notification observed — unverified. The organizer checks their own wallet history in the bridge. |
+| `MANUALLY_CONFIRMED`, `NOTIFICATION_UNVERIFIED` | Notification observed, unverified, manually confirmed by the organizer — SettleTable balance unchanged |
+| `AMBIGUOUS`, `NONE` or `NOTIFICATION_UNVERIFIED` | Needs organizer review — not confirmed. Do not transfer again. |
+| `EXPIRED` or `REVIEW_EXPIRED`, `NONE` or `NOTIFICATION_UNVERIFIED` | Ended without confirmation. If money was sent, check your wallet history; do not transfer again. |
+| any other combination | `UNEXPECTED_STATUS`, latched |
+
+The other local states also say not to transfer: request outcome unknown,
+not created, conflict, unexpected status and unavailable.
+
+**Card.** The card is titled "Experimental checkout demo (observed notification)"
+and always carries the line "Test transfer between the organizer's own wallets;
+the named diner did not pay." The meal should name its counterparty plainly as a
+test, for example "Owner's other wallet (test)", never a person. The card keeps
+SettleTable's boundary notice that it does not execute or independently verify
+bank, card, or e-wallet transactions, and its copy never says that anyone paid or
+that anything was settled. The organizer's snapshot carries
+`checkout_demo_observed: true` (only in this mode) so the card shows the observed
+copy before its first read; the status response carries `observed: true`,
+`synthetic: false` and `evidenceMode`.
+
+**Fresh database.** Use a database with no `checkout_demos` rows for this mode.
+The local state does not record which mode wrote a row, so a row written by the
+synthetic demo could be shown with the observed copy until its next bridge read
+fails closed (a mode mismatch or a missing reference). Restarting the same
+observed run on its own database is fine.
+
+**One-sen meals.** A suggestion of RM0.01 works: for example one RM0.02 item shared
+equally by the organizer and the test counterparty and paid by the organizer
+suggests exactly one RM0.01 transfer to the organizer.
+
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -p test_checkout_demo.py -v
+python -m unittest discover -s tests -p "test_checkout_demo*.py" -v
 ```
 
 ```bash
 node tools/verify_checkout_demo.mjs
 ```
 
-Both run against `tests/checkout_demo_stub.py`, an in-process stub that follows
-the bridge contract above. They use disposable random credentials and contact
-no real bridge.
+```bash
+node tools/verify_checkout_demo_observed.mjs
+```
+
+All run against `tests/checkout_demo_stub.py`, an in-process stub that follows
+the bridge contract above (with `observed_amount` set, the observed-evidence
+contract). They use disposable random credentials and contact no real bridge,
+phone or wallet.
