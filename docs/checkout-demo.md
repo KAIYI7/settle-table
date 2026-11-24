@@ -255,7 +255,11 @@ follows each deadline and shows the bridge's outcome. Both deadlines come only
 from that response: without a valid `expiresAt` (for example a request whose
 outcome is unknown) the card stops at 120 s as in the synthetic demo, and without
 a `reviewExpiresAt` it stops at the first read after the window ends. The deadlines
-are compared with the device clock. A failed read keeps the last stored deadlines.
+are compared with the device clock: with a device clock ahead of the bridge's,
+the last read can arrive before the bridge applies its final status, so that status
+needs "Refresh demo status"; with a clock behind, reads continue for up to that
+difference. The client adds no cap of its own, so reads last as long as the
+deadlines the bridge reports. A failed read keeps the last stored deadlines.
 While the page is hidden nothing is read and the schedule is cleared; when it is
 visible again the whole schedule restarts from 2 s. Each read is the same `GET` to
 the same endpoint as before, with at most one bridge GET, and a read never starts

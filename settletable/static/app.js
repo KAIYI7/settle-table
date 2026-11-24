@@ -3492,7 +3492,7 @@ async function loadSimulationReads(snap) {
   }
 }
 
-// --- Experimental checkout demo (synthetic, display only) ---
+// --- Experimental checkout demo (synthetic or observed-evidence, display only) ---
 // Reads use their own endpoint on the allocation simulation schedule; they are
 // never part of the 3 s snapshot poll. Copy never claims that money moved.
 const CHECKOUT_DEMO_POLL_SECONDS = [2, 5, 10, 30, 60, 90, 120];
@@ -3573,6 +3573,7 @@ function clearCheckoutDemoTimers() {
 }
 
 // An RFC 3339 timestamp as carried by the status response, in epoch milliseconds, or NaN.
+// Any form this does not parse (NaN) safely ends the observed reads after the fixed schedule.
 function checkoutDemoInstant(value) {
   const m = typeof value === 'string'
     && /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);

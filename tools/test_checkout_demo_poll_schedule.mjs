@@ -77,7 +77,7 @@ function makePage({ observed = true, respond }) {
   };
   vm.createContext(sandbox);
   const api = vm.runInContext(`${SECTION}\n${VISIBILITY}\n;({scheduleCheckoutDemoReads, requestCheckoutDemo,
-    checkoutDemoInstant, checkoutDemoObservedNextDelay, clearCheckoutDemoTimers})`, sandbox);
+    checkoutDemoInstant, checkoutDemoObservedNextDelay, clearCheckoutDemoTimers, resetCheckoutDemoView})`, sandbox);
   return {
     api, state,
     reads: () => reads.map(r => r.at),
@@ -129,7 +129,8 @@ test('timestamps from the status response parse exactly; anything else is NaN', 
   assert.equal(api.checkoutDemoInstant('2026-11-17T12:10:00+08:00'), Date.UTC(2026, 10, 17, 4, 10, 0));
   assert.equal(api.checkoutDemoInstant('2026-11-17T04:10:00.5-01:30'), Date.UTC(2026, 10, 17, 5, 40, 0, 500));
   assert.equal(api.checkoutDemoInstant('2026-11-17T04:10Z'), Date.UTC(2026, 10, 17, 4, 10, 0));
-  for (const bad of [null, undefined, '', 'soon', 1795000000, '2026-11-17 04:10:00Z', '2026-11-17T04:10:00']) {
+  for (const bad of [null, undefined, '', 'soon', 1795000000, '2026-11-17 04:10:00Z', '2026-11-17T04:10:00',
+    '2026-11-17T041000.123Z', '2026-11-17T04:10:00.1234567890Z']) {
     assert.ok(Number.isNaN(api.checkoutDemoInstant(bad)), `accepted ${bad}`);
   }
 });
@@ -270,4 +271,70 @@ test('synthetic (flag absent): reads stop at 120 s even with an open window and 
   page.setVisibility('visible');
   await page.advanceTo(9000);
   assert.deepEqual(page.reads().slice(8).map(t => t - 7200), [2, 5, 10, 30, 60, 90, 120]);
+});
+
+test('observed: "Refresh demo status" during the extended reads restarts the schedule from 2 s', async () => {
+  const page = makePage({ respond: () => demo({ reviewExpiresAt: iso(T0 + 1000_000) }) });
+  await page.start();
+  await page.advanceTo(200);
+  await page.api.requestCheckoutDemo(null);  // the refresh button: schedule defaults to true
+  assert.equal(page.state.checkoutDemoTail, false);
+  assert.equal(page.state.checkoutDemoTailTimer, null);
+  const from = page.reads().length;
+  await page.advanceTo(359);
+  assert.deepEqual(page.reads().slice(from).map(t => t - 200), [2, 5, 10, 30, 60, 90, 120, 135, 150]);
+  assert.equal(page.maxInFlight(), 1);
+});
+
+test('observed: a POST during the extended reads restarts the schedule from 2 s', async () => {
+  const page = makePage({ respond: () => demo() });
+  await page.start();
+  await page.advanceTo(200);
+  await page.api.requestCheckoutDemo({ senderId: 'p-1', amountSen: 1 });
+  assert.equal(page.allReads.at(-1).method, 'POST');
+  assert.equal(page.state.checkoutDemoTail, false);
+  const from = page.reads().length;
+  await page.advanceTo(325);
+  assert.deepEqual(page.reads().slice(from).map(t => t - 200), [2, 5, 10, 30, 60, 90, 120]);
+});
+
+test('observed: a 401 or 403 during the extended reads clears every timer; no read follows', async () => {
+  for (const status of [401, 403]) {
+    const page = makePage({ respond: t => t < 150 ? demo() : Object.assign(new Error('auth'), { status }) });
+    await page.start();
+    await page.advanceTo(7200);
+    assert.equal(page.reads().at(-1), 150);
+    assert.equal(page.pendingTimers(), 0);
+    assert.equal(page.state.checkoutDemo, null);
+    assert.equal(page.state.checkoutDemoTail, false);
+  }
+});
+
+test('observed: leaving the meal with a tail read pending stops it, and a stale read cannot rearm it', async () => {
+  const page = makePage({ respond: () => demo() });
+  await page.start();
+  await page.advanceTo(130);
+  const release = page.holdReads();
+  page.api.requestCheckoutDemo(null, false);
+  await page.advanceTo(131);
+  page.api.resetCheckoutDemoView();           // as when switching meals
+  release();
+  await page.advanceTo(7200);
+  assert.deepEqual(page.reads().filter(t => t > 120), [130]);
+  assert.equal(page.pendingTimers(), 0);
+});
+
+test('observed: the 120 s tick during a read in flight still hands over to the extended reads', async () => {
+  const page = makePage({ respond: () => demo() });
+  await page.start();
+  await page.advanceTo(119);
+  const release = page.holdReads();
+  page.api.requestCheckoutDemo(null, false);  // in flight across the 120 s tick
+  await page.advanceTo(121);
+  assert.equal(page.state.checkoutDemoTail, true);
+  release();
+  await page.advanceTo(121);
+  await page.advanceTo(160);
+  assert.deepEqual(page.reads().filter(t => t > 90), [119, 136, 151]);
+  assert.equal(page.maxInFlight(), 1);
 });
