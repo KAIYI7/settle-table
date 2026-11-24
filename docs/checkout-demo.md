@@ -73,7 +73,10 @@ Errors: `checkout_demo_stale` (409), `checkout_demo_active` (409),
 The meal snapshot carries only a static organizer-only `checkout_demo_enabled`
 flag. Demo status is never read on the 3 s snapshot poll. The browser reads the
 dedicated endpoint at elapsed 2/5/10/30/60/90/120 seconds while the intent is
-open, then stops; it pauses while the page is hidden. It also reads it once when
+open, then stops (in [observed-evidence mode](#observed-evidence-mode) it
+continues until the bridge's deadlines; see **Status reads** there); it pauses
+while the page is hidden and restarts when the page is visible again. "Refresh
+demo status" also restarts it. It also reads it once when
 a snapshot shows that the finalized meal's suggested transfers changed (a
 contribution or confirmed transfer recorded after finalization), so the eligible
 list and the stale flag stay current. If a read is still in flight at that point,
@@ -239,6 +242,29 @@ that anything was settled. The organizer's snapshot carries
 copy before its first read; the status response carries `observed: true`,
 `synthetic: false` and `evidenceMode`.
 
+**Status reads.** The bridge's payment window can stay open well beyond 120 s, so
+in this mode the card keeps reading after the fixed 2/5/10/30/60/90/120 s reads:
+
+- every 15 s while the payment window is open (the intent's `expiresAt`);
+- then every 30 s until the review deadline (the intent's `reviewExpiresAt`) passes;
+- then it stops. It stops at once when the status is finished or latched
+  (`terminal` or `latched`).
+
+Each next read is decided from the latest status response, so one read always
+follows each deadline and shows the bridge's outcome. Both deadlines come only
+from that response: without a valid `expiresAt` (for example a request whose
+outcome is unknown) the card stops at 120 s as in the synthetic demo, and without
+a `reviewExpiresAt` it stops at the first read after the window ends. The deadlines
+are compared with the device clock: with a device clock ahead of the bridge's,
+the last read can arrive before the bridge applies its final status, so that status
+needs "Refresh demo status"; with a clock behind, reads continue for up to that
+difference. The client adds no cap of its own, so reads last as long as the
+deadlines the bridge reports. A failed read keeps the last stored deadlines.
+While the page is hidden nothing is read and the schedule is cleared; when it is
+visible again the whole schedule restarts from 2 s. Each read is the same `GET` to
+the same endpoint as before, with at most one bridge GET, and a read never starts
+while another is in flight. Without the variable none of this applies.
+
 **Fresh database.** Use a database with no `checkout_demos` rows for this mode.
 The local state does not record which mode wrote a row, so a row written by the
 synthetic demo could be shown with the observed copy until its next bridge read
@@ -263,7 +289,14 @@ node tools/verify_checkout_demo.mjs
 node tools/verify_checkout_demo_observed.mjs
 ```
 
-All run against `tests/checkout_demo_stub.py`, an in-process stub that follows
-the bridge contract above (with `observed_amount` set, the observed-evidence
-contract). They use disposable random credentials and contact no real bridge,
-phone or wallet.
+```bash
+node tools/test_checkout_demo_poll_schedule.mjs
+```
+
+All but the last run against `tests/checkout_demo_stub.py`, an in-process stub
+that follows the bridge contract above (with `observed_amount` set, the
+observed-evidence contract). They use disposable random credentials and contact
+no real bridge, phone or wallet. The observed browser regression fakes page time
+(`setTimeout` and `Date`) to check the reads after 120 s, the hidden-page pause
+and the stop on a finished status. The last command unit-tests the read schedule
+by running the card's own code from `app.js` with a fake clock and no server.

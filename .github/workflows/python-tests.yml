@@ -29,6 +29,8 @@ jobs:
         run: python -c "import sys, sqlite3; print(sys.version); print(sqlite3.sqlite_version)"
       - name: All calculator, authority and security tests
         run: python -m unittest discover -s tests -v
+      - name: Checkout demo status-read schedule unit tests
+        run: node tools/test_checkout_demo_poll_schedule.mjs
       - name: Real browser end-to-end journey tests (Chrome CDP)
         run: node tools/e2e_browser_test.mjs
       - name: Financial scope and mock export browser regression

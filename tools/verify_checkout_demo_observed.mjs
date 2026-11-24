@@ -359,20 +359,86 @@ try {
   const financialBefore = await ev(a, financial);
   console.log('   ✓ Observed title, payer-identity line and one RM0.01 suggestion; no bridge call');
 
-  console.log('[2/5] Request, observed notification and manual confirmation (word-for-word copy)...');
+  console.log('[2/5] Request, late observed notification and manual confirmation on the extended read schedule...');
+  // Fake page time from just after the stub checkout's createdAt (04:00:00Z); its payment window
+  // ends at 04:10:00.123Z and an observed notification sets the review deadline to 04:40:00Z.
+  // Only setTimeout and Date are faked; the 3 s snapshot poll keeps its real interval.
+  const T0 = Date.UTC(2026, 10, 17, 4, 0, 5);
+  await ev(a, `(() => {
+    const RealDate = Date, realClear = window.clearTimeout;
+    let now = ${T0}, nextId = 1e9;
+    const timers = new Map();
+    window.Date = class extends RealDate {
+      constructor(...args) { if (args.length) super(...args); else super(now); }
+      static now() { return now; }
+    };
+    window.setTimeout = (fn, ms = 0, ...args) => {
+      const id = nextId++;
+      timers.set(id, {id, at: now + Math.max(0, Number(ms) || 0), fn: () => fn(...args)});
+      return id;
+    };
+    window.clearTimeout = id => { if (!timers.delete(id)) realClear(id); };
+    window.__fakeClock = {
+      elapsed: () => (now - ${T0}) / 1000,
+      step(until) {  // Runs the next timer due by 'until' (seconds after T0), else moves time there.
+        const due = [...timers.values()].filter(t => t.at <= ${T0} + until * 1000).sort((x, y) => x.at - y.at || x.id - y.id)[0];
+        if (!due) { now = Math.max(now, ${T0} + until * 1000); return false; }
+        timers.delete(due.id); now = due.at; due.fn(); return true;
+      },
+    };
+  })()`);
+  const bridgeGets = async () => (await bridgeCalls()).filter(([method]) => method === 'GET').length;
+  const readTimes = [];
+  // Advances fake time to 'until', letting each read settle; records when each bridge GET was sent.
+  const advance = async until => {
+    let gets = await bridgeGets();
+    while (await ev(a, `window.__fakeClock.step(${until})`)) {
+      await wait(a, '!state.checkoutDemoBusy', 8000);
+      const next = await bridgeGets();
+      assert(next - gets <= 1, `One card read sent ${next - gets} bridge GETs`);
+      if (next > gets) readTimes.push(await ev(a, 'window.__fakeClock.elapsed()'));
+      gets = next;
+    }
+  };
+  const checkoutTimersIdle = 'state.checkoutDemoTimers.length===0 && state.checkoutDemoTailTimer===null && !state.checkoutDemoTail';
   await ev(a, "document.querySelector('[data-checkout-demo-action=\"request\"]').click()");
   await wait(a, statusIs(OBS.waiting));
   let calls = await bridgeCalls();
   assert(calls.length === 1 && calls[0][0] === 'PUT', `Expected exactly one PUT, got ${JSON.stringify(calls)}`);
   assert(await ev(a, `${requestButtons}===0`), 'No request may be offered while the checkout is open');
   await checkCopy(a, 'waiting');
+  await advance(300);
+  const fixed = [2, 5, 10, 30, 60, 90, 120];
+  const window15 = Array.from({length: 12}, (_, i) => 135 + 15 * i);  // 135 … 300
+  assert(JSON.stringify(readTimes) === JSON.stringify([...fixed, ...window15]),
+    `Expected reads at ${[...fixed, ...window15]} s, got ${readTimes}`);
+  // A notification observed late in the payment window shows on the next read, without a refresh.
   await control('notification');
-  await wait(a, statusIs(OBS.detected), 8000);
+  await advance(315);
+  assert(readTimes.at(-1) === 315, `Expected a read at 315 s, got ${readTimes}`);
+  await wait(a, statusIs(OBS.detected), 3000);
   await checkCopy(a, 'detected');
+  // Hidden: no reads and no checkout-demo timers. Visible again: the schedule restarts.
+  await ev(a, "Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'}); document.dispatchEvent(new Event('visibilitychange'))");
+  assert(await ev(a, checkoutTimersIdle), 'Hidden page must clear every checkout-demo timer');
+  const hiddenFrom = readTimes.length;
+  await advance(400);
+  assert(readTimes.length === hiddenFrom, `Reads while hidden: ${readTimes.slice(hiddenFrom)}`);
+  await ev(a, "Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'}); document.dispatchEvent(new Event('visibilitychange'))");
+  await advance(700);
+  // Restart at 400 s: fixed reads to 520 s, 15 s while the window is open (to 600.123 s), then 30 s.
+  const resumed = [402, 405, 410, 430, 460, 490, 520, 535, 550, 565, 580, 595, 610, 640, 670, 700];
+  assert(JSON.stringify(readTimes.slice(hiddenFrom)) === JSON.stringify(resumed),
+    `Expected reads at ${resumed} s after resuming, got ${readTimes.slice(hiddenFrom)}`);
+  // A terminal status stops every read.
   await control('confirm');
-  await wait(a, statusIs(OBS.confirmed), 12000);
+  await advance(730);
+  await wait(a, statusIs(OBS.confirmed), 3000);
   await checkCopy(a, 'confirmed');
-  await wait(a, 'state.checkoutDemoTimers.length===0', 3000);
+  assert(await ev(a, checkoutTimersIdle), 'A terminal status must stop the checkout-demo schedule');
+  const stoppedAt = readTimes.length;
+  await advance(3600);
+  assert(readTimes.length === stoppedAt && readTimes.at(-1) === 730, `Reads after a terminal status: ${readTimes.slice(stoppedAt)}`);
   assert(await ev(a, `${requestButtons}===0 && state.checkoutDemo.eligible.length===0`), 'NEW must never be offered after the first PUT');
   assert(await ev(a, financial) === financialBefore, 'Settlement, funding or transfers changed');
   console.log('   ✓ Waiting → observed → manually confirmed; balance unchanged; no further request offered');
