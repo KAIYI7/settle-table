@@ -37,6 +37,8 @@ const state = {
   checkoutDemoSeq: 0,
   checkoutDemoEpoch: 0,
   checkoutDemoRereadPending: null,
+  checkoutDemoTail: false,
+  checkoutDemoTailTimer: null,
   allocationTargetId: null,
   expandedHybridItemIds: new Set(),
   activeMobileSheetItemId: null,
@@ -944,12 +946,7 @@ document.addEventListener('visibilitychange', () => {
     for (const [id, value] of state.paymentSimulations) {
       if (['PENDING', 'REQUEST_UNKNOWN'].includes(value.state)) scheduleSimulationReads(id);
     }
-    if (checkoutDemoNeedsPolling(state.checkoutDemo)) scheduleCheckoutDemoReads();
-    const reread = state.checkoutDemoRereadPending;
-    if (reread && !state.checkoutDemoBusy) {
-      state.checkoutDemoRereadPending = null;
-      requestCheckoutDemo(null, reread.schedule);
-    }
+    resumeCheckoutDemoReads();
   }
 });
 
@@ -3499,6 +3496,11 @@ async function loadSimulationReads(snap) {
 // Reads use their own endpoint on the allocation simulation schedule; they are
 // never part of the 3 s snapshot poll. Copy never claims that money moved.
 const CHECKOUT_DEMO_POLL_SECONDS = [2, 5, 10, 30, 60, 90, 120];
+// Observed-evidence mode only: after the last fixed read, read every 15 s while the bridge's
+// payment window (expiresAt) is open, then every 30 s until its review deadline
+// (reviewExpiresAt). Both come from the status response; the client never invents a deadline.
+const CHECKOUT_DEMO_OBSERVED_WINDOW_MS = 15000;
+const CHECKOUT_DEMO_OBSERVED_REVIEW_MS = 30000;
 const CHECKOUT_DEMO_LABELS = {
   REQUEST_UNKNOWN: 'Request outcome unknown — refresh status before requesting again',
   AWAITING_EVIDENCE: 'Awaiting synthetic evidence',
@@ -3565,6 +3567,54 @@ function checkoutDemoNeedsPolling(result) {
 function clearCheckoutDemoTimers() {
   state.checkoutDemoTimers.forEach(clearTimeout);
   state.checkoutDemoTimers = [];
+  clearTimeout(state.checkoutDemoTailTimer);
+  state.checkoutDemoTailTimer = null;
+  state.checkoutDemoTail = false;
+}
+
+// An RFC 3339 timestamp as carried by the status response, in epoch milliseconds, or NaN.
+function checkoutDemoInstant(value) {
+  const m = typeof value === 'string'
+    && /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+  if (!m) return NaN;
+  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0), +((m[7] || '0') + '00').slice(0, 3));
+  const offset = m[8] === 'Z' ? 0 : (m[9] === '-' ? -1 : 1) * (+m[10] * 60 + +m[11]) * 60000;
+  return ms - offset;
+}
+
+// Observed mode: the delay before the next read after the fixed schedule, or null to stop.
+// Decided from the latest response, so one read always follows each deadline.
+function checkoutDemoObservedNextDelay(result, nowMs) {
+  if (result?.observed !== true || !checkoutDemoNeedsPolling(result)) return null;
+  const windowEnd = checkoutDemoInstant(result.intent.expiresAt);
+  if (!Number.isFinite(windowEnd)) return null;
+  if (nowMs < windowEnd) return CHECKOUT_DEMO_OBSERVED_WINDOW_MS;
+  const reviewEnd = checkoutDemoInstant(result.intent.reviewExpiresAt);
+  return Number.isFinite(reviewEnd) && nowMs < reviewEnd ? CHECKOUT_DEMO_OBSERVED_REVIEW_MS : null;
+}
+
+function scheduleCheckoutDemoTailRead() {
+  clearTimeout(state.checkoutDemoTailTimer);
+  state.checkoutDemoTailTimer = null;
+  const delay = document.visibilityState === 'hidden' ? null : checkoutDemoObservedNextDelay(state.checkoutDemo, Date.now());
+  if (delay === null) {
+    state.checkoutDemoTail = false;
+    return;
+  }
+  const epoch = state.checkoutDemoEpoch;
+  state.checkoutDemoTailTimer = setTimeout(() => {
+    state.checkoutDemoTailTimer = null;
+    if (state.checkoutDemoEpoch === epoch && document.visibilityState !== 'hidden') requestCheckoutDemo(null, false);
+  }, delay);
+}
+
+function resumeCheckoutDemoReads() {
+  if (checkoutDemoNeedsPolling(state.checkoutDemo)) scheduleCheckoutDemoReads();
+  const reread = state.checkoutDemoRereadPending;
+  if (reread && !state.checkoutDemoBusy) {
+    state.checkoutDemoRereadPending = null;
+    requestCheckoutDemo(null, reread.schedule);
+  }
 }
 
 function resetCheckoutDemoView() {
@@ -3578,8 +3628,13 @@ function resetCheckoutDemoView() {
 function scheduleCheckoutDemoReads() {
   clearCheckoutDemoTimers();
   const epoch = state.checkoutDemoEpoch;
+  const last = CHECKOUT_DEMO_POLL_SECONDS[CHECKOUT_DEMO_POLL_SECONDS.length - 1];
   state.checkoutDemoTimers = CHECKOUT_DEMO_POLL_SECONDS.map(seconds => setTimeout(() => {
-    if (state.checkoutDemoEpoch === epoch && document.visibilityState !== 'hidden') requestCheckoutDemo(null, false);
+    if (state.checkoutDemoEpoch === epoch && document.visibilityState !== 'hidden') {
+      // Observed mode: the last fixed read hands over to the deadline-bounded reads.
+      if (seconds === last && state.checkoutDemo?.observed === true) state.checkoutDemoTail = true;
+      requestCheckoutDemo(null, false);
+    }
   }, seconds * 1000));
 }
 
@@ -3640,6 +3695,8 @@ async function requestCheckoutDemo(target = null, schedule = true) {
     if (state.mealId === meal && state.checkoutDemoEpoch === epoch) {
       state.checkoutDemoBusy = false;
       updateMealUI();
+      // A read that settles while the observed schedule runs sets the next one (or stops it).
+      if (state.checkoutDemoTail) scheduleCheckoutDemoTailRead();
       const reread = state.checkoutDemoRereadPending;
       // While hidden a queued re-read is kept for the visibilitychange handler.
       if ((refreshAfter || reread) && document.visibilityState !== 'hidden') {
