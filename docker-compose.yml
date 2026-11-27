@@ -42,10 +42,11 @@ services:
       - SETTLETABLE_RATE_LIMIT_HOURLY=${SETTLETABLE_RATE_LIMIT_HOURLY:-5}
       - SETTLETABLE_RATE_LIMIT_DAILY=${SETTLETABLE_RATE_LIMIT_DAILY:-10}
       - SETTLETABLE_ALLOW_INSECURE_PUBLIC_CREATION=${SETTLETABLE_ALLOW_INSECURE_PUBLIC_CREATION:-0}
+    # Single instance: one SQLite authority (and a fixed container_name).
+    # Restart behaviour comes from `restart: unless-stopped` above. Do not add
+    # deploy.restart_policy here: Compose v5.7.1 applied it over `restart`.
     deploy:
       replicas: 1
-      restart_policy:
-        condition: on-failure
 
   # Optional Cloudflare Named Tunnel connector (remotely managed via token)
   # Recommended for self-hosted MVP deployments behind custom domain.
