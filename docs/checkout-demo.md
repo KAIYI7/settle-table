@@ -338,7 +338,9 @@ amount, nothing is frozen or sent (`checkout_demo_amount_changed`, 409); with no
 amount, `checkout_demo_no_free_amount` (409). Offers are computed per diner, so two
 diners with the same share can be offered the same amount until one of them is
 requested; the other's card then shows its new amount. SettleTable never retries with
-another amount by itself.
+another amount by itself. In this mode the route authenticates the caller as the organizer
+before it judges the body, so the body's shape tells a diner or an unauthenticated caller
+nothing about the mode.
 
 **Bridge answers.** A PUT refused `409 OBSERVED_CHECKOUT_SPENT` (the bridge's checkout
 count is used up) latches that diner's intent as `CONFLICT` with that reason and holds
@@ -349,7 +351,10 @@ observed mode.
 **Status reads.** The bridge has no list route, so a status read sends one GET for each
 intent that is neither finished nor latched, one after another under the same wire slot,
 and stores each answer in its own transaction. Finished and latched intents are not read
-again. The card's read schedule follows every open intent: every 15 s while any payment
+again. To keep the process-wide wire slot short, a read starts no further GET after the
+first transport failure (the bridge is not answering) or after 10 s; the intents not read
+are shown unavailable for that check, with their stored state kept. A request refused
+because the client is suspended or cooling down shows every open intent as unavailable. The card's read schedule follows every open intent: every 15 s while any payment
 window is open, then every 30 s while any review deadline is ahead, then it stops.
 
 **Response.** In this mode the status carries `multi: true`, `intents` (every intent of
@@ -359,8 +364,11 @@ offers with `offsetSen` and `paySen`, and `noFreeAmount` (diners with no free am
 true`. No projection carries a participant name.
 
 **Cards.** One short shared card holds the boundary notice and "Refresh demo status";
-then each diner gets a card showing the share, the offset and the exact amount to pay,
-the factual status and two notices, word for word:
+then each diner gets a card showing the share, the offset and the amount, the factual
+status and two notices, word for word. The amount reads "pay exactly" only while a created
+checkout waits for its notification, is not stale and its payment window is open by the
+device clock; an offer reads "if requested now (fixed when the checkout is created)", and
+any other checkout shows its "checkout amount". The notices:
 
 - "The organizer's phone reads its own TNG payment notifications to update this status.
   TNG shows the organizer your name and amount. From the notification, SettleTable and
@@ -368,8 +376,7 @@ the factual status and two notices, word for word:
   organizer checks TNG before marking you paid."
 - "A notification shows an amount and time only; it does not show that this diner paid."
 
-While a created checkout waits for its notification, the organizer's card shows a hint
-to read out: "My phone reads my TNG payment alerts to update the bill. It keeps the
+Under the same condition as "pay exactly", the organizer's card shows a hint to read out: "My phone reads my TNG payment alerts to update the bill. It keeps the
 amount and time, not your name. I still check TNG myself before marking you paid. Please
 pay exactly RM x.yz." These replace observed mode's "own wallets" line in this mode only.
 
@@ -377,8 +384,14 @@ pay exactly RM x.yz." These replace observed mode's "own wallets" line in this m
 of the same amount ambiguous; the allocator follows the smallest-`k` rule and does not
 also avoid recently confirmed amounts. A confirmed checkout's amount is freed by
 SettleTable's clock; once every intent is finished the card stops reading, so a diner
-waiting for that amount needs "Refresh demo status". Use a fresh database and a fresh
-bridge store per session, as for observed mode.
+waiting for that amount needs "Refresh demo status". If SettleTable's clock runs more than
+the 120 s margin ahead of the bridge's, that amount can be offered while the bridge still
+holds it: the bridge refuses it (`SAME_AMOUNT_HELD`) and that diner's single attempt is
+used. The same happens if the bridge store holds an amount from outside this meal; the
+exclusion sets are per meal. Use a fresh database and a fresh bridge store per session,
+as for observed mode. Returning to an earlier SettleTable version with multi-mode rows
+present is not supported; it needs a fresh database. In the synthetic and single observed
+modes the route still judges the POST body before authenticating, as before this mode.
 
 ## Tests
 

@@ -76,6 +76,9 @@ MULTI_MAX_ATTEMPTS = 1_000_000
 # bridge clock. SettleTable compares with its own clock, so it keeps the amount this much
 # longer to absorb clock skew between the two hosts.
 HOLD_SKEW_MARGIN_SECONDS = 120
+# A multi-mode status read starts no further bridge GET after this many seconds, so the
+# process-wide wire slot is never held for long however many diners have open checkouts.
+STATUS_READ_BUDGET_SECONDS = 10
 # One WSGI worker: keep a status read from racing a PUT inside this process and
 # leave request threads free for ordinary meal work. Not shared with I06.
 _wire_slot = threading.Lock()
@@ -497,7 +500,7 @@ def _context(authority, credential, meal_id, config):
     for values in authority._db.execute(
             f'SELECT {",".join(_COLUMNS)} FROM checkout_demos WHERE meal_id=? ORDER BY attempt', (meal_id,)):
         row = dict(zip(_COLUMNS, values))
-        _require(row['attempt'] == len(rows) + 1 and row['state'] in STORED_STATES
+        _require(row['attempt'] == len(rows) + 1 and row['attempt'] <= limit and row['state'] in STORED_STATES
                  and (row['finalize_actor_id'], row['finalize_command_id']) == (final_actor, final_command)
                  and row['reference'] == checkout_reference(config.namespace, meal_id, final_actor, final_command,
                                                             row['sender_id'], row['receiver_id'], row['attempt'],
@@ -850,12 +853,21 @@ def _multi_status(authority, credential, meal_id, config, client, ctx):
 
     There is no list route, so each open checkout is read by its own reference, one at a
     time under the wire slot, and each answer is stored in its own short transaction.
+    The wire slot is bounded: after the first transport failure (the bridge is not answering)
+    or once the read budget is spent, no further GET is started in this read, and the
+    remaining intents are shown unavailable for this check with their stored state kept.
     """
     open_rows = [r for r in ctx['rows'] if r['state'] not in LATCHED and _display(r, True) not in TERMINAL]
     if not open_rows:
         return _projection(ctx)
     checks, result, retry = {}, None, None
-    for row in open_rows:
+    deadline = time.monotonic() + STATUS_READ_BUDGET_SECONDS
+    for index, row in enumerate(open_rows):
+        if index and ('UNAVAILABLE' in checks.values() or time.monotonic() >= deadline):
+            for skipped in open_rows[index:]:
+                checks[skipped['attempt']] = 'UNAVAILABLE'
+            result = _projection(_read(authority, credential, meal_id, config), 'UNAVAILABLE', None, checks)
+            break
         _require(not authority._db.in_transaction, 'storage_error')
         observation = client.request('GET', row['reference'], row['pay_sen'])
         if observation.get('retry_after') is not None:
@@ -882,8 +894,11 @@ def request_checkout_demo(authority, credential, meal_id, config, client, sender
             # Still report stale/active/confirmed refusals.
             if config.multi:
                 _decide_multi(ctx, sender_id, amount_sen, pay_sen)
-            else:
-                _decide(ctx, sender_id, amount_sen)
+                # Nothing was checked: every intent that is not latched is unavailable this time.
+                checks = {r['attempt']: 'UNAVAILABLE' for r in ctx['rows']
+                          if r['state'] not in LATCHED and _display(r, True) not in TERMINAL}
+                return _projection(ctx, 'UNAVAILABLE', refused.get('retry_after'), checks)
+            _decide(ctx, sender_id, amount_sen)
             return _projection(ctx, 'UNAVAILABLE', refused.get('retry_after'))
 
         def work():

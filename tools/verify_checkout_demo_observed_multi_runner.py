@@ -7,6 +7,7 @@ this process. The stub listens on a random loopback port. The bridge credential 
 namespace are disposable random values for this process. The readiness endpoint reports
 the stub port so the test can drive the stub's nonce-protected control channel.
 """
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import secrets
@@ -22,6 +23,8 @@ from checkout_demo_stub import StubBridge  # noqa: E402
 nonce = os.environ['SETTLETABLE_TEST_NONCE']
 bridge_token = secrets.token_urlsafe(32)
 stub = StubBridge(bridge_token, control_nonce=nonce, observed_count=3)
+# The browser compares deadlines with its own clock: start the stub's bridge clock at real time.
+stub.clock = datetime.now(timezone.utc).replace(microsecond=0)
 os.environ.update({
     'SETTLETABLE_CHECKOUT_DEMO_ENABLED': '1',
     'SETTLETABLE_CHECKOUT_DEMO_NAMESPACE': str(uuid.uuid4()),

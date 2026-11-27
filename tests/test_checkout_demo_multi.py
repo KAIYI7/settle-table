@@ -663,5 +663,98 @@ class MultiHttpRouteTests(MultiFixture):
         self.assertEqual(self.bridge.calls, [])
 
 
+class ReviewRegressionTests(MultiFixture):
+    """Regressions for the independent review findings."""
+    shares = {'B': 863, 'C': 863, 'D': 863}
+
+    def open_three(self):
+        self.request('B', 862)
+        self.request('C', 861)
+        self.request('D', 860)
+
+    def test_a_hung_bridge_costs_one_get_per_status_read(self):
+        self.open_three()
+        self.bridge.fail = 'drop'
+        self.bridge.calls.clear()
+        result = self.status()
+        self.assertEqual(len(self.bridge.calls), 1)  # Stops after the first transport failure.
+        self.assertEqual({k: (v['state'], v['lastKnownState']) for k, v in self.intents(result).items()},
+                         {s: ('UNAVAILABLE', 'AWAITING_EVIDENCE') for s in 'BCD'})
+        self.assertEqual(result['lastCheck'], 'UNAVAILABLE')
+        self.bridge.fail = None
+        self.bridge.calls.clear()
+        self.assertEqual({v['state'] for v in self.intents().values()}, {'AWAITING_EVIDENCE'})
+        self.assertEqual(len(self.bridge.calls), 3)
+
+    def test_the_read_budget_bounds_the_wire_slot(self):
+        self.open_three()
+        self.bridge.calls.clear()
+        with patch.object(demo, 'STATUS_READ_BUDGET_SECONDS', 0):
+            result = self.status()
+        self.assertEqual(len(self.bridge.calls), 1)
+        shown = {k: v['state'] for k, v in self.intents(result).items()}
+        self.assertEqual(shown, {'B': 'AWAITING_EVIDENCE', 'C': 'UNAVAILABLE', 'D': 'UNAVAILABLE'})
+
+    def test_a_cooldown_mid_loop_sends_nothing_more(self):
+        self.open_three()
+        self.bridge.fail = (429, {'error': 'RATE_LIMITED'})
+        self.bridge.calls.clear()
+        result = self.status()
+        self.assertEqual(len(self.bridge.calls), 1)
+        self.assertTrue(all(v['state'] == 'UNAVAILABLE' for v in self.intents(result).values()))
+        self.assertEqual(result['retryAfter'], 1)
+
+    def test_a_refused_post_marks_open_intents_unavailable_and_freezes_nothing(self):
+        self.request('B', 862)
+        self.client.suspended = True
+        self.bridge.calls.clear()
+        result = self.request('C', 861)
+        self.assertEqual((result['lastCheck'], self.intents(result)['B']['state']), ('UNAVAILABLE', 'UNAVAILABLE'))
+        self.assertEqual(self.intents(result)['B']['lastKnownState'], 'AWAITING_EVIDENCE')
+        self.assertEqual(self.bridge.calls, [])
+        self.assertEqual([r[0] for r in self.frozen()], ['B'])
+        # The admission path still applies the multi-mode refusals.
+        self.assertEqual(self.code(lambda: self.request('C', 862)), 'checkout_demo_amount_changed')
+
+    def test_a_confirmed_amount_is_reused_after_its_window_and_the_bridge_accepts_it(self):
+        self.request('B', 862)
+        self.request('C', 861)
+        self.bridge.confirm(self.reference('B'))
+        self.assertEqual(self.offers()['D'], (863, 3, 860, 'NEW'))  # 862 held through B's window.
+        self.bridge.advance(601)
+        self.now = T0 + 600 + demo.HOLD_SKEW_MARGIN_SECONDS
+        self.assertEqual(self.offers()['D'], (863, 1, 862, 'NEW'))
+        created = self.intents(self.request('D', 862))['D']
+        self.assertEqual((created['state'], created['paySen']), ('AWAITING_EVIDENCE', 862))
+
+    def test_route_authenticates_before_judging_the_body(self):
+        app = SettleTableApp(self.path, clock=lambda: self.now, checkout_demo_config=self.cfg,
+                             checkout_demo_client=self.client)
+        self.addCleanup(app.close)
+        client = TransportTestClient(app)
+        bodies = ({'sender_id': 'B', 'amount_sen': 863}, {'sender_id': 'B', 'amount_sen': 863, 'pay_sen': 862},
+                  {'x': 1})
+        for who, expected in (('B', 403), ('bogus', 401)):
+            headers = {'HTTP_AUTHORIZATION': 'Bearer ' + (self.cred[who] if who in self.cred else 'x' * 43)}
+            statuses = {client.post('/api/meals/meal/checkout-demo', body, headers)['status'] for body in bodies}
+            self.assertEqual(statuses, {expected}, who)
+        self.assertEqual(self.bridge.calls, [])
+
+    def test_202_when_any_intent_outcome_is_unknown(self):
+        app = SettleTableApp(self.path, clock=lambda: self.now, checkout_demo_config=self.cfg,
+                             checkout_demo_client=self.client)
+        self.addCleanup(app.close)
+        client = TransportTestClient(app)
+        org = {'HTTP_AUTHORIZATION': 'Bearer ' + self.cred['A']}
+        self.bridge.fail = 'drop'
+        self.request('B', 862)
+        self.bridge.fail = None
+        response = client.post('/api/meals/meal/checkout-demo', {'sender_id': 'C', 'amount_sen': 863, 'pay_sen': 861}, org)
+        payload = json.loads(response['body'])['checkout_demo']
+        self.assertEqual(payload['intent']['senderId'], 'C')
+        self.assertEqual(payload['intent']['state'], 'AWAITING_EVIDENCE')
+        self.assertEqual(response['status'], 202)  # B, not the latest intent, is still unknown.
+
+
 if __name__ == '__main__':
     unittest.main()

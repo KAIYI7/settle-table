@@ -3861,12 +3861,20 @@ function renderCheckoutDemoMultiCards(snap) {
   if (busy) overall = status('Checking checkouts…');
   else if (!demo) overall = status('Checkout status not loaded');
   else if (demo.lastCheck === 'REQUEST_UNKNOWN') overall = status(CHECKOUT_DEMO_MULTI_LABELS.REQUEST_UNKNOWN);
-  else if (demo.lastCheck === 'UNAVAILABLE' && !intents.size) overall = status(CHECKOUT_DEMO_MULTI_LABELS.UNAVAILABLE);
+  else if (demo.lastCheck === 'UNAVAILABLE') overall = status(CHECKOUT_DEMO_MULTI_LABELS.UNAVAILABLE);
   else if (!senders.length) overall = status('No diner owes the organizer.');
   const busyNote = demo?.lastCheck === 'BUSY'
     ? '<p class="checkout-demo-note">Another checkout check is in progress. Try again in a moment.</p>' : '';
-  const amounts = (share, offset, pay) => `
-        <p class="checkout-demo-amounts" data-checkout-demo-amounts>Share ${formatSen(share)} − ${Number(offset)} sen offset = pay exactly <strong>${formatSen(pay)}</strong></p>`;
+  // "Pay exactly" only while a created, current checkout waits for its notification inside its
+  // payment window (device clock). An offer is not fixed until the checkout is created, and a
+  // finished, stale or already-observed checkout must never read as a request to pay.
+  const amounts = (share, offset, pay, kind) => `
+        <p class="checkout-demo-amounts" data-checkout-demo-amounts>Share ${formatSen(share)} − ${Number(offset)} sen offset = ${
+          kind === 'open' ? `pay exactly <strong>${formatSen(pay)}</strong>`
+          : kind === 'offer' ? `<strong>${formatSen(pay)}</strong> if requested now (fixed when the checkout is created)`
+          : `checkout amount <strong>${formatSen(pay)}</strong>`}</p>`;
+  const openForPayment = intent => intent.state === 'AWAITING_EVIDENCE' && Boolean(intent.checkoutId) && !intent.stale
+    && !intent.terminal && !intent.latched && Date.now() < checkoutDemoInstant(intent.expiresAt);
   const dinerCards = senders.map(sender => {
     const intent = intents.get(sender);
     const offer = offers.get(sender);
@@ -3876,10 +3884,11 @@ function renderCheckoutDemoMultiCards(snap) {
       const lastKnown = intent.state === 'UNAVAILABLE' && !intent.referenceLost && intent.lastKnownState !== 'UNAVAILABLE'
         ? `<p class="checkout-demo-note">Last known: ${escapeHtml(checkoutDemoMultiLabel({...intent, state: intent.lastKnownState}))}</p>` : '';
       // The read-out hint only while a created checkout waits for its notification.
-      const hint = intent.state === 'AWAITING_EVIDENCE' && intent.checkoutId
+      const open = openForPayment(intent);
+      const hint = open
         ? `<p class="checkout-demo-hint" data-checkout-demo-hint><span class="checkout-demo-hint-label">Read out:</span> “${escapeHtml(checkoutDemoSpokenHint(intent.paySen))}”</p>` : '';
       body = `
-        ${amounts(intent.amountSen, intent.offsetSen, intent.paySen)}
+        ${amounts(intent.amountSen, intent.offsetSen, intent.paySen, open ? 'open' : 'closed')}
         <div class="checkout-demo-intent" data-checkout-demo-state="${escapeHtml(intent.state)}">
           ${status(checkoutDemoMultiLabel(intent))}
           ${intent.stale ? '<p class="checkout-demo-stale">Stale — balances changed. No further request is sent for this checkout.</p>' : ''}
@@ -3889,7 +3898,7 @@ function renderCheckoutDemoMultiCards(snap) {
         </div>`;
     } else if (offer) {
       body = `
-        ${amounts(offer.amountSen, offer.offsetSen, offer.paySen)}
+        ${amounts(offer.amountSen, offer.offsetSen, offer.paySen, 'offer')}
         ${status('No checkout requested yet')}`;
     } else if (wait) {
       body = `
@@ -3906,7 +3915,7 @@ function renderCheckoutDemoMultiCards(snap) {
         </div>` : '';
     return `
     <div class="card checkout-demo-card checkout-demo-diner-card" data-checkout-demo-mode="multi" data-checkout-demo-sender="${escapeHtml(sender)}">
-      <h3 class="card-title">${who(sender)} → ${who(snap.current_participant_id)}</h3>
+      <h3 class="card-title">${who(sender)} → ${who((intent || offer || wait).receiverId)}</h3>
       ${body}
       <p class="checkout-demo-notice" data-checkout-demo-multi-notice>${escapeHtml(CHECKOUT_DEMO_MULTI_NOTICE)}</p>
       <p class="checkout-demo-payer" data-checkout-demo-amount-line>${escapeHtml(CHECKOUT_DEMO_MULTI_AMOUNT_LINE)}</p>

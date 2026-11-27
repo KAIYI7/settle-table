@@ -353,9 +353,9 @@ try {
   await wait(a, "state.checkoutDemo?.multi===true && !state.checkoutDemoBusy && document.querySelectorAll('.checkout-demo-diner-card').length===4");
   assert((await bridgeCalls()).length === 0, 'Loading the cards before any intent must not call the bridge');
   const amountsOf = name => ev(a, `${card(name)}.querySelector('[data-checkout-demo-amounts]').textContent.trim()`);
-  for (const [name, text] of [['Diner B', 'Share RM 8.63 − 1 sen offset = pay exactly RM 8.62'],
-    ['Diner C', 'Share RM 8.63 − 1 sen offset = pay exactly RM 8.62'], ['Diner D', 'Share RM 5.00 − 0 sen offset = pay exactly RM 5.00'],
-    ['Diner E', 'Share RM 7.00 − 0 sen offset = pay exactly RM 7.00']]) {
+  const offerText = (share, k, pay) => `Share ${share} − ${k} sen offset = ${pay} if requested now (fixed when the checkout is created)`;
+  for (const [name, text] of [['Diner B', offerText('RM 8.63', 1, 'RM 8.62')], ['Diner C', offerText('RM 8.63', 1, 'RM 8.62')],
+    ['Diner D', offerText('RM 5.00', 0, 'RM 5.00')], ['Diner E', offerText('RM 7.00', 0, 'RM 7.00')]]) {
     assert(await amountsOf(name) === text, `${name} amounts: ${await amountsOf(name)}`);
     assert(await ev(a, cardIs(name, MULTI.none)), `${name} status: ${await ev(a, cardStatus(name))}`);
     assert(await ev(a, `${card(name)}.querySelector('[data-checkout-demo-multi-notice]').textContent === ${JSON.stringify(NOTICE)}`), `${name} notice text`);
@@ -372,10 +372,11 @@ try {
   console.log('[2/6] Requests freeze distinct amounts; the read-out hint names the exact amount...');
   await ev(a, `${cardButton('Diner B')}.click()`);
   await wait(a, cardIs('Diner B', MULTI.waiting));
+  assert(await amountsOf('Diner B') === 'Share RM 8.63 − 1 sen offset = pay exactly RM 8.62', `B open amounts: ${await amountsOf('Diner B')}`);
   const hintB = await ev(a, `${card('Diner B')}.querySelector('[data-checkout-demo-hint]').textContent.trim()`);
   assert(hintB === `Read out: “${hint('RM 8.62')}”`, `B hint: ${hintB}`);
   // C was offered 862 too; after B's checkout exists the card shows C's new amount before any request.
-  await wait(a, `${card('Diner C')}.querySelector('[data-checkout-demo-amounts]').textContent.includes('pay exactly RM 8.61')`);
+  await wait(a, `${card('Diner C')}.querySelector('[data-checkout-demo-amounts]').textContent.includes('= RM 8.61 if requested now')`);
   await ev(a, `${cardButton('Diner C')}.click()`);
   await wait(a, `!state.checkoutDemoBusy && ${cardIs('Diner C', MULTI.waiting)}`);
   await ev(a, `${cardButton('Diner D')}.click()`);
@@ -412,7 +413,9 @@ try {
   assert(await ev(a, cardIs('Diner D', MULTI.ambiguous)), `D: ${await ev(a, cardStatus('Diner D'))}`);
   for (const name of ['Diner B', 'Diner C', 'Diner D']) {
     assert(await ev(a, `!${card(name)}.querySelector('[data-checkout-demo-hint]')`), `${name}: the hint is only shown while waiting`);
+    assert(!(await amountsOf(name)).includes('pay exactly'), `${name}: "pay exactly" after a notification or confirmation: ${await amountsOf(name)}`);
   }
+  assert(await amountsOf('Diner B') === 'Share RM 8.63 − 1 sen offset = checkout amount RM 8.62', `B closed amounts: ${await amountsOf('Diner B')}`);
   // Finished and latched checkouts are not read again; only C and D are open.
   const before2 = (await bridgeCalls()).length;
   await ev(a, "document.getElementById('checkout-demo-refresh-btn').click()");
@@ -433,7 +436,20 @@ try {
   assert(await ev(a, cardIs('Diner E', MULTI.noFree)), `No-fit state: ${await ev(a, cardStatus('Diner E'))}`);
   assert(await ev(a, `!${cardButton('Diner E')}`), 'No request offered without a free amount');
   await checkCopy(a, 'no-fit');
-  console.log('   ✓ No distinct amount within 9 sen is free right now');
+  // A waiting checkout that went stale (balances changed) or whose window ended never asks for payment.
+  const bId = await ev(a, "state.snapshot.participants.find(p => p.name === 'Diner B').id");
+  const waitingB = intent => JSON.parse(intentsWithoutE).map(i => i.senderId === bId ? {...i, state: 'AWAITING_EVIDENCE', lastKnownState: 'AWAITING_EVIDENCE', terminal: false, ...intent} : i);
+  await render({intents: waitingB({stale: false}), eligible: [], noFreeAmount: []});
+  assert(await ev(a, `Boolean(${card('Diner B')}.querySelector('[data-checkout-demo-hint]'))`), 'Control: an open, current checkout shows the hint');
+  for (const patch of [{stale: true}, {stale: false, expiresAt: '2020-01-01T00:00:00Z'}]) {
+    await render({intents: waitingB(patch), eligible: [], noFreeAmount: []});
+    assert(await ev(a, `!${card('Diner B')}.querySelector('[data-checkout-demo-hint]')`), `Hint shown for ${JSON.stringify(patch)}`);
+    assert(!(await amountsOf('Diner B')).includes('pay exactly'), `"pay exactly" shown for ${JSON.stringify(patch)}`);
+  }
+  // A request that was not sent (bridge unavailable) is reported on the shared card.
+  await render({lastCheck: 'UNAVAILABLE'});
+  assert(await ev(a, "document.querySelector('#checkout-demo-card .checkout-demo-status')?.textContent.trim() === 'Checkout status unavailable — refresh to check again.'"), 'No unavailable feedback with intents present');
+  console.log('   ✓ No free amount; no hint or "pay exactly" when stale or past the window; unavailable feedback');
 
   console.log('[6/6] Hidden page clears every checkout-demo timer...');
   await ev(a, "Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'}); document.dispatchEvent(new Event('visibilitychange'))");
