@@ -74,6 +74,32 @@ Updated 2026-11-27. Project: **SettleTable**. Authority: [orchestrator governanc
 - **Scope:** new module `settletable/checkout_demo.py`, an additive `checkout_demos` table, organizer-only `GET`/`POST /api/meals/{meal}/checkout-demo`, a separate UI card with its own 2/5/10/30/60/90/120 s polling, and [the contract](docs/checkout-demo.md). Disabled by default. `settletable/payment_simulation.py` is byte-identical, and no contribution, report, transfer or accepted command is written by any outcome.
 - **Verification:** unit and integration tests in `tests/test_checkout_demo.py` against an in-process stub bridge (`tests/checkout_demo_stub.py`), the browser regression `tools/verify_checkout_demo.mjs`, and the full suite (480 Python tests and 10 browser suites) locally and in hosted CI. An independent review is recorded in the KaiPay task record KP-SETTLETABLE-TNG-B2 (local-only).
 
+## Multi-diner observed checkout demo (PR #69, merge commit `e2c9c0c`)
+
+- **Status (2026-11-27):** **Merged** into `main` (merge commit `e2c9c0c`, non-fast-forward), authorized by the owner on 2026-11-27. Hosted CI passed on the exact head `f148cfc` (run `46013259679`: `tests` and `docker-smoke`). Risk class **HIGH**: financial display, per-meal concurrency, an additive table and a security-sensitive route. Authorized as batch B2 under owner decision M-7.
+- **Scope:** new opt-in parameter `SETTLETABLE_CHECKOUT_DEMO_OBSERVED_MULTI`. It accepts exactly `true`, requires the observed-evidence flag and fails startup otherwise. When it is absent, observed and synthetic behaviour are unchanged.
+  - Each diner who owes the organizer gets one single-use observed checkout, at their share less a 0–9 sen offset. The offset is the smallest one free of every held amount in the meal and of the other unconfirmed diners' plain shares. It is allocated under the storage write lock, so two allocations in one meal never share an amount, and is stored in an additive `checkout_demo_offsets` table.
+  - The request carries the exact amount shown. A changed allocation or no free amount is refused, never substituted.
+  - Bridge refusals `OBSERVED_CHECKOUT_SPENT` and `SAME_AMOUNT_HELD` are shown as plain states.
+  - Status reads send one GET per open checkout, stopping after the first failure or 10 s.
+  - The organizer is authenticated before the body is judged.
+  - Display only: no contribution, report or transfer is written. Nothing new is stored from notifications, and no payer name appears anywhere.
+  - Contract: [docs/checkout-demo.md](docs/checkout-demo.md).
+- **Verification:**
+  - **Python:** 550 tests, 40 of them new multi-mode tests (allocator, hold rule, concurrency, stub-bridge statuses and refusals, flag absent, HTTP route).
+  - **Node:** 19 poll-schedule unit tests.
+  - **Browser:** the new `tools/verify_checkout_demo_observed_multi.mjs`, added to CI.
+  - **CI:** the full suite ran locally and in hosted CI.
+  - **Reviews:** independent source, security and adversarial reviews, then a round-2 verification review. Every material finding is resolved; the final verdict is APPROVE WITH NITS, with the nits fixed.
+- **Known limitations (documented):**
+  - a late bridge update can be ambiguous;
+  - a confirmed amount is held for the bridge's window plus a 120 s margin;
+  - clock skew beyond that margin can give `SAME_AMOUNT_HELD`;
+  - holds from outside the meal are not visible;
+  - downgrading from multi mode needs a fresh database;
+  - the other modes still judge the request body before authentication.
+- **Follow-up:** re-pinning the KaiPay launcher (B3) belongs to KaiPay.
+
 ## Observed checkout demo status-read schedule (PR #67, merge commit `a1658a7`)
 
 - **Status (2026-11-24):** **Merged** into `main` (merge commit `a1658a7`, non-fast-forward), authorized by the owner on 2026-11-24. Hosted CI passed on the exact head `56c3798` (run `45313319246`: `tests` and `docker-smoke`). Risk class **MEDIUM**: a client-only change to read cadence behind the existing observed-evidence flag. No financial, authority, persistence, authentication or server bridge-call change.
