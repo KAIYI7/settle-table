@@ -338,3 +338,47 @@ test('observed: the 120 s tick during a read in flight still hands over to the e
   assert.deepEqual(page.reads().filter(t => t > 90), [119, 136, 151]);
   assert.equal(page.maxInFlight(), 1);
 });
+
+// --- Multi-diner observed mode (SETTLETABLE_CHECKOUT_DEMO_OBSERVED_MULTI): the schedule follows
+// every open intent of the meal; `intent` alone (the latest) no longer decides.
+const multi = (intents, latest = intents.at(-1) ?? null) => ({
+  enabled: true, intent: latest, intents, eligible: [], noFreeAmount: [], lastCheck: null, retryAfter: null, multi: true,
+});
+
+test('multi: next-delay follows the earliest need across every open intent', () => {
+  const { api } = makePage({ respond: () => multi([]) });
+  const at = s => T0 + s * 1000;
+  const obs = result => ({ ...result, observed: true });
+  const ended = intent({ attempt: 1, terminal: true, state: 'EXPIRED' });
+  const reviewing = intent({ attempt: 2, expiresAt: iso(at(300)), reviewExpiresAt: iso(at(1800)) });
+  const windowOpen = intent({ attempt: 3, expiresAt: iso(at(900)) });
+  // The latest intent is finished, but an earlier one is still open: reads continue.
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([reviewing, ended], ended)), at(400)), 30000);
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([reviewing, windowOpen])), at(400)), 15000);
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([reviewing, windowOpen])), at(900)), 30000);
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([reviewing, windowOpen])), at(1800)), null);
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([ended])), at(10)), null);
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([])), at(10)), null);
+  // An unknown-outcome intent has no deadline; it neither extends nor stops the others.
+  const unknown = intent({ attempt: 4, state: 'REQUEST_UNKNOWN', expiresAt: null });
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([unknown, windowOpen])), at(400)), 15000);
+  assert.equal(api.checkoutDemoObservedNextDelay(obs(multi([unknown])), at(400)), null);
+  // `intents` is ignored without the multi marker: the single-intent rule is unchanged.
+  assert.equal(api.checkoutDemoObservedNextDelay(obs({ ...multi([windowOpen], ended), multi: undefined }), at(400)), null);
+});
+
+test('multi: an earlier open checkout keeps reads going after the latest one ended', async () => {
+  const at = s => T0 + s * 1000;
+  const first = intent({ attempt: 1, expiresAt: iso(at(600)) });
+  const second = intent({ attempt: 2, expiresAt: iso(at(300)) });
+  const page = makePage({ respond: t => t < 310 ? multi([first, second])
+    : multi([first, { ...second, terminal: true, state: 'EXPIRED', lastKnownState: 'EXPIRED', revision: 2 }]) });
+  await page.start();
+  await page.advanceTo(7200);
+  // The latest intent ended at 315 s; the single-intent rule would stop there. The first one's
+  // window runs to 600 s, so reads go on every 15 s until the first read at or after it.
+  assert.deepEqual(page.reads(), [0, ...expected(Infinity, [[15, 600]])]);
+  assert.equal(page.reads().at(-1), 600);
+  assert.equal(page.pendingTimers(), 0);
+  assert.ok(page.allReads.every(r => r.method === 'GET' && r.body === null));
+});

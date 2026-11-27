@@ -33,6 +33,7 @@ Configuration is read once at startup and creates no account or credential.
 | `SETTLETABLE_CHECKOUT_DEMO_CREDENTIALS_FILE` | Container mode instead of the variable above: a read-only mounted JSON file `{"credential":"..."}` |
 | `SETTLETABLE_CHECKOUT_DEMO_CA_FILE` | Optional, HTTPS only: a trust anchor for this client only |
 | `SETTLETABLE_CHECKOUT_DEMO_OBSERVED_EVIDENCE` | Optional. Exactly `true` selects [observed-evidence mode](#observed-evidence-mode); absent keeps the synthetic demo. Any other value, or setting it while the demo is disabled, fails startup. |
+| `SETTLETABLE_CHECKOUT_DEMO_OBSERVED_MULTI` | Optional, off by default. Exactly `true` selects [multi-diner observed mode](#multi-diner-observed-mode); it requires `_OBSERVED_EVIDENCE=true`. Any other value, or setting it without the observed flag, fails startup. Absent, observed mode is unchanged. |
 
 Exactly one of `_CREDENTIAL` and `_CREDENTIALS_FILE` must be set. HTTP is
 accepted only when every resolved address is loopback; the supported demo is a
@@ -275,6 +276,125 @@ observed run on its own database is fine.
 equally by the organizer and the test counterparty and paid by the organizer
 suggests exactly one RM0.01 transfer to the organizer.
 
+## Multi-diner observed mode
+
+`SETTLETABLE_CHECKOUT_DEMO_OBSERVED_MULTI=true` (with the observed flag) is for a
+bridge started in its multi-checkout observed mode. Real diners at the meal may pay the
+organizer's own TNG wallet, each against their own observed checkout. SettleTable never
+takes, holds or moves money and never contacts TNG. Everything in
+[observed-evidence mode](#observed-evidence-mode) still applies, with the differences
+below. Without the variable none of this applies, and observed mode behaves exactly as
+described above.
+
+It stays **display only**: no contribution, pending report or transfer is written,
+suggested transfers and balances are unchanged by every outcome, and nothing new is
+stored from a notification. Every observed state is shown as unverified. Only after the
+organizer confirms on the bridge's own receiver page does a card say "Manually
+confirmed by the organizer — notification unverified". An ambiguous match stays
+ambiguous: the organizer settles it from TNG history with SettleTable's existing manual
+reimbursement records. There is no assignment path and no receiving-QR upload.
+
+**One intent per diner.** Every current suggestion whose receiver is the organizer
+(each diner who owes the organizer) may get one observed intent, with the same
+single-use rule as observed mode, applied per diner instead of per meal: after a
+diner's first PUT the only further PUT for that diner is the identical re-PUT after a
+checked absence. Other diners' intents never block a diner. The meal's 50-attempt limit
+does not apply; one intent per diner already bounds the rows. Intent references are
+formed as above.
+
+**Offset allocation.** Notifications show an amount and a time only, so every amount
+held in a meal must be distinct. A diner pays their share less an offset `k` of 0 to 9
+sen, chosen inside the `BEGIN IMMEDIATE` transaction that freezes the intent:
+
+1. Excluded amounts are (a) the amount of every intent of the meal that may still hold
+   its amount on the bridge and (b) the unadjusted share of every *other* diner who owes
+   the organizer and has no confirmed checkout. For (a), from the stored state: an
+   unknown request outcome, a lost record, a latched conflict or unexpected status, a
+   checked absence (kept for its re-PUT) and every open bridge status hold; a manually
+   confirmed checkout holds until its `expiresAt` plus a 120 s margin for clock skew;
+   `EXPIRED` and `REVIEW_EXPIRED`, and refusals that created nothing, never hold. This
+   is never narrower than the bridge's own rule. An open checkout keeps holding after its
+   deadlines until a status read shows that it ended.
+2. `k` is the smallest value from 0 to 9 such that `share − k` is not excluded and is at
+   least 1 sen. Several diners with the same share therefore never get the plain share.
+3. If no `k` fits, the diner is offered no checkout and the card says so plainly; the
+   offer returns once a held amount frees up (after a status read or "Refresh demo
+   status").
+4. Only subtraction: nobody pays more than their share, and the organizer absorbs at most
+   9 sen per diner. Balances do not change.
+
+Two allocations never produce the same amount: the database write lock serializes them,
+so the second sees the first's frozen amount. The offset is stored in an additive
+`checkout_demo_offsets` table (meal, attempt, offset 0–9), written in the same
+transaction. Every read checks that each multi-mode intent has exactly one offset and
+each diner at most one intent, and that no offset exists outside multi mode; any
+disagreement fails closed (`checkout_demo_conflict`). The PUT amount and the amount the
+bridge reports are `share − k`.
+
+**Request body.** `POST` accepts exactly `{"sender_id": "...", "amount_sen": SHARE,
+"pay_sen": AMOUNT}`: the share is the consent check against the recomputed suggestion,
+and `pay_sen` is the exact amount the card showed. If the allocation now gives another
+amount, nothing is frozen or sent (`checkout_demo_amount_changed`, 409); with no free
+amount, `checkout_demo_no_free_amount` (409). Offers are computed per diner, so two
+diners with the same share can be offered the same amount until one of them is
+requested; the other's card then shows its new amount. SettleTable never retries with
+another amount by itself. In this mode the route authenticates the caller as the organizer
+before it judges the body, so within this mode the body's shape tells a diner or an
+unauthenticated caller nothing. Across modes it still does: an invalid body gets 403 or
+401 here but 400 in the other modes (see Known limitations).
+
+**Bridge answers.** A PUT refused `409 OBSERVED_CHECKOUT_SPENT` (the bridge's checkout
+count is used up) latches that diner's intent as `CONFLICT` with that reason and holds
+nothing. `409 SAME_AMOUNT_HELD` is `NOT_CREATED` for that diner with no re-PUT. Both are
+shown as plain "Not created" states. A success body must carry `evidenceMode` as in
+observed mode.
+
+**Status reads.** The bridge has no list route, so a status read sends one GET for each
+intent that is neither finished nor latched, one after another under the same wire slot,
+and stores each answer in its own transaction. Finished and latched intents are not read
+again. To keep the process-wide wire slot short, a read starts no further GET after the
+first transport failure (the bridge is not answering) or after 10 s; the intents not read
+are shown unavailable for that check, with their stored state kept. A request refused
+because the client is suspended or cooling down shows every open intent as unavailable.
+The card's read schedule follows every open intent: every 15 s while any payment window
+is open, then every 30 s while any review deadline is ahead, then it stops.
+
+**Response.** In this mode the status carries `multi: true`, `intents` (every intent of
+the meal, each with `offsetSen` and `paySen` besides `amountSen`, the share), `eligible`
+offers with `offsetSen` and `paySen`, and `noFreeAmount` (diners with no free amount).
+`intent` stays the latest intent. The organizer's snapshot carries `checkout_demo_multi:
+true`. No projection carries a participant name.
+
+**Cards.** One short shared card holds the boundary notice and "Refresh demo status";
+then each diner gets a card showing the share, the offset and the amount, the factual
+status and two notices, word for word. The amount reads "pay exactly" only while a created
+checkout waits for its notification, is not stale and its payment window is open by the
+device clock; an offer reads "if requested now (fixed when the checkout is created)", and
+any other checkout shows its "checkout amount". The notices:
+
+- "The organizer's phone reads its own TNG payment notifications to update this status.
+  TNG shows the organizer your name and amount. From the notification, SettleTable and
+  the bridge keep only the amount, the time and technical IDs, never your name. The
+  organizer checks TNG before marking you paid."
+- "A notification shows an amount and time only; it does not show that this diner paid."
+
+Under the same condition as "pay exactly", the organizer's card shows a hint to read out: "My phone reads my TNG payment alerts to update the bill. It keeps the
+amount and time, not your name. I still check TNG myself before marking you paid. Please
+pay exactly RM x.yz." These replace observed mode's "own wallets" line in this mode only.
+
+**Known limitations.** A late update to an earlier notification can make a later checkout
+of the same amount ambiguous; the allocator follows the smallest-`k` rule and does not
+also avoid recently confirmed amounts. A confirmed checkout's amount is freed by
+SettleTable's clock; once every intent is finished the card stops reading, so a diner
+waiting for that amount needs "Refresh demo status". If SettleTable's clock runs more than
+the 120 s margin ahead of the bridge's, that amount can be offered while the bridge still
+holds it: the bridge refuses it (`SAME_AMOUNT_HELD`) and that diner's single attempt is
+used. The same happens if the bridge store holds an amount from outside this meal; the
+exclusion sets are per meal. Use a fresh database and a fresh bridge store per session,
+as for observed mode. Returning to an earlier SettleTable version with multi-mode rows
+present is not supported; it needs a fresh database. In the synthetic and single observed
+modes the route still judges the POST body before authenticating, as before this mode.
+
 ## Tests
 
 ```bash
@@ -290,13 +410,21 @@ node tools/verify_checkout_demo_observed.mjs
 ```
 
 ```bash
+node tools/verify_checkout_demo_observed_multi.mjs
+```
+
+```bash
 node tools/test_checkout_demo_poll_schedule.mjs
 ```
 
 All but the last run against `tests/checkout_demo_stub.py`, an in-process stub
 that follows the bridge contract above (with `observed_amount` set, the
-observed-evidence contract). They use disposable random credentials and contact
-no real bridge, phone or wallet. The observed browser regression fakes page time
+observed-evidence contract; with `observed_count` set, the multi-checkout contract).
+They use disposable random credentials, listen on random loopback ports and contact
+no real bridge, phone or wallet. `tests/test_checkout_demo_multi.py` covers the offset
+rule (both exclusion sets, duplicate shares, the no-fit state, the 1-sen floor, the
+9-sen ceiling and re-allocation after a hold ends), every bridge refusal and status, and
+two allocations for the same meal racing on separate connections. The observed browser regression fakes page time
 (`setTimeout` and `Date`) to check the reads after 120 s, the hidden-page pause
 and the stop on a finished status. The last command unit-tests the read schedule
 by running the card's own code from `app.js` with a fake clock and no server.

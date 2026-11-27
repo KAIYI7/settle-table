@@ -124,6 +124,8 @@ STATUS_MAP = {
     'checkout_demo_stale': 409,
     'checkout_demo_active': 409,
     'checkout_demo_already_confirmed': 409,
+    'checkout_demo_amount_changed': 409,
+    'checkout_demo_no_free_amount': 409,
     'export_in_progress': 409,
     'claimed_item_deletion': 409,
     'retired_source': 409,
@@ -995,6 +997,9 @@ class SettleTableApp:
             if self.checkout_demo_config is not None and self.checkout_demo_config.observed and is_org:
                 # Observed-evidence mode, organizer only: the card shows observed copy before its first read.
                 out['checkout_demo_observed'] = True
+                if self.checkout_demo_config.multi:
+                    # Multi-diner observed mode, organizer only: one card per diner before the first read.
+                    out['checkout_demo_multi'] = True
             return 200, self._default_headers(), serialize_json(out)
 
         # Allocation simulation has its own organizer/self permission boundary.
@@ -1026,20 +1031,34 @@ class SettleTableApp:
                 raise TransportError('checkout_demo_disabled', 503)
             from settletable import checkout_demo
             if method == 'POST':
-                if (type(body_data) is not dict or set(body_data) != {'sender_id', 'amount_sen'}
+                # Multi-diner mode adds exactly one key: the exact amount to pay that the organizer saw.
+                multi = self.checkout_demo_config.multi
+                if multi:
+                    # Authenticate the organizer before judging the body, so within this mode the
+                    # body's shape tells a diner or an unauthenticated caller nothing. The other
+                    # modes still judge the body first (see docs/checkout-demo.md).
+                    _, is_org = authority.authenticate(active_cred, meal_id)
+                    if not is_org:
+                        raise TransportError('forbidden', 403)
+                keys = {'sender_id', 'amount_sen', 'pay_sen'} if multi else {'sender_id', 'amount_sen'}
+                if (type(body_data) is not dict or set(body_data) != keys
                         or type(body_data['sender_id']) is not str
                         or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}', body_data['sender_id'])
                         or type(body_data['amount_sen']) is not int
-                        or not 1 <= body_data['amount_sen'] <= 1_000_000_000):
+                        or not 1 <= body_data['amount_sen'] <= 1_000_000_000
+                        or (multi and (type(body_data['pay_sen']) is not int
+                                       or not 1 <= body_data['pay_sen'] <= body_data['amount_sen']))):
                     raise TransportError('invalid_input', 400)
                 result = checkout_demo.request_checkout_demo(
                     authority, active_cred, meal_id, self.checkout_demo_config, self.checkout_demo_client,
-                    body_data['sender_id'], body_data['amount_sen'])
+                    body_data['sender_id'], body_data['amount_sen'], body_data['pay_sen'] if multi else None)
             else:
                 result = checkout_demo.checkout_demo_status(
                     authority, active_cred, meal_id, self.checkout_demo_config, self.checkout_demo_client)
             intent = result['intent']
             uncertain = result['lastCheck'] == 'BUSY' or (intent is not None and intent['state'] == 'REQUEST_UNKNOWN')
+            if self.checkout_demo_config.multi:
+                uncertain = uncertain or any(i['state'] == 'REQUEST_UNKNOWN' for i in result['intents'])
             return 202 if uncertain else 200, self._default_headers(), serialize_json({'ok': True, 'checkout_demo': result})
 
         # Rotate Session POST /api/meals/{meal_id}/session/rotate

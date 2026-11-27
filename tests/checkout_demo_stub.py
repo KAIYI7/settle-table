@@ -16,7 +16,16 @@ OBSERVED_CHECKOUT_SPENT) -> held amount; a replay of the bound reference still
 returns 200 first; success bodies carry one extra key, evidenceMode
 "OBSERVED_NOTIFICATION"; evidence is NOTIFICATION_UNVERIFIED. With
 ``observed_amount=None`` every synthetic byte is unchanged.
+
+Multi-checkout observed mode (``observed_count`` set instead) follows the public
+"Multi-checkout observed mode" contract: any amount; for a new reference the count is
+checked first (409 OBSERVED_CHECKOUT_SPENT, terminal checkouts still count), then the
+held amount (409 SAME_AMOUNT_HELD); OBSERVED_AMOUNT_MISMATCH never occurs. A checkout
+holds its amount, against the stub clock, while its payment window is open (even when
+manually confirmed) or, unless confirmed, until its review deadline; EXPIRED and
+REVIEW_EXPIRED never hold. Times come from a settable stub clock.
 """
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import re
@@ -28,10 +37,13 @@ OPEN = {'AWAITING_PAYMENT', 'PAYMENT_DETECTED', 'AWAITING_VERIFICATION', 'AMBIGU
 
 
 class StubBridge:
-    def __init__(self, token, control_nonce=None, observed_amount=None):
+    def __init__(self, token, control_nonce=None, observed_amount=None, observed_count=None):
+        assert observed_amount is None or observed_count is None
         self.token = token
         self.control_nonce = control_nonce
         self.observed_amount = observed_amount
+        self.observed_count = observed_count
+        self.clock = datetime(2026, 11, 17, 4, 0, 0, tzinfo=timezone.utc)  # Multi mode only.
         self.lock = threading.Lock()
         self.checkouts = {}        # reference -> allowlisted checkout dict
         self.other_holds = set()   # amounts held by non-integration checkouts
@@ -41,6 +53,10 @@ class StubBridge:
         self.server.daemon_threads = True
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+
+    @property
+    def observed(self):
+        return self.observed_amount is not None or self.observed_count is not None
 
     @property
     def base_url(self):
@@ -67,13 +83,47 @@ class StubBridge:
         return self.transition(reference, 'AWAITING_VERIFICATION', 'SYNTHETIC', '2026-11-17T04:30:00Z')
 
     def confirm(self, reference):
-        if self.observed_amount is not None:
+        if self.observed:
             return self.transition(reference, 'MANUALLY_CONFIRMED', 'NOTIFICATION_UNVERIFIED')
         return self.transition(reference, 'MANUALLY_CONFIRMED', 'SYNTHETIC')
 
     def observe_notification(self, reference, status='PAYMENT_DETECTED'):
         """Observed mode: a unique in-window wallet notification was matched (no text, no sender)."""
+        if self.observed_count is not None:
+            with self.lock:
+                review = _stamp(_instant(self.checkouts[reference]['expiresAt']) + timedelta(seconds=1800))
+            return self.transition(reference, status, 'NOTIFICATION_UNVERIFIED', review)
         return self.transition(reference, status, 'NOTIFICATION_UNVERIFIED', '2026-11-17T04:40:00Z')
+
+    def delayed_notification(self, reference):
+        """Multi mode: a notification older than 120 s is stored as DELAYED and never matched.
+
+        The checkout itself does not change, so nothing about it is visible to the client.
+        """
+        with self.lock:
+            return dict(self.checkouts[reference])
+
+    def advance(self, seconds):
+        """Multi mode: move the stub clock (the bridge clock) forward."""
+        with self.lock:
+            self.clock += timedelta(seconds=seconds)
+            return {'clock': _stamp(self.clock)}
+
+    def held_amounts(self):
+        with self.lock:
+            return self._held()
+
+    def _held(self):
+        held = set()
+        for c in self.checkouts.values():
+            if c['status'] in ('EXPIRED', 'REVIEW_EXPIRED'):
+                continue
+            window = _instant(c['createdAt']) <= self.clock < _instant(c['expiresAt'])
+            review = (c['status'] != 'MANUALLY_CONFIRMED' and c['reviewExpiresAt'] is not None
+                      and self.clock < _instant(c['reviewExpiresAt']))
+            if window or review:
+                held.add(c['amountMinor'])
+        return held
 
     def ambiguous(self, reference):
         return self.transition(reference, 'AMBIGUOUS')
@@ -85,6 +135,7 @@ class StubBridge:
         """Browser tests only: from now on answer as a synthetic-only bridge (no evidenceMode key)."""
         with self.lock:
             self.observed_amount = None
+            self.observed_count = None
             return {'mode': 'synthetic'}
 
     def expire(self, reference):
@@ -115,6 +166,8 @@ class StubBridge:
                 if known['amountMinor'] != amount:
                     return 409, {'error': 'REFERENCE_CONFLICT'}
                 return 200, dict(known)
+            if self.observed_count is not None:
+                return self._put_multi(reference, amount)
             if self.observed_amount is not None:
                 if amount != self.observed_amount:
                     return 409, {'error': 'OBSERVED_AMOUNT_MISMATCH'}
@@ -131,6 +184,18 @@ class StubBridge:
                 checkout['evidenceMode'] = 'OBSERVED_NOTIFICATION'
             self.checkouts[reference] = checkout
             return 201, dict(checkout)
+
+    def _put_multi(self, reference, amount):
+        if len(self.checkouts) >= self.observed_count:  # Terminal checkouts still count.
+            return 409, {'error': 'OBSERVED_CHECKOUT_SPENT'}
+        if amount in self._held() | self.other_holds:
+            return 409, {'error': 'SAME_AMOUNT_HELD'}
+        checkout = {'reference': reference, 'checkoutId': str(uuid.uuid4()), 'amountMinor': amount,
+                    'status': 'AWAITING_PAYMENT', 'evidence': 'NONE', 'createdAt': _stamp(self.clock),
+                    'expiresAt': _stamp(self.clock + timedelta(seconds=600)), 'reviewExpiresAt': None,
+                    'revision': 1, 'evidenceMode': 'OBSERVED_NOTIFICATION'}
+        self.checkouts[reference] = checkout
+        return 201, dict(checkout)
 
     def _get(self, reference):
         with self.lock:
@@ -207,14 +272,37 @@ class StubBridge:
             if not self.checkouts:
                 return 409, {'error': 'NO_CHECKOUT'}
             reference = list(self.checkouts)[-1]  # The most recently created checkout.
+            seconds = None
+            if raw:  # Multi mode: {"reference": ...} names one checkout; {"seconds": n} moves the clock.
+                body = json.loads(raw)
+                if action == 'advance':
+                    seconds = body['seconds']
+                else:
+                    reference = body['reference']
+                    if reference not in self.checkouts:
+                        return 404, {'error': 'REFERENCE_NOT_FOUND'}
         actions = {'candidate': self.simulate_candidate, 'confirm': self.confirm, 'expire': self.expire}
-        if self.observed_amount is not None:
+        if self.observed_count is not None:
+            if action == 'advance' and seconds is not None:
+                return 200, self.advance(seconds)
+            actions = {'notification': self.observe_notification, 'confirm': self.confirm, 'expire': self.expire,
+                       'ambiguous': self.ambiguous, 'review-expire': self.review_expire,
+                       'delayed': self.delayed_notification}
+        elif self.observed_amount is not None:
             actions = {'notification': self.observe_notification, 'confirm': self.confirm, 'expire': self.expire,
                        'ambiguous': self.ambiguous, 'review-expire': self.review_expire,
                        'synthetic-mode': self.synthetic_mode}
         if action not in actions:
             return 404, {'error': 'NOT_FOUND'}
         return 200, actions[action](reference)
+
+
+def _stamp(moment):
+    return moment.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _instant(value):
+    return datetime.fromisoformat(value)
 
 
 def _strict_pairs(pairs):

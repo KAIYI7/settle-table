@@ -860,6 +860,13 @@ class Authority:
                     checkout_id TEXT, bridge_status TEXT, evidence TEXT, revision INTEGER,
                     bridge_created_at TEXT, expires_at TEXT, review_expires_at TEXT, observed_at REAL,
                     PRIMARY KEY(meal_id, attempt));
+                -- Additive, nonfinancial: the sen offset frozen with a multi-diner observed
+                -- checkout demo intent. Written only with SETTLETABLE_CHECKOUT_DEMO_OBSERVED_MULTI.
+                CREATE TABLE IF NOT EXISTS checkout_demo_offsets (
+                    meal_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+                    offset_sen INTEGER NOT NULL CHECK(offset_sen BETWEEN 0 AND 9),
+                    PRIMARY KEY(meal_id, attempt),
+                    FOREIGN KEY(meal_id, attempt) REFERENCES checkout_demos(meal_id, attempt) ON DELETE CASCADE);
                 CREATE TABLE IF NOT EXISTS payer_contributions (
                     meal_id TEXT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
                     contribution_id TEXT NOT NULL,
