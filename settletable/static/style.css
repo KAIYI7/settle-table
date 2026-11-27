@@ -38,6 +38,10 @@
 .checkout-demo-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .checkout-demo-btn { min-height: 44px; white-space: normal; }
 .checkout-demo-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+.checkout-demo-amounts { font-size: 0.95rem; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.checkout-demo-amounts strong { white-space: nowrap; }
+.checkout-demo-hint { border-left: 3px solid var(--border-focus); font-size: 0.9rem; margin: 8px 0; padding: 4px 0 4px 10px; overflow-wrap: anywhere; }
+.checkout-demo-hint-label { color: var(--text-muted); font-size: 0.8rem; font-weight: 600; }
 
 *, *::before, *::after {
   box-sizing: border-box;

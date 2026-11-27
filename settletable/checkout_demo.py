@@ -15,6 +15,12 @@ Observed-evidence mode (``SETTLETABLE_CHECKOUT_DEMO_OBSERVED_EVIDENCE=true``) is
 separate opt-in for a bridge that observes the organizer's own wallet notification.
 It stays display only. Every branch it adds is guarded by ``config.observed``; when
 the variable is absent the behaviour is exactly the synthetic demo's.
+
+Multi-diner observed mode (``SETTLETABLE_CHECKOUT_DEMO_OBSERVED_MULTI=true``, which
+requires the observed flag) gives each diner who owes the organizer one single-use
+observed checkout, at the diner's share minus a sen offset of 0 to 9 that keeps every
+held amount in the meal distinct. Every branch it adds is guarded by ``config.multi``;
+when the variable is absent the behaviour is exactly the single observed mode's.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -61,6 +67,15 @@ OBSERVED_FIELDS = CHECKOUT_FIELDS | {'evidenceMode'}
 OBSERVED_REFUSALS = frozenset({'OBSERVED_CHECKOUT_SPENT', 'OBSERVED_AMOUNT_MISMATCH'})
 # A success body without the observed marker: latched as UNEXPECTED_STATUS with this reason.
 MODE_MISMATCH = 'EVIDENCE_MODE_MISMATCH'
+# Multi-diner observed mode only.
+MULTI_FLAG = PREFIX + 'OBSERVED_MULTI'
+MAX_OFFSET_SEN = 9
+# One attempt per diner bounds the rows; this is only a technical sanity bound, not a policy.
+MULTI_MAX_ATTEMPTS = 1_000_000
+# A manually confirmed checkout holds its amount until its own payment window ends on the
+# bridge clock. SettleTable compares with its own clock, so it keeps the amount this much
+# longer to absorb clock skew between the two hosts.
+HOLD_SKEW_MARGIN_SECONDS = 120
 # One WSGI worker: keep a status read from racing a PUT inside this process and
 # leave request threads free for ordinary meal work. Not shared with I06.
 _wire_slot = threading.Lock()
@@ -98,11 +113,12 @@ class CheckoutDemoConfig:
     credential: str = field(repr=False)
     ca_file: str | None = None
     observed: bool = False
+    multi: bool = False
 
     def __post_init__(self):
         try:
             canonical_uuid(self.namespace)
-            if type(self.observed) is not bool:
+            if type(self.observed) is not bool or type(self.multi) is not bool or (self.multi and not self.observed):
                 raise ValueError()
             if type(self.credential) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{32,256}', self.credential):
                 raise ValueError()
@@ -130,6 +146,10 @@ class CheckoutDemoConfig:
         # Exactly "true" opts in; any other present value, or the flag without the demo, fails startup.
         observed = env.get(OBSERVED_FLAG)
         if observed is not None and observed != 'true':
+            raise ValueError(CONFIG_ERROR)
+        # Multi-diner mode: exactly "true", and only together with the observed flag.
+        multi = env.get(MULTI_FLAG)
+        if multi is not None and (multi != 'true' or observed is None):
             raise ValueError(CONFIG_ERROR)
         enabled = env.get(PREFIX + 'ENABLED', '0')
         if enabled == '0':
@@ -163,6 +183,8 @@ class CheckoutDemoConfig:
             # Its own namespace: never share the I06 installation namespace.
             if str(env.get('SETTLETABLE_KAIPAY_NAMESPACE', '')).lower() == str(namespace).lower():
                 raise ValueError()
+            if multi is not None:
+                return cls(namespace, base_url, credential, ca_file, observed=True, multi=True)
             if observed is not None:
                 return cls(namespace, base_url, credential, ca_file, observed=True)
             return cls(namespace, base_url, credential, ca_file)
@@ -170,9 +192,10 @@ class CheckoutDemoConfig:
             raise ValueError(CONFIG_ERROR) from None
 
 
-def checkout_reference(namespace, meal_id, finalize_actor_id, finalize_command_id, sender_id, receiver_id, attempt):
-    """UUIDv5 over the frozen basis. The amount never enters the reference."""
-    _require(type(attempt) is int and 1 <= attempt <= MAX_ATTEMPTS, 'invalid_input')
+def checkout_reference(namespace, meal_id, finalize_actor_id, finalize_command_id, sender_id, receiver_id, attempt,
+                       limit=MAX_ATTEMPTS):
+    """UUIDv5 over the frozen basis. The amount and any offset never enter the reference."""
+    _require(type(attempt) is int and 1 <= attempt <= limit, 'invalid_input')
     name = json.dumps([PURPOSE, meal_id, finalize_actor_id, finalize_command_id, sender_id, receiver_id, attempt],
                       ensure_ascii=True, separators=(',', ':'))
     return str(uuid.uuid5(uuid.UUID(namespace), name))
@@ -467,6 +490,9 @@ def _context(authority, credential, meal_id, config):
     _require(state['calculation'] is not None, 'meal_not_finalized')
     final_actor, final_command = _finalize_basis(authority, meal_id, state)
     suggestions = current_suggestions(authority, meal_id, state)
+    offsets = dict(authority._db.execute(
+        'SELECT attempt,offset_sen FROM checkout_demo_offsets WHERE meal_id=?', (meal_id,)).fetchall())
+    limit = MULTI_MAX_ATTEMPTS if config.multi else MAX_ATTEMPTS
     rows = []
     for values in authority._db.execute(
             f'SELECT {",".join(_COLUMNS)} FROM checkout_demos WHERE meal_id=? ORDER BY attempt', (meal_id,)):
@@ -474,12 +500,27 @@ def _context(authority, credential, meal_id, config):
         _require(row['attempt'] == len(rows) + 1 and row['state'] in STORED_STATES
                  and (row['finalize_actor_id'], row['finalize_command_id']) == (final_actor, final_command)
                  and row['reference'] == checkout_reference(config.namespace, meal_id, final_actor, final_command,
-                                                            row['sender_id'], row['receiver_id'], row['attempt'])
+                                                            row['sender_id'], row['receiver_id'], row['attempt'],
+                                                            limit)
                  and (row['state'] != 'OBSERVED' or row['checkout_id'] is not None),
                  'checkout_demo_conflict')
+        if config.multi:
+            # Every multi-diner intent froze its offset with it; one intent per diner.
+            offset = offsets.get(row['attempt'])
+            _require(type(offset) is int and 0 <= offset <= MAX_OFFSET_SEN and offset < row['amount_sen']
+                     and all(r['sender_id'] != row['sender_id'] for r in rows), 'checkout_demo_conflict')
+            row['offset_sen'] = offset
+            row['pay_sen'] = row['amount_sen'] - offset
+        else:
+            row['pay_sen'] = row['amount_sen']
         rows.append(row)
-    return {'meal_id': meal_id, 'actor': actor, 'finalize': (final_actor, final_command),
-            'suggestions': suggestions, 'rows': rows, 'observed': config.observed}
+    # An offset row without its intent, or any offset row outside multi mode, fails closed.
+    _require(set(offsets) <= {r['attempt'] for r in rows} and (config.multi or not offsets), 'checkout_demo_conflict')
+    ctx = {'meal_id': meal_id, 'actor': actor, 'finalize': (final_actor, final_command),
+           'suggestions': suggestions, 'rows': rows, 'observed': config.observed}
+    if config.multi:
+        ctx.update(multi=True, now=authority._now())
+    return ctx
 
 
 def _decide(ctx, sender_id, amount_sen):
@@ -509,6 +550,86 @@ def _decide(ctx, sender_id, amount_sen):
     return 'NEW', latest
 
 
+def _epoch(value):
+    return datetime.fromisoformat(value).timestamp()
+
+
+def holds_amount(row, now):
+    """Multi mode: whether this intent may still hold its amount on the bridge (exclusion set a).
+
+    A superset of the bridge's own rule, from what SettleTable last stored: anything that
+    may exist on the bridge and is not known to have ended holds its amount. A confirmed
+    checkout holds until its payment window ends, plus a clock-skew margin. Ended checkouts
+    and refusals that created nothing never hold. A checked absence keeps its amount for
+    the identical re-PUT that may follow.
+    """
+    state = row['state']
+    if state == 'NOT_CREATED':
+        return row['not_created_reason'] == 'REFERENCE_NOT_FOUND'
+    if state == 'CONFLICT' and row['checkout_id'] is None and row['not_created_reason'] in OBSERVED_REFUSALS:
+        return False
+    if state != 'OBSERVED':
+        return True  # REQUEST_UNKNOWN, REFERENCE_LOST, other CONFLICT and UNEXPECTED_STATUS.
+    if row['bridge_status'] in ('EXPIRED', 'REVIEW_EXPIRED'):
+        return False
+    if row['bridge_status'] == 'MANUALLY_CONFIRMED':
+        return now < _epoch(row['expires_at']) + HOLD_SKEW_MARGIN_SECONDS
+    return True
+
+
+def excluded_amounts(ctx, sender_id):
+    """Multi mode: (a) every amount still held in this meal, and (b) the unadjusted share of
+    every other diner who owes the organizer and has no confirmed checkout."""
+    held = {r['pay_sen'] for r in ctx['rows'] if holds_amount(r, ctx['now'])}
+    confirmed = {r['sender_id'] for r in ctx['rows'] if _display(r, True) == 'MANUALLY_CONFIRMED'}
+    owed = {amount for sender, receiver, amount in ctx['suggestions']
+            if receiver == ctx['actor'] and sender != sender_id and sender not in confirmed}
+    return held | owed
+
+
+def allocate_offset(share_sen, excluded):
+    """The smallest k in 0..9 with share - k not excluded and at least 1 sen, or None.
+
+    Subtract only: nobody pays more than their share, and the organizer absorbs at most 9 sen.
+    """
+    for offset in range(MAX_OFFSET_SEN + 1):
+        amount = share_sen - offset
+        if amount < 1:
+            return None
+        if amount not in excluded:
+            return offset
+    return None
+
+
+def _decide_multi(ctx, sender_id, share_sen, pay_sen=None):
+    """Multi mode: one single-use intent per diner who owes the organizer.
+
+    Returns (action, row, offset). ``pay_sen``, when given, is the organizer's consent to the
+    exact amount shown; any other allocation is refused rather than silently substituted.
+    """
+    target = (sender_id, ctx['actor'], share_sen)
+    _require(target in ctx['suggestions'], 'checkout_demo_stale')
+    mine = [r for r in ctx['rows'] if r['sender_id'] == sender_id]
+    _require(not any(_display(r, True) == 'MANUALLY_CONFIRMED' and _target(r) == target for r in mine),
+             'checkout_demo_already_confirmed')
+    if mine:
+        row, = mine
+        shown = _display(row, True)
+        if shown not in TERMINAL:
+            _require(_target(row) == target and row['state'] == 'REQUEST_UNKNOWN', 'checkout_demo_active')
+            return 'CHECK', row, row['offset_sen']
+        # Single use: the only further PUT is the identical same-reference re-PUT after a
+        # checked absence, and only while no checkout was ever bound.
+        _require(shown == 'NOT_CREATED' and row['not_created_reason'] == 'REFERENCE_NOT_FOUND'
+                 and row['checkout_id'] is None and _target(row) == target, 'resource_limit')
+        _require(pay_sen is None or pay_sen == row['pay_sen'], 'checkout_demo_amount_changed')
+        return 'RETRY', row, row['offset_sen']
+    offset = allocate_offset(share_sen, excluded_amounts(ctx, sender_id))
+    _require(offset is not None, 'checkout_demo_no_free_amount')
+    _require(pay_sen is None or pay_sen == share_sen - offset, 'checkout_demo_amount_changed')
+    return 'NEW', None, offset
+
+
 def _eligible(ctx):
     out = []
     for sender, receiver, amount in ctx['suggestions']:
@@ -523,30 +644,63 @@ def _eligible(ctx):
     return out
 
 
-def _projection(ctx, last_check=None, retry_after=None):
+def _eligible_multi(ctx):
+    """Multi mode: the offers (share, offset, exact amount) and the diners with no free amount."""
+    offers, waiting = [], []
+    for sender, receiver, amount in ctx['suggestions']:
+        if receiver != ctx['actor']:
+            continue
+        try:
+            action, _, offset = _decide_multi(ctx, sender, amount)
+        except AuthorityError as error:
+            if error.code == 'checkout_demo_no_free_amount':
+                waiting.append({'senderId': sender, 'receiverId': receiver, 'amountSen': amount})
+            continue
+        if action != 'CHECK':
+            offers.append({'senderId': sender, 'receiverId': receiver, 'amountSen': amount, 'action': action,
+                           'offsetSen': offset, 'paySen': amount - offset})
+    return offers, waiting
+
+
+def _intent(ctx, row, check):
+    shown = _display(row, ctx['observed'])
+    intent = {
+        'attempt': row['attempt'], 'reference': row['reference'],
+        'senderId': row['sender_id'], 'receiverId': row['receiver_id'], 'amountSen': row['amount_sen'],
+        'state': 'UNAVAILABLE' if check == 'UNAVAILABLE' and shown not in LATCHED else shown,
+        'lastKnownState': shown, 'notCreatedReason': row['not_created_reason'],
+        'referenceLost': row['state'] == 'REFERENCE_LOST',
+        'checkoutId': row['checkout_id'], 'bridgeStatus': row['bridge_status'],
+        'evidence': row['evidence'], 'revision': row['revision'],
+        'createdAt': row['bridge_created_at'], 'expiresAt': row['expires_at'],
+        'reviewExpiresAt': row['review_expires_at'], 'observedAt': row['observed_at'],
+        'possibleDispatches': row['dispatch_count'],
+        'stale': _target(row) not in ctx['suggestions'],
+        'terminal': shown in TERMINAL, 'latched': shown in LATCHED,
+    }
+    if ctx.get('multi'):
+        intent.update(offsetSen=row['offset_sen'], paySen=row['pay_sen'])
+    return intent
+
+
+def _projection(ctx, last_check=None, retry_after=None, checks=None):
     latest = ctx['rows'][-1] if ctx['rows'] else None
-    intent = None
-    if latest is not None:
-        shown = _display(latest, ctx['observed'])
-        intent = {
-            'attempt': latest['attempt'], 'reference': latest['reference'],
-            'senderId': latest['sender_id'], 'receiverId': latest['receiver_id'], 'amountSen': latest['amount_sen'],
-            'state': 'UNAVAILABLE' if last_check == 'UNAVAILABLE' and shown not in LATCHED else shown,
-            'lastKnownState': shown, 'notCreatedReason': latest['not_created_reason'],
-            'referenceLost': latest['state'] == 'REFERENCE_LOST',
-            'checkoutId': latest['checkout_id'], 'bridgeStatus': latest['bridge_status'],
-            'evidence': latest['evidence'], 'revision': latest['revision'],
-            'createdAt': latest['bridge_created_at'], 'expiresAt': latest['expires_at'],
-            'reviewExpiresAt': latest['review_expires_at'], 'observedAt': latest['observed_at'],
-            'possibleDispatches': latest['dispatch_count'],
-            'stale': _target(latest) not in ctx['suggestions'],
-            'terminal': shown in TERMINAL, 'latched': shown in LATCHED,
-        }
-    result = {'enabled': True, 'synthetic': True, 'intent': intent, 'eligible': _eligible(ctx),
-              'lastCheck': last_check, 'retryAfter': retry_after}
-    if ctx['observed']:
-        result.update(synthetic=False, observed=True, evidenceMode=EVIDENCE_MODE)
-    return result
+    if not ctx.get('multi'):
+        intent = _intent(ctx, latest, last_check) if latest is not None else None
+        result = {'enabled': True, 'synthetic': True, 'intent': intent, 'eligible': _eligible(ctx),
+                  'lastCheck': last_check, 'retryAfter': retry_after}
+        if ctx['observed']:
+            result.update(synthetic=False, observed=True, evidenceMode=EVIDENCE_MODE)
+        return result
+    # Multi mode: every intent of the meal, each with the outcome of its own check this time.
+    checks = checks or {}
+    offers, waiting = _eligible_multi(ctx)
+    return {'enabled': True, 'synthetic': False,
+            'intent': _intent(ctx, latest, checks.get(latest['attempt'])) if latest is not None else None,
+            'eligible': offers, 'lastCheck': last_check, 'retryAfter': retry_after,
+            'observed': True, 'evidenceMode': EVIDENCE_MODE, 'multi': True,
+            'intents': [_intent(ctx, row, checks.get(row['attempt'])) for row in ctx['rows']],
+            'noFreeAmount': waiting}
 
 
 def _transaction_failure(authority, error, attempted):
@@ -598,7 +752,8 @@ def _apply_observation(authority, ctx, row, method, observation):
             _update(authority, ctx, row, state='UNEXPECTED_STATUS', not_created_reason=MODE_MISMATCH,
                     observed_at=now)
             return 'OK'
-        if data['reference'] != row['reference'] or data['amountMinor'] != row['amount_sen']:
+        # The amount sent: the share, less the frozen offset in multi-diner mode.
+        if data['reference'] != row['reference'] or data['amountMinor'] != row['pay_sen']:
             _update(authority, ctx, row, state='CONFLICT', observed_at=now)
             return 'OK'
         if row['checkout_id'] is not None:
@@ -652,13 +807,18 @@ def _apply_observation(authority, ctx, row, method, observation):
     return observation['transport']
 
 
-def _store(authority, credential, meal_id, config, attempt, reference, method, observation):
+def _store(authority, credential, meal_id, config, attempt, reference, method, observation, checks=None):
+    """Store one bridge answer. ``checks`` (multi mode) collects each intent's check outcome."""
     def work():
         ctx = _context(authority, credential, meal_id, config)
         row = next((r for r in ctx['rows'] if r['attempt'] == attempt), None)
         _require(row is not None and row['reference'] == reference, 'checkout_demo_conflict')
         check = _apply_observation(authority, ctx, row, method, observation)
-        return _projection(ctx, check, observation.get('retry_after'))
+        if checks is None:
+            return _projection(ctx, check, observation.get('retry_after'))
+        checks[attempt] = check
+        return _projection(ctx, 'UNAVAILABLE' if 'UNAVAILABLE' in checks.values() else check,
+                           observation.get('retry_after'), checks)
     return _transaction(authority, True, work, 'observation')
 
 
@@ -672,6 +832,8 @@ def checkout_demo_status(authority, credential, meal_id, config, client):
         return _projection(_read(authority, credential, meal_id, config), 'BUSY', 2)
     try:
         ctx = _read(authority, credential, meal_id, config)
+        if config.multi:
+            return _multi_status(authority, credential, meal_id, config, client, ctx)
         latest = ctx['rows'][-1] if ctx['rows'] else None
         if latest is None or latest['state'] in LATCHED:
             return _projection(ctx)
@@ -683,8 +845,33 @@ def checkout_demo_status(authority, credential, meal_id, config, client):
         _wire_slot.release()
 
 
-def request_checkout_demo(authority, credential, meal_id, config, client, sender_id, amount_sen):
-    """Explicit organizer action: freeze in BEGIN IMMEDIATE, then at most one PUT or GET."""
+def _multi_status(authority, credential, meal_id, config, client, ctx):
+    """Multi mode: one bridge GET for each intent that is neither finished nor latched.
+
+    There is no list route, so each open checkout is read by its own reference, one at a
+    time under the wire slot, and each answer is stored in its own short transaction.
+    """
+    open_rows = [r for r in ctx['rows'] if r['state'] not in LATCHED and _display(r, True) not in TERMINAL]
+    if not open_rows:
+        return _projection(ctx)
+    checks, result, retry = {}, None, None
+    for row in open_rows:
+        _require(not authority._db.in_transaction, 'storage_error')
+        observation = client.request('GET', row['reference'], row['pay_sen'])
+        if observation.get('retry_after') is not None:
+            retry = max(retry or 0, observation['retry_after'])
+        result = _store(authority, credential, meal_id, config, row['attempt'], row['reference'],
+                        'GET', observation, checks)
+    result['retryAfter'] = retry
+    return result
+
+
+def request_checkout_demo(authority, credential, meal_id, config, client, sender_id, amount_sen, pay_sen=None):
+    """Explicit organizer action: freeze in BEGIN IMMEDIATE, then at most one PUT or GET.
+
+    In multi-diner mode ``pay_sen`` is required: the exact amount the organizer was shown.
+    """
+    _require(config.multi == (pay_sen is not None), 'invalid_input')
     if not _wire_slot.acquire(blocking=False):
         return _projection(_read(authority, credential, meal_id, config), 'BUSY', 2)
     try:
@@ -692,11 +879,17 @@ def request_checkout_demo(authority, credential, meal_id, config, client, sender
         refused = client.admission()
         if refused is not None:
             ctx = _read(authority, credential, meal_id, config)
-            _decide(ctx, sender_id, amount_sen)  # Still report stale/active/confirmed refusals.
+            # Still report stale/active/confirmed refusals.
+            if config.multi:
+                _decide_multi(ctx, sender_id, amount_sen, pay_sen)
+            else:
+                _decide(ctx, sender_id, amount_sen)
             return _projection(ctx, 'UNAVAILABLE', refused.get('retry_after'))
 
         def work():
             ctx = _context(authority, credential, meal_id, config)
+            if config.multi:
+                return _freeze_multi(authority, ctx, meal_id, config, sender_id, amount_sen, pay_sen)
             action, latest = _decide(ctx, sender_id, amount_sen)
             if action == 'CHECK':
                 return 'GET', latest
@@ -714,12 +907,45 @@ def request_checkout_demo(authority, credential, meal_id, config, client, sender
                  reference,initiated_by,created_at,state,dispatch_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)''',
                 (meal_id, attempt, final_actor, final_command, sender_id, ctx['actor'], amount_sen,
                  reference, ctx['actor'], authority._now(), 'REQUEST_UNKNOWN'))
-            return 'PUT', {'attempt': attempt, 'reference': reference, 'amount_sen': amount_sen}
+            return 'PUT', {'attempt': attempt, 'reference': reference, 'pay_sen': amount_sen}
         method, row = _transaction(authority, True, work, 'intent')
         # Recheck current organizer access after releasing the write lock.
         _require(authority.authenticate(credential, meal_id)[1], 'forbidden')
         _require(not authority._db.in_transaction, 'storage_error')
-        observation = client.request(method, row['reference'], row['amount_sen'])
-        return _store(authority, credential, meal_id, config, row['attempt'], row['reference'], method, observation)
+        observation = client.request(method, row['reference'], row['pay_sen'])
+        return _store(authority, credential, meal_id, config, row['attempt'], row['reference'], method, observation,
+                      {} if config.multi else None)
     finally:
         _wire_slot.release()
+
+
+def _freeze_multi(authority, ctx, meal_id, config, sender_id, share_sen, pay_sen):
+    """Multi mode, inside the caller's BEGIN IMMEDIATE: decide, allocate and freeze one intent.
+
+    The write lock serializes every allocation in the database, so two allocations for the
+    same meal always see each other: the second excludes the first's amount.
+    """
+    action, row, offset = _decide_multi(ctx, sender_id, share_sen, pay_sen)
+    if action == 'CHECK':
+        return 'GET', row
+    if action == 'RETRY':
+        _update(authority, ctx, row, state='REQUEST_UNKNOWN', not_created_reason=None,
+                dispatch_count=row['dispatch_count'] + 1)
+        return 'PUT', row
+    attempt = len(ctx['rows']) + 1
+    pay = share_sen - offset
+    # Defence in depth: the frozen amount is not held by any other intent of this meal.
+    _require(not any(r['pay_sen'] == pay and holds_amount(r, ctx['now']) for r in ctx['rows']),
+             'checkout_demo_conflict')
+    final_actor, final_command = ctx['finalize']
+    reference = checkout_reference(config.namespace, meal_id, final_actor, final_command,
+                                   sender_id, ctx['actor'], attempt, MULTI_MAX_ATTEMPTS)
+    # The durable possible-dispatch marker and the offset are written before any byte is sent.
+    authority._db.execute('''INSERT INTO checkout_demos
+        (meal_id,attempt,finalize_actor_id,finalize_command_id,sender_id,receiver_id,amount_sen,
+         reference,initiated_by,created_at,state,dispatch_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)''',
+        (meal_id, attempt, final_actor, final_command, sender_id, ctx['actor'], share_sen,
+         reference, ctx['actor'], authority._now(), 'REQUEST_UNKNOWN'))
+    authority._db.execute('INSERT INTO checkout_demo_offsets (meal_id,attempt,offset_sen) VALUES (?,?,?)',
+                          (meal_id, attempt, offset))
+    return 'PUT', {'attempt': attempt, 'reference': reference, 'pay_sen': pay}

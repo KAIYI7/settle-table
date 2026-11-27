@@ -53,6 +53,8 @@ jobs:
         run: node tools/verify_checkout_demo.mjs
       - name: Experimental checkout demo (observed notification) browser regression
         run: node tools/verify_checkout_demo_observed.mjs
+      - name: Experimental checkout demo (multi-diner observed) browser regression
+        run: node tools/verify_checkout_demo_observed_multi.mjs
 
   docker-smoke:
     runs-on: ubuntu-24.04

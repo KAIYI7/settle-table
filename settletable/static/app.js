@@ -3559,9 +3559,59 @@ function checkoutDemoLabel(intent, observed = false) {
   return CHECKOUT_DEMO_LABELS[intent.state] || CHECKOUT_DEMO_LABELS.UNEXPECTED_STATUS;
 }
 
+// Multi-diner observed mode: one card per diner who owes the organizer, each with its own
+// observed checkout at the diner's share less a sen offset. Copy is factual and unverified.
+const CHECKOUT_DEMO_MULTI_LABELS = {
+  AWAITING_EVIDENCE: 'Waiting — no TNG payment notification has been matched to this checkout. Nothing is recorded in SettleTable.',
+  EVIDENCE_DETECTED: 'Notification observed — unverified. The organizer checks TNG before confirming in the bridge.',
+  MANUALLY_CONFIRMED: 'Manually confirmed by the organizer — notification unverified',
+  NEEDS_REVIEW: 'Ambiguous — not confirmed; notification unverified. The organizer checks TNG history; any reimbursement is recorded manually in SettleTable.',
+  EXPIRED: 'Ended without confirmation. The organizer checks TNG history; any reimbursement is recorded manually in SettleTable.',
+  REQUEST_UNKNOWN: 'Request outcome unknown — it is not known whether this checkout exists. Refresh status.',
+  CONFLICT: 'Checkout conflict — automatic actions stopped.',
+  UNEXPECTED_STATUS: 'Unexpected checkout status — automatic actions stopped.',
+  UNAVAILABLE: 'Checkout status unavailable — refresh to check again.',
+};
+const CHECKOUT_DEMO_MULTI_NOTICE = "The organizer's phone reads its own TNG payment notifications to update this status. TNG shows the organizer your name and amount. From the notification, SettleTable and the bridge keep only the amount, the time and technical IDs, never your name. The organizer checks TNG before marking you paid.";
+const CHECKOUT_DEMO_MULTI_AMOUNT_LINE = 'A notification shows an amount and time only; it does not show that this diner paid.';
+const CHECKOUT_DEMO_MULTI_NO_FREE = 'No distinct amount within 9 sen of this share is free right now. It is offered again when a held amount frees up.';
+
+function checkoutDemoSpokenHint(paySen) {
+  return `My phone reads my TNG payment alerts to update the bill. It keeps the amount and time, not your name. I still check TNG myself before marking you paid. Please pay exactly ${formatSen(paySen)}.`;
+}
+
+function checkoutDemoMultiLabel(intent) {
+  if (intent.state === 'CONFLICT' && intent.notCreatedReason === 'OBSERVED_CHECKOUT_SPENT') {
+    return 'Not created — the bridge has no observed checkouts left. No checkout exists for this diner.';
+  }
+  if (intent.state === 'CONFLICT' && intent.notCreatedReason === 'OBSERVED_AMOUNT_MISMATCH') {
+    return 'Not created — the bridge refused this amount. No checkout exists for this diner.';
+  }
+  if (intent.state === 'UNEXPECTED_STATUS' && intent.notCreatedReason === 'EVIDENCE_MODE_MISMATCH') {
+    return 'Bridge mode does not match this SettleTable configuration — automatic actions stopped.';
+  }
+  if (intent.state === 'NOT_CREATED') {
+    return intent.notCreatedReason === 'REFERENCE_NOT_FOUND'
+      ? 'Not created — the bridge has no checkout for this diner. You may request the same checkout again.'
+      : 'Not created — the bridge reports that another checkout holds this amount. No checkout exists for this diner.';
+  }
+  if (intent.referenceLost) return 'Checkout record missing from the bridge — unavailable until the operator checks it.';
+  return CHECKOUT_DEMO_MULTI_LABELS[intent.state] || CHECKOUT_DEMO_MULTI_LABELS.UNEXPECTED_STATUS;
+}
+
+function checkoutDemoIsMulti(snap) {
+  return snap?.checkout_demo_multi === true || state.checkoutDemo?.multi === true;
+}
+
+// The intents the read schedule follows: every open intent in multi-diner mode, else the latest.
+function checkoutDemoOpenIntents(result) {
+  const open = intent => Boolean(intent) && !intent.terminal && !intent.latched;
+  if (result?.multi === true) return (Array.isArray(result.intents) ? result.intents : []).filter(open);
+  return open(result?.intent) ? [result.intent] : [];
+}
+
 function checkoutDemoNeedsPolling(result) {
-  const intent = result?.intent;
-  return Boolean(intent) && !intent.terminal && !intent.latched;
+  return checkoutDemoOpenIntents(result).length > 0;
 }
 
 function clearCheckoutDemoTimers() {
@@ -3585,13 +3635,19 @@ function checkoutDemoInstant(value) {
 
 // Observed mode: the delay before the next read after the fixed schedule, or null to stop.
 // Decided from the latest response, so one read always follows each deadline.
+// In multi-diner mode the earliest need wins: 15 s while any open checkout's window is open,
+// else 30 s while any open checkout's review deadline is ahead.
 function checkoutDemoObservedNextDelay(result, nowMs) {
-  if (result?.observed !== true || !checkoutDemoNeedsPolling(result)) return null;
-  const windowEnd = checkoutDemoInstant(result.intent.expiresAt);
-  if (!Number.isFinite(windowEnd)) return null;
-  if (nowMs < windowEnd) return CHECKOUT_DEMO_OBSERVED_WINDOW_MS;
-  const reviewEnd = checkoutDemoInstant(result.intent.reviewExpiresAt);
-  return Number.isFinite(reviewEnd) && nowMs < reviewEnd ? CHECKOUT_DEMO_OBSERVED_REVIEW_MS : null;
+  if (result?.observed !== true) return null;
+  let review = false;
+  for (const intent of checkoutDemoOpenIntents(result)) {
+    const windowEnd = checkoutDemoInstant(intent.expiresAt);
+    if (!Number.isFinite(windowEnd)) continue;
+    if (nowMs < windowEnd) return CHECKOUT_DEMO_OBSERVED_WINDOW_MS;
+    const reviewEnd = checkoutDemoInstant(intent.reviewExpiresAt);
+    if (Number.isFinite(reviewEnd) && nowMs < reviewEnd) review = true;
+  }
+  return review ? CHECKOUT_DEMO_OBSERVED_REVIEW_MS : null;
 }
 
 function scheduleCheckoutDemoTailRead() {
@@ -3664,8 +3720,11 @@ async function requestCheckoutDemo(target = null, schedule = true) {
   state.checkoutDemoBusy = true;
   updateMealUI();
   try {
-    const result = await apiCall(`/api/meals/${encodeURIComponent(meal)}/checkout-demo`, target ? 'POST' : 'GET',
-      target ? {sender_id: target.senderId, amount_sen: target.amountSen} : null);
+    // Multi-diner mode also sends the exact amount to pay that the card showed (a consent check).
+    const body = !target ? null : (target.paySen !== undefined
+      ? {sender_id: target.senderId, amount_sen: target.amountSen, pay_sen: target.paySen}
+      : {sender_id: target.senderId, amount_sen: target.amountSen});
+    const result = await apiCall(`/api/meals/${encodeURIComponent(meal)}/checkout-demo`, target ? 'POST' : 'GET', body);
     if (state.mealId !== meal || state.checkoutDemoEpoch !== epoch || state.checkoutDemoSeq !== seq) return;
     const next = result.checkout_demo;
     const prior = state.checkoutDemo?.intent;
@@ -3679,11 +3738,16 @@ async function requestCheckoutDemo(target = null, schedule = true) {
     if (err.status === 401 || err.status === 403) {
       resetCheckoutDemoView();
       showAlert('Demo checkout access expired or was revoked. Reload your meal session.', 'error');
-    } else if (['checkout_demo_stale', 'checkout_demo_active', 'checkout_demo_already_confirmed'].includes(err.code)) {
+    } else if (['checkout_demo_stale', 'checkout_demo_active', 'checkout_demo_already_confirmed',
+                'checkout_demo_amount_changed', 'checkout_demo_no_free_amount'].includes(err.code)) {
       showAlert({
         checkout_demo_stale: 'Balances changed. Review the current suggestion before requesting a demo checkout.',
-        checkout_demo_active: 'Another experimental checkout demo is still open for this meal.',
+        checkout_demo_active: state.checkoutDemo?.multi === true
+          ? "This diner's checkout is still open."
+          : 'Another experimental checkout demo is still open for this meal.',
         checkout_demo_already_confirmed: 'This suggestion already has an organizer-confirmed demo checkout.',
+        checkout_demo_amount_changed: 'The amount to pay changed. No checkout was created. Review the new amount on the card.',
+        checkout_demo_no_free_amount: 'No distinct amount is free for this diner right now. No checkout was created.',
       }[err.code], 'conflict');
       refreshAfter = true;
     } else {
@@ -3710,6 +3774,7 @@ async function requestCheckoutDemo(target = null, schedule = true) {
 
 function renderCheckoutDemoCard(snap) {
   if (!snap.checkout_demo_enabled || !snap.is_organizer || !snap.finalized) return '';
+  if (checkoutDemoIsMulti(snap)) return renderCheckoutDemoMultiCards(snap);
   const demo = state.checkoutDemo;
   const busy = state.checkoutDemoBusy;
   const observed = checkoutDemoIsObserved(snap);
@@ -3776,6 +3841,88 @@ function renderCheckoutDemoCard(snap) {
         <button type="button" class="btn btn-secondary checkout-demo-btn" data-checkout-demo-action="refresh" id="checkout-demo-refresh-btn" ${busy ? 'disabled' : ''}>Refresh demo status</button>
       </div>
     </div>`;
+}
+
+// Multi-diner observed mode: a short shared card (boundary notice, refresh) and then one card
+// per diner who owes the organizer or has a checkout. Status reads cover every open checkout.
+function renderCheckoutDemoMultiCards(snap) {
+  const demo = state.checkoutDemo;
+  const busy = state.checkoutDemoBusy;
+  const names = new Map((snap.participants || []).map(p => [p.id, p.name]));
+  const who = id => escapeHtml(names.get(id) || id);
+  const intents = new Map((demo?.intents || []).map(i => [i.senderId, i]));
+  const offers = new Map((demo?.eligible || []).map(e => [e.senderId, e]));
+  const waiting = new Map((demo?.noFreeAmount || []).map(e => [e.senderId, e]));
+  const order = (snap.participants || []).map(p => p.id);
+  const senders = [...new Set([...intents.keys(), ...offers.keys(), ...waiting.keys()])]
+    .sort((x, y) => (order.indexOf(x) + 1 || 1e9) - (order.indexOf(y) + 1 || 1e9));
+  const status = text => `<p class="checkout-demo-status" role="status">${escapeHtml(text)}</p>`;
+  let overall = '';
+  if (busy) overall = status('Checking checkouts…');
+  else if (!demo) overall = status('Checkout status not loaded');
+  else if (demo.lastCheck === 'REQUEST_UNKNOWN') overall = status(CHECKOUT_DEMO_MULTI_LABELS.REQUEST_UNKNOWN);
+  else if (demo.lastCheck === 'UNAVAILABLE' && !intents.size) overall = status(CHECKOUT_DEMO_MULTI_LABELS.UNAVAILABLE);
+  else if (!senders.length) overall = status('No diner owes the organizer.');
+  const busyNote = demo?.lastCheck === 'BUSY'
+    ? '<p class="checkout-demo-note">Another checkout check is in progress. Try again in a moment.</p>' : '';
+  const amounts = (share, offset, pay) => `
+        <p class="checkout-demo-amounts" data-checkout-demo-amounts>Share ${formatSen(share)} − ${Number(offset)} sen offset = pay exactly <strong>${formatSen(pay)}</strong></p>`;
+  const dinerCards = senders.map(sender => {
+    const intent = intents.get(sender);
+    const offer = offers.get(sender);
+    const wait = waiting.get(sender);
+    let body = '';
+    if (intent) {
+      const lastKnown = intent.state === 'UNAVAILABLE' && !intent.referenceLost && intent.lastKnownState !== 'UNAVAILABLE'
+        ? `<p class="checkout-demo-note">Last known: ${escapeHtml(checkoutDemoMultiLabel({...intent, state: intent.lastKnownState}))}</p>` : '';
+      // The read-out hint only while a created checkout waits for its notification.
+      const hint = intent.state === 'AWAITING_EVIDENCE' && intent.checkoutId
+        ? `<p class="checkout-demo-hint" data-checkout-demo-hint><span class="checkout-demo-hint-label">Read out:</span> “${escapeHtml(checkoutDemoSpokenHint(intent.paySen))}”</p>` : '';
+      body = `
+        ${amounts(intent.amountSen, intent.offsetSen, intent.paySen)}
+        <div class="checkout-demo-intent" data-checkout-demo-state="${escapeHtml(intent.state)}">
+          ${status(checkoutDemoMultiLabel(intent))}
+          ${intent.stale ? '<p class="checkout-demo-stale">Stale — balances changed. No further request is sent for this checkout.</p>' : ''}
+          ${lastKnown}
+          ${hint}
+          <p class="checkout-demo-note">Reference ${escapeHtml(intent.reference)}${intent.observedAt ? ` · last checked ${escapeHtml(new Date(intent.observedAt * 1000).toLocaleTimeString())}` : ''}</p>
+        </div>`;
+    } else if (offer) {
+      body = `
+        ${amounts(offer.amountSen, offer.offsetSen, offer.paySen)}
+        ${status('No checkout requested yet')}`;
+    } else if (wait) {
+      body = `
+        <p class="checkout-demo-amounts" data-checkout-demo-amounts>Share ${formatSen(wait.amountSen)}</p>
+        <div class="checkout-demo-intent" data-checkout-demo-state="NO_FREE_AMOUNT">${status(CHECKOUT_DEMO_MULTI_NO_FREE)}</div>`;
+    }
+    const button = offer ? `
+        <div class="checkout-demo-actions">
+          <button type="button" class="btn btn-secondary checkout-demo-btn" data-checkout-demo-action="request"
+                  data-sender-id="${escapeHtml(offer.senderId)}" data-amount-sen="${Number(offer.amountSen)}"
+                  data-pay-sen="${Number(offer.paySen)}" ${busy ? 'disabled' : ''}>
+            ${offer.action === 'RETRY' ? 'Request the same checkout again' : `Request observed checkout for ${formatSen(offer.paySen)}`}
+          </button>
+        </div>` : '';
+    return `
+    <div class="card checkout-demo-card checkout-demo-diner-card" data-checkout-demo-mode="multi" data-checkout-demo-sender="${escapeHtml(sender)}">
+      <h3 class="card-title">${who(sender)} → ${who(snap.current_participant_id)}</h3>
+      ${body}
+      <p class="checkout-demo-notice" data-checkout-demo-multi-notice>${escapeHtml(CHECKOUT_DEMO_MULTI_NOTICE)}</p>
+      <p class="checkout-demo-payer" data-checkout-demo-amount-line>${escapeHtml(CHECKOUT_DEMO_MULTI_AMOUNT_LINE)}</p>
+      ${button}
+    </div>`;
+  }).join('');
+  return `
+    <div class="card checkout-demo-card" id="checkout-demo-card" data-checkout-demo-mode="multi">
+      <h3 class="card-title">🧪 Experimental checkout demo (observed notifications, per diner)</h3>
+      <p class="checkout-demo-notice">Display only. Each diner below has at most one checkout, at their share less a small offset so that every open amount differs. The experimental checkout bridge observes the organizer's own TNG notifications; it does not verify or settle payments. This card never records a contribution or transfer, and SettleTable balances stay unchanged. SettleTable does not execute or independently verify bank, card, or e-wallet transactions.</p>
+      ${overall}
+      ${busyNote}
+      <div class="checkout-demo-actions">
+        <button type="button" class="btn btn-secondary checkout-demo-btn" data-checkout-demo-action="refresh" id="checkout-demo-refresh-btn" ${busy ? 'disabled' : ''}>Refresh demo status</button>
+      </div>
+    </div>${dinerCards}`;
 }
 
 function validateNotionSharingUrl(rawUrl) {
@@ -5310,7 +5457,8 @@ function bindEvents(snap) {
   });
   document.querySelectorAll('[data-checkout-demo-action]').forEach(button => {
     button.addEventListener('click', () => requestCheckoutDemo(button.dataset.checkoutDemoAction === 'request'
-      ? {senderId: button.dataset.senderId, amountSen: Number(button.dataset.amountSen)} : null));
+      ? {senderId: button.dataset.senderId, amountSen: Number(button.dataset.amountSen),
+         ...(button.dataset.paySen !== undefined ? {paySen: Number(button.dataset.paySen)} : {})} : null));
   });
   // 1. Add Item Form
   document.querySelectorAll('[data-action="service-all-items"], [data-action="service-fixed-items"]').forEach(button => {
