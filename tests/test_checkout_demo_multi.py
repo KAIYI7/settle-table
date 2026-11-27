@@ -8,7 +8,7 @@ credentials are disposable random test tokens. With the variable absent the synt
 and single observed suites (``test_checkout_demo.py``, ``test_checkout_demo_observed.py``)
 cover the unchanged behaviour.
 """
-from dataclasses import asdict
+from dataclasses import asdict, replace as dc_replace
 from datetime import datetime, timezone
 from fractions import Fraction
 import json
@@ -518,6 +518,17 @@ class StorageGuardTests(MultiFixture):
         # A tampered offset changes the reconstructed amount; the next bridge answer conflicts.
         intent = self.intents()['B']
         self.assertEqual((intent['state'], intent['latched']), ('CONFLICT', True))
+
+    def test_attempt_beyond_the_mode_limit_fails_closed_as_a_conflict(self):
+        # Multi intents use attempts beyond the single-mode limit; read without multi mode,
+        # they are refused as a storage conflict, never as a caller input error.
+        self.request('B', 862)
+        self.request('C', 861)
+        single = dc_replace(self.cfg, multi=False)
+        with patch.object(demo, 'MAX_ATTEMPTS', 1):
+            with self.assertRaises(AuthorityError) as caught:
+                demo._read(self.authority, self.cred['A'], 'meal', single)
+        self.assertEqual(caught.exception.code, 'checkout_demo_conflict')
 
     def test_reference_is_unchanged_by_the_offset(self):
         self.request('B', 862)

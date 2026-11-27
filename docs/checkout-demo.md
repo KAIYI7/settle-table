@@ -339,8 +339,9 @@ amount, `checkout_demo_no_free_amount` (409). Offers are computed per diner, so 
 diners with the same share can be offered the same amount until one of them is
 requested; the other's card then shows its new amount. SettleTable never retries with
 another amount by itself. In this mode the route authenticates the caller as the organizer
-before it judges the body, so the body's shape tells a diner or an unauthenticated caller
-nothing about the mode.
+before it judges the body, so within this mode the body's shape tells a diner or an
+unauthenticated caller nothing. Across modes it still does: an invalid body gets 403 or
+401 here but 400 in the other modes (see Known limitations).
 
 **Bridge answers.** A PUT refused `409 OBSERVED_CHECKOUT_SPENT` (the bridge's checkout
 count is used up) latches that diner's intent as `CONFLICT` with that reason and holds
@@ -354,8 +355,9 @@ and stores each answer in its own transaction. Finished and latched intents are 
 again. To keep the process-wide wire slot short, a read starts no further GET after the
 first transport failure (the bridge is not answering) or after 10 s; the intents not read
 are shown unavailable for that check, with their stored state kept. A request refused
-because the client is suspended or cooling down shows every open intent as unavailable. The card's read schedule follows every open intent: every 15 s while any payment
-window is open, then every 30 s while any review deadline is ahead, then it stops.
+because the client is suspended or cooling down shows every open intent as unavailable.
+The card's read schedule follows every open intent: every 15 s while any payment window
+is open, then every 30 s while any review deadline is ahead, then it stops.
 
 **Response.** In this mode the status carries `multi: true`, `intents` (every intent of
 the meal, each with `offsetSen` and `paySen` besides `amountSen`, the share), `eligible`

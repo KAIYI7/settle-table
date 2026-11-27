@@ -1034,12 +1034,13 @@ class SettleTableApp:
                 # Multi-diner mode adds exactly one key: the exact amount to pay that the organizer saw.
                 multi = self.checkout_demo_config.multi
                 if multi:
-                    # Authenticate the organizer before judging the body, so the body's shape tells a
-                    # diner or an unauthenticated caller nothing about this mode.
+                    # Authenticate the organizer before judging the body, so within this mode the
+                    # body's shape tells a diner or an unauthenticated caller nothing. The other
+                    # modes still judge the body first (see docs/checkout-demo.md).
                     _, is_org = authority.authenticate(active_cred, meal_id)
                     if not is_org:
                         raise TransportError('forbidden', 403)
-                keys ={'sender_id', 'amount_sen', 'pay_sen'} if multi else {'sender_id', 'amount_sen'}
+                keys = {'sender_id', 'amount_sen', 'pay_sen'} if multi else {'sender_id', 'amount_sen'}
                 if (type(body_data) is not dict or set(body_data) != keys
                         or type(body_data['sender_id']) is not str
                         or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}', body_data['sender_id'])
